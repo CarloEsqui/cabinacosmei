@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { Tabs } from "@/components/ui/tabs";
 import { ResumenTab } from "@/pages/inventario/Resumen";
@@ -15,8 +16,21 @@ const TABS = [
   { value: "caducidad", label: "Caducidad" },
 ];
 
+const TABS_VALIDOS = new Set(TABS.map((t) => t.value));
+
 export function InventarioPage() {
-  const [tab, setTab] = useState("resumen");
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState(() => {
+    const inicial = searchParams.get("tab");
+    return inicial && TABS_VALIDOS.has(inicial) ? inicial : "resumen";
+  });
+
+  // Si se llega desde un enlace (ej. las tarjetas del Dashboard) mientras esta página ya estaba
+  // montada, la pestaña debe reaccionar al cambio de la URL.
+  useEffect(() => {
+    const solicitado = searchParams.get("tab");
+    if (solicitado && TABS_VALIDOS.has(solicitado)) setTab(solicitado);
+  }, [searchParams]);
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">

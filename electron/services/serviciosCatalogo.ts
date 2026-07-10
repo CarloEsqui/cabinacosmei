@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "../db";
-import { serviciosCatalogo, serviciosCatalogoProductos, productos } from "../db/schema";
+import { serviciosCatalogo, serviciosCatalogoProductos, productos, citas } from "../db/schema";
+import { ErrorConHistorial, eliminarOFallarConHistorial } from "./errores";
+import { registrarAccion } from "./bitacora";
 import type { ServicioCatalogoInput, RecetaItemInput } from "../../shared/schemas";
 import type { RecetaItem } from "../../shared/types";
 
@@ -47,6 +49,41 @@ export async function actualizarServicioCatalogo(id: string, input: ServicioCata
     })
     .where(eq(serviciosCatalogo.id, id))
     .run();
+  return db.select().from(serviciosCatalogo).where(eq(serviciosCatalogo.id, id)).get();
+}
+
+/**
+ * `citas.servicioCatalogoId` es `onDelete: set null` (no `restrict`): un borrado no fallaría solo
+ * por eso, así que verificamos a mano para no desligar citas existentes en silencio.
+ */
+export async function eliminarServicioCatalogo(id: string, usuarioId?: string): Promise<void> {
+  const db = getDb();
+  const enCitas = db.select({ id: citas.id }).from(citas).where(eq(citas.servicioCatalogoId, id)).get();
+  if (enCitas) {
+    throw new ErrorConHistorial("Este servicio tiene citas asociadas. Desactívalo en su lugar.");
+  }
+
+  eliminarOFallarConHistorial(
+    () => db.delete(serviciosCatalogo).where(eq(serviciosCatalogo.id, id)).run(),
+    "Este servicio tiene historial de servicios realizados. Desactívalo en su lugar.",
+  );
+  registrarAccion(db, {
+    usuarioId,
+    accion: "servicio_catalogo_eliminado",
+    entidadTipo: "servicio_catalogo",
+    entidadId: id,
+  });
+}
+
+export async function setActivoServicioCatalogo(id: string, activo: boolean, usuarioId?: string) {
+  const db = getDb();
+  db.update(serviciosCatalogo).set({ activo, updatedAt: new Date() }).where(eq(serviciosCatalogo.id, id)).run();
+  registrarAccion(db, {
+    usuarioId,
+    accion: activo ? "servicio_catalogo_activado" : "servicio_catalogo_desactivado",
+    entidadTipo: "servicio_catalogo",
+    entidadId: id,
+  });
   return db.select().from(serviciosCatalogo).where(eq(serviciosCatalogo.id, id)).get();
 }
 

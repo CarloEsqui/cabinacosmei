@@ -16,15 +16,21 @@ interface NumberInputProps
  * usuario está escribiendo. Para forzar una resincronización (ej. al abrir el modal con otro
  * registro), el padre debe pasar una prop `key` distinta.
  */
-export function NumberInput({ value, onValueChange, allowNull = false, ...props }: NumberInputProps) {
+export function NumberInput({ value, onValueChange, allowNull = false, onFocus, ...props }: NumberInputProps) {
   const [texto, setTexto] = useState(value === null || value === undefined ? "" : String(value));
 
   return (
     <Input
       type="number"
       value={texto}
+      onFocus={(e) => {
+        e.currentTarget.select();
+        onFocus?.(e);
+      }}
       onChange={(e) => {
-        const t = e.target.value;
+        // Quita ceros a la izquierda que sobran de un valor preestablecido (ej. "0" + teclear "1"
+        // produce "01" en vez de reemplazar), sin tocar "0" solo ni decimales como "0.5".
+        const t = e.target.value.replace(/^(-?)0+(?=\d)/, "$1");
         setTexto(t);
         if (t === "" || t === "-") {
           onValueChange(allowNull ? null : 0);

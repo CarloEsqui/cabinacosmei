@@ -3,11 +3,8 @@ import { and, desc, eq, gt, gte } from "drizzle-orm";
 import { getDb } from "../db";
 import { cortes, pagos } from "../db/schema";
 import { registrarAccion } from "./bitacora";
+import { fechaLocalIso } from "../../shared/fechas";
 import type { CorteResumenPendiente, CorteRow, CorteResumenPeriodo, DesgloseMetodo } from "../../shared/types";
-
-function hoyIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function horaActual(): string {
   return new Date().toTimeString().slice(0, 5);
@@ -60,7 +57,7 @@ export async function registrarCorte(usuarioId?: string): Promise<CorteRow> {
   db.insert(cortes)
     .values({
       id,
-      fecha: hoyIso(),
+      fecha: fechaLocalIso(),
       hora: horaActual(),
       desglosePorMetodoJson: JSON.stringify(resumen.desglosePorMetodo),
       total: resumen.total,

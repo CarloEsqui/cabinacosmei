@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
@@ -6,16 +6,17 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
 import type { CitaInput } from "@shared/schemas";
-
-const HOY = new Date().toISOString().slice(0, 10);
+import { fechaLocalIso } from "@shared/fechas";
 
 interface NuevaCitaModalProps {
   open: boolean;
   onClose: () => void;
   fechaInicial?: string;
+  horaInicial?: string;
+  clienteInicial?: string;
 }
 
-export function NuevaCitaModal({ open, onClose, fechaInicial }: NuevaCitaModalProps) {
+export function NuevaCitaModal({ open, onClose, fechaInicial, horaInicial, clienteInicial }: NuevaCitaModalProps) {
   const queryClient = useQueryClient();
   const { data: clientes = [] } = useQuery({
     queryKey: ["clientes"],
@@ -26,22 +27,35 @@ export function NuevaCitaModal({ open, onClose, fechaInicial }: NuevaCitaModalPr
     queryFn: () => window.api.serviciosCatalogo.listar(),
   });
 
-  const vacio: CitaInput = {
-    clienteId: "",
-    servicioCatalogoId: "",
-    fecha: fechaInicial ?? HOY,
-    hora: "10:00",
-    duracionMin: 60,
-    notas: "",
-  };
+  function vacio(): CitaInput {
+    return {
+      clienteId: clienteInicial ?? "",
+      servicioCatalogoId: "",
+      fecha: fechaInicial ?? fechaLocalIso(),
+      hora: horaInicial ?? "10:00",
+      duracionMin: 60,
+      notas: "",
+    };
+  }
   const [form, setForm] = useState<CitaInput>(vacio);
   const [error, setError] = useState<string | null>(null);
+
+  // El modal permanece montado incluso cerrado (para animaciones), así que `form` no puede
+  // inicializarse una sola vez desde las props: cada vez que se abre con una fecha/hora/cliente
+  // distintos (ej. clic en otro día del calendario) hay que resincronizarlo explícitamente.
+  useEffect(() => {
+    if (open) {
+      setForm(vacio());
+      setError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, fechaInicial, horaInicial, clienteInicial]);
 
   const crear = useMutation({
     mutationFn: () => window.api.citas.crear(form),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["citas"] });
-      setForm(vacio);
+      setForm(vacio());
       setError(null);
       onClose();
     },
@@ -51,7 +65,6 @@ export function NuevaCitaModal({ open, onClose, fechaInicial }: NuevaCitaModalPr
   return (
     <Modal open={open} onClose={onClose} title="Nueva cita">
       <form
-        key={open ? fechaInicial : "cerrado"}
         className="flex flex-col gap-3"
         onSubmit={(e) => {
           e.preventDefault();

@@ -13,6 +13,19 @@ export const configSchema = z.object({
   carpetaRaiz: z.string().default(""),
   nombreNegocio: z.string().default("Cabina"),
   horaCorte: z.string().default("20:00"),
+  // Formato "HH:MM" estricto: un valor vacío o mal formado aquí rompe el cálculo interno de
+  // FullCalendar en las vistas de semana/día (slotMinTime/slotMaxTime), causando pantalla en
+  // blanco o el boundary de error. Validar en el esquema evita que un guardado a medias (ej. el
+  // campo se vació momentáneamente al editarlo) llegue a persistirse.
+  agendaHoraInicio: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Hora inválida")
+    .default("06:00"),
+  agendaHoraFin: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Hora inválida")
+    .default("22:00"),
+  agendaMostrarFraccionesHora: z.boolean().default(false),
 });
 
 export type ConfigValues = z.infer<typeof configSchema>;

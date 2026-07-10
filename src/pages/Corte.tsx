@@ -5,19 +5,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatFechaHora, formatFecha } from "@/lib/format";
-
-function inicioSemanaIso(): string {
-  const hoy = new Date();
-  const dia = hoy.getDay() === 0 ? 7 : hoy.getDay(); // lunes=1..domingo=7
-  const inicio = new Date(hoy);
-  inicio.setDate(hoy.getDate() - (dia - 1));
-  return inicio.toISOString().slice(0, 10);
-}
-
-function inicioMesIso(): string {
-  const hoy = new Date();
-  return new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().slice(0, 10);
-}
+import { inicioDeSemanaIso, inicioDeMesIso } from "@shared/fechas";
 
 export function CortePage() {
   const queryClient = useQueryClient();
@@ -32,8 +20,8 @@ export function CortePage() {
     queryFn: () => window.api.corte.historial(),
   });
 
-  const inicioSemana = useMemo(inicioSemanaIso, []);
-  const inicioMes = useMemo(inicioMesIso, []);
+  const inicioSemana = useMemo(() => inicioDeSemanaIso(), []);
+  const inicioMes = useMemo(() => inicioDeMesIso(), []);
 
   const { data: resumenSemana } = useQuery({
     queryKey: ["corteResumenSemana", inicioSemana],
@@ -134,7 +122,7 @@ export function CortePage() {
       </div>
 
       <div className="px-8 pb-8">
-        <Card className="overflow-hidden">
+        <Card className="overflow-x-auto">
           <CardHeader>
             <CardTitle>Historial de cortes</CardTitle>
           </CardHeader>

@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
 import type { EntradaInput } from "@shared/schemas";
+import { fechaLocalIso } from "@shared/fechas";
 
-const HOY = new Date().toISOString().slice(0, 10);
+const HOY = fechaLocalIso();
 
 const VACIO: EntradaInput = {
   fecha: HOY,

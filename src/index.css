@@ -139,3 +139,33 @@
   border-radius: 0.75rem;
   overflow: hidden;
 }
+
+/* Vista semana/día: por defecto solo se dibujan las líneas de las horas completas (más suave,
+   menos ruido visual), aunque los eventos se sigan posicionando en fracciones de hora. La clase
+   .fc-mostrar-fracciones (toggle del menú de configuración de la agenda) las vuelve a mostrar. */
+.fc .fc-timegrid-slot-minor {
+  border-top-style: none !important;
+}
+.fc-mostrar-fracciones .fc .fc-timegrid-slot-minor {
+  border-top-style: solid !important;
+  border-top-color: var(--color-beige-200) !important;
+  opacity: 0.6;
+}
+
+.fc .fc-timegrid-slot-label-cushion,
+.fc .fc-timegrid-axis-cushion {
+  @apply text-xs text-ink-500;
+}
+
+.fc .fc-timegrid-col.fc-day-today {
+  background-color: var(--color-jacaranda-50);
+}
+
+.fc .fc-timegrid-now-indicator-line,
+.fc .fc-timegrid-now-indicator-arrow {
+  border-color: var(--color-jacaranda-400);
+}
+
+.fc .fc-timegrid-event {
+  @apply rounded-lg border-none shadow-sm;
+}

@@ -1,27 +1,33 @@
 import { useEffect, useState } from "react";
-import { FolderOpen, FolderCog, Save } from "lucide-react";
+import { FolderOpen, FolderCog, Save, Sparkles, RefreshCw } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/ui/number-input";
+import { useToast } from "@/components/ui/toast";
+import { mensajeDeError } from "@/lib/errores";
 import type { ConfigValues } from "@shared/config";
 
 export function GeneralTab() {
+  const toast = useToast();
   const [config, setConfig] = useState<ConfigValues | null>(null);
   const [guardando, setGuardando] = useState(false);
-  const [guardado, setGuardado] = useState(false);
+  const [version, setVersion] = useState("");
+  const [buscandoUpdate, setBuscandoUpdate] = useState(false);
 
   useEffect(() => {
     window.api.config.obtener().then(setConfig);
+    window.api.app.version().then(setVersion);
   }, []);
 
   async function guardar(cambios: Partial<ConfigValues>) {
     setGuardando(true);
-    setGuardado(false);
     try {
       const siguiente = await window.api.config.actualizar(cambios);
       setConfig(siguiente);
-      setGuardado(true);
+      toast.success("Configuración guardada.");
+    } catch (e) {
+      toast.error(mensajeDeError(e));
     } finally {
       setGuardando(false);
     }
@@ -36,7 +42,6 @@ export function GeneralTab() {
 
   return (
     <div className="p-8">
-      {guardado && <p className="mb-3 text-sm text-success-500">Guardado</p>}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -165,6 +170,43 @@ export function GeneralTab() {
             </div>
             <Button size="sm" disabled={guardando} onClick={() => guardar({ horaCorte: config.horaCorte })}>
               <Save size={16} /> Guardar cambios
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Acerca de</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-jacaranda-500 to-jacaranda-700 text-beige-50">
+                <Sparkles size={20} />
+              </div>
+              <div>
+                <p className="font-medium text-ink-900">Cabina Dashboard</p>
+                <p className="text-xs text-ink-500">
+                  {version ? `Versión ${version}` : "Cargando versión..."} · Copyright © 2026 Cabina
+                </p>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={buscandoUpdate}
+              onClick={async () => {
+                setBuscandoUpdate(true);
+                try {
+                  await window.api.actualizaciones.buscar();
+                  toast.info("Buscando actualizaciones. Si hay una nueva, se descargará sola.");
+                } catch (e) {
+                  toast.error(mensajeDeError(e));
+                } finally {
+                  setBuscandoUpdate(false);
+                }
+              }}
+            >
+              <RefreshCw size={16} /> Buscar actualizaciones
             </Button>
           </CardContent>
         </Card>

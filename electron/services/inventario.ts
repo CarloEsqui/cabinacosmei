@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gte, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import {
   productos,
@@ -12,12 +12,10 @@ import {
 } from "../db/schema";
 import { obtenerConfig } from "./config";
 import { registrarAccion } from "./bitacora";
-import type { EntradaInput, SalidaInput, MovimientosFiltro } from "../../shared/schemas";
+import { eliminarOFallarConHistorial } from "./errores";
+import { fechaLocalIso } from "../../shared/fechas";
+import type { EntradaInput, SalidaInput, MovimientosFiltro, LoteInput } from "../../shared/schemas";
 import type { ProductoConStock, Lote, MovimientoRow, Semaforo } from "../../shared/types";
-
-function hoyIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function calcularSemaforo(
   stockTotal: number,
@@ -25,9 +23,12 @@ function calcularSemaforo(
   umbralBajo: number,
   stockMinimoManual: number | null,
 ): Semaforo {
-  const bajoEfectivo = stockMinimoManual ?? umbralBajo;
-  if (stockTotal <= umbralCritico) return "critico";
-  if (stockTotal <= bajoEfectivo) return "bajo";
+  // El mínimo manual de un producto es su propio umbral de "crítico" (más preciso que el
+  // umbral genérico), no de "bajo": ese producto en particular necesita reponerse ya al llegar
+  // a esa cantidad.
+  const criticoEfectivo = stockMinimoManual ?? umbralCritico;
+  if (stockTotal <= criticoEfectivo) return "critico";
+  if (stockTotal <= umbralBajo) return "bajo";
   return "adecuado";
 }
 
@@ -83,12 +84,65 @@ export async function lotesPorProducto(productoId: string): Promise<Lote[]> {
   return filas.map((f) => ({ ...f.lote, productoNombre: f.productoNombre }));
 }
 
+function obtenerLotePorId(id: string): Lote | undefined {
+  const db = getDb();
+  const fila = db
+    .select({ lote: lotes, productoNombre: productos.nombre })
+    .from(lotes)
+    .innerJoin(productos, eq(lotes.productoId, productos.id))
+    .where(eq(lotes.id, id))
+    .get();
+  return fila ? { ...fila.lote, productoNombre: fila.productoNombre } : undefined;
+}
+
+export async function actualizarLote(id: string, input: LoteInput, usuarioId?: string): Promise<Lote | undefined> {
+  const db = getDb();
+  db.update(lotes)
+    .set({
+      numeroLote: input.numeroLote || null,
+      fechaCaducidad: input.fechaCaducidad || null,
+      ubicacion: input.ubicacion || null,
+      notas: input.notas || null,
+      costoUnitarioLote: input.costoUnitarioLote,
+      updatedAt: new Date(),
+    })
+    .where(eq(lotes.id, id))
+    .run();
+  registrarAccion(db, { usuarioId, accion: "lote_actualizado", entidadTipo: "lote", entidadId: id });
+  return obtenerLotePorId(id);
+}
+
+export async function cambiarEstadoLote(
+  id: string,
+  estado: "activo" | "bloqueado",
+  usuarioId?: string,
+): Promise<Lote | undefined> {
+  const db = getDb();
+  db.update(lotes).set({ estado, updatedAt: new Date() }).where(eq(lotes.id, id)).run();
+  registrarAccion(db, {
+    usuarioId,
+    accion: estado === "bloqueado" ? "lote_bloqueado" : "lote_activado",
+    entidadTipo: "lote",
+    entidadId: id,
+  });
+  return obtenerLotePorId(id);
+}
+
+export async function eliminarLote(id: string, usuarioId?: string): Promise<void> {
+  const db = getDb();
+  eliminarOFallarConHistorial(
+    () => db.delete(lotes).where(eq(lotes.id, id)).run(),
+    "Este lote tiene entradas, salidas o consumos asociados. Bloquéalo en su lugar.",
+  );
+  registrarAccion(db, { usuarioId, accion: "lote_eliminado", entidadTipo: "lote", entidadId: id });
+}
+
 export async function lotesProximosACaducar(): Promise<Lote[]> {
   const db = getDb();
   const config = await obtenerConfig();
   const limite = new Date();
   limite.setDate(limite.getDate() + config.diasAlertaCaducidad);
-  const limiteIso = limite.toISOString().slice(0, 10);
+  const limiteIso = fechaLocalIso(limite);
 
   const filas = db
     .select({ lote: lotes, productoNombre: productos.nombre })
@@ -109,7 +163,7 @@ export async function lotesProximosACaducar(): Promise<Lote[]> {
 
 export async function lotesCaducados(): Promise<Lote[]> {
   const db = getDb();
-  const hoy = hoyIso();
+  const hoy = fechaLocalIso();
   const filas = db
     .select({ lote: lotes, productoNombre: productos.nombre })
     .from(lotes)
@@ -222,7 +276,7 @@ export async function registrarEntrada(input: EntradaInput, usuarioId?: string) 
 export async function registrarSalida(input: SalidaInput, usuarioId?: string) {
   const db = getDb();
   const config = await obtenerConfig();
-  const hoy = hoyIso();
+  const hoy = fechaLocalIso();
   const fecha = input.fecha;
 
   return db.transaction((tx) => {
@@ -341,11 +395,12 @@ export async function listarMovimientos(filtro: MovimientosFiltro): Promise<Movi
   const condiciones = [];
   if (filtro.fechaDesde) condiciones.push(gte(movimientos.fecha, filtro.fechaDesde));
   if (filtro.fechaHasta) condiciones.push(lte(movimientos.fecha, filtro.fechaHasta));
-  if (filtro.productoId) condiciones.push(eq(movimientos.productoId, filtro.productoId));
+  if (filtro.productoIds && filtro.productoIds.length > 0)
+    condiciones.push(inArray(movimientos.productoId, filtro.productoIds));
   if (filtro.loteId) condiciones.push(eq(movimientos.loteId, filtro.loteId));
   if (filtro.clienteId) condiciones.push(eq(movimientos.clienteId, filtro.clienteId));
   if (filtro.proveedorId) condiciones.push(eq(movimientos.proveedorId, filtro.proveedorId));
-  if (filtro.tipo) condiciones.push(eq(movimientos.tipo, filtro.tipo));
+  if (filtro.tipos && filtro.tipos.length > 0) condiciones.push(inArray(movimientos.tipo, filtro.tipos));
 
   const filas = db
     .select({

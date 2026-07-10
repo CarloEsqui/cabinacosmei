@@ -14,6 +14,7 @@ import type {
   GuardarRecetaInput,
   RangoFechas,
   BitacoraFiltro,
+  LoteInput,
 } from "./schemas";
 import type {
   Proveedor,
@@ -23,10 +24,10 @@ import type {
   Lote,
   MovimientoRow,
   Cliente,
-  ClienteExpediente,
   ServicioCatalogo,
   CitaRow,
   ServicioRealizado,
+  DetalleServicioRealizado,
   ArchivoRow,
   MantenimientoPendiente,
   CorteResumenPendiente,
@@ -39,6 +40,8 @@ import type {
   ReporteInventario,
   ReporteServicios,
   ReporteClientes,
+  ResumenDashboard,
+  ResumenClienteCitas,
 } from "./types";
 
 export interface IpcApi {
@@ -62,16 +65,22 @@ export interface IpcApi {
     listar(): Promise<Proveedor[]>;
     crear(input: ProveedorInput): Promise<Proveedor>;
     actualizar(id: string, input: ProveedorInput): Promise<Proveedor>;
+    eliminar(id: string): Promise<void>;
+    setActivo(id: string, activo: boolean): Promise<Proveedor>;
   };
   tiposProducto: {
     listar(): Promise<TipoProducto[]>;
     crear(input: TipoProductoInput): Promise<TipoProducto>;
     actualizar(id: string, input: TipoProductoInput): Promise<TipoProducto>;
+    eliminar(id: string): Promise<void>;
+    setActivo(id: string, activo: boolean): Promise<TipoProducto>;
   };
   productos: {
     listar(): Promise<Producto[]>;
     crear(input: ProductoInput): Promise<Producto>;
     actualizar(id: string, input: ProductoInput): Promise<Producto>;
+    eliminar(id: string): Promise<void>;
+    setActivo(id: string, activo: boolean): Promise<Producto>;
   };
   inventario: {
     resumen(): Promise<ProductoConStock[]>;
@@ -81,12 +90,17 @@ export interface IpcApi {
     registrarEntrada(input: EntradaInput): Promise<unknown>;
     registrarSalida(input: SalidaInput): Promise<unknown>;
     movimientos(filtro: MovimientosFiltro): Promise<MovimientoRow[]>;
+    actualizarLote(id: string, input: LoteInput): Promise<Lote | undefined>;
+    cambiarEstadoLote(id: string, estado: "activo" | "bloqueado"): Promise<Lote | undefined>;
+    eliminarLote(id: string): Promise<void>;
   };
   clientes: {
     listar(): Promise<Cliente[]>;
     crear(input: ClienteInput): Promise<Cliente>;
     actualizar(id: string, input: ClienteInput): Promise<Cliente>;
-    obtenerExpediente(id: string): Promise<ClienteExpediente | null>;
+    obtenerExpediente(id: string): Promise<Cliente | null>;
+    eliminar(id: string): Promise<void>;
+    setActivo(id: string, activo: boolean): Promise<Cliente>;
   };
   serviciosCatalogo: {
     listar(): Promise<ServicioCatalogo[]>;
@@ -94,6 +108,8 @@ export interface IpcApi {
     actualizar(id: string, input: ServicioCatalogoInput): Promise<ServicioCatalogo>;
     listarReceta(servicioCatalogoId: string): Promise<RecetaItem[]>;
     guardarReceta(input: GuardarRecetaInput): Promise<RecetaItem[]>;
+    eliminar(id: string): Promise<void>;
+    setActivo(id: string, activo: boolean): Promise<ServicioCatalogo>;
   };
   citas: {
     listar(filtro: CitasFiltro): Promise<CitaRow[]>;
@@ -101,10 +117,13 @@ export interface IpcApi {
     actualizar(id: string, input: CitaInput): Promise<CitaRow>;
     cambiarEstado(id: string, estado: string): Promise<CitaRow>;
     mantenimientosNoProgramados(): Promise<MantenimientoPendiente[]>;
+    descartarMantenimiento(servicioRealizadoId: string): Promise<void>;
+    resumenCliente(clienteId: string): Promise<ResumenClienteCitas>;
   };
   serviciosRealizados: {
     abrirCierre(citaId: string): Promise<ServicioRealizado>;
     cerrarCita(input: CierreCitaInput): Promise<ServicioRealizado>;
+    obtenerDetalle(servicioRealizadoId: string): Promise<DetalleServicioRealizado | null>;
   };
   archivos: {
     subirComprobante(entidadTipo: string, entidadId: string, carpetaDestino: string): Promise<ArchivoRow | null>;
@@ -116,6 +135,15 @@ export interface IpcApi {
     historial(): Promise<CorteRow[]>;
     resumenDesde(fechaIso: string): Promise<CorteResumenPeriodo>;
   };
+  dashboard: {
+    resumen(): Promise<ResumenDashboard>;
+  };
+  actualizaciones: {
+    buscar(): Promise<void>;
+    instalarYReiniciar(): Promise<void>;
+    onDisponible(callback: (info: { version: string }) => void): () => void;
+    onDescargada(callback: (info: { version: string }) => void): () => void;
+  };
   bitacora: {
     listar(filtro: BitacoraFiltro): Promise<BitacoraRow[]>;
   };
@@ -124,6 +152,12 @@ export interface IpcApi {
     listar(): Promise<RespaldoRow[]>;
     abrirCarpeta(): Promise<void>;
     restaurar(id: string, pin: string): Promise<void>;
+    restaurarDesdeArchivo(pin: string): Promise<boolean>;
+    exportar(id: string): Promise<boolean>;
+  };
+  datos: {
+    borrarNegocio(pin: string, eliminarArchivos: boolean): Promise<void>;
+    restablecerFabrica(pin: string, eliminarArchivos: boolean): Promise<void>;
   };
   reportes: {
     cobranza(rango: RangoFechas): Promise<ReporteCobranza>;
@@ -146,16 +180,25 @@ export type IpcChannel =
   | "proveedores:listar"
   | "proveedores:crear"
   | "proveedores:actualizar"
+  | "proveedores:eliminar"
+  | "proveedores:setActivo"
   | "tiposProducto:listar"
   | "tiposProducto:crear"
   | "tiposProducto:actualizar"
+  | "tiposProducto:eliminar"
+  | "tiposProducto:setActivo"
   | "productos:listar"
   | "productos:crear"
   | "productos:actualizar"
+  | "productos:eliminar"
+  | "productos:setActivo"
   | "inventario:resumen"
   | "inventario:lotesPorProducto"
   | "inventario:proximosACaducar"
   | "inventario:caducados"
+  | "inventario:actualizarLote"
+  | "inventario:cambiarEstadoLote"
+  | "inventario:eliminarLote"
   | "inventario:registrarEntrada"
   | "inventario:registrarSalida"
   | "inventario:movimientos"
@@ -163,29 +206,41 @@ export type IpcChannel =
   | "clientes:crear"
   | "clientes:actualizar"
   | "clientes:obtenerExpediente"
+  | "clientes:eliminar"
+  | "clientes:setActivo"
   | "serviciosCatalogo:listar"
   | "serviciosCatalogo:crear"
   | "serviciosCatalogo:actualizar"
   | "serviciosCatalogo:listarReceta"
   | "serviciosCatalogo:guardarReceta"
+  | "serviciosCatalogo:eliminar"
+  | "serviciosCatalogo:setActivo"
   | "citas:listar"
   | "citas:crear"
   | "citas:actualizar"
   | "citas:cambiarEstado"
   | "citas:mantenimientosNoProgramados"
+  | "citas:descartarMantenimiento"
+  | "citas:resumenCliente"
   | "serviciosRealizados:abrirCierre"
   | "serviciosRealizados:cerrarCita"
+  | "serviciosRealizados:obtenerDetalle"
   | "archivos:subirComprobante"
   | "archivos:listar"
   | "corte:resumenPendiente"
   | "corte:registrar"
   | "corte:historial"
   | "corte:resumenDesde"
+  | "dashboard:resumen"
   | "bitacora:listar"
   | "respaldos:crear"
   | "respaldos:listar"
   | "respaldos:abrirCarpeta"
   | "respaldos:restaurar"
+  | "respaldos:restaurarDesdeArchivo"
+  | "respaldos:exportar"
+  | "datos:borrarNegocio"
+  | "datos:restablecerFabrica"
   | "reportes:cobranza"
   | "reportes:inventario"
   | "reportes:servicios"

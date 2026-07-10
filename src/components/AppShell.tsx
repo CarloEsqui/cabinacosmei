@@ -11,6 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ActualizacionBanner } from "@/components/ActualizacionBanner";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -63,8 +64,11 @@ export function AppShell() {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto">
-        <Outlet />
+      <main className="flex flex-1 flex-col overflow-hidden">
+        <ActualizacionBanner />
+        <div className="flex-1 overflow-y-auto">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

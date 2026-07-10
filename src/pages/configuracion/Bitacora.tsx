@@ -45,7 +45,7 @@ export function BitacoraTab() {
         </p>
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
             <tr>

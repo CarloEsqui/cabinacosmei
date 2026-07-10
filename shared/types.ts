@@ -81,9 +81,13 @@ export interface Cliente {
   notas: string | null;
   observaciones: string | null;
   carpetaPath: string | null;
+  /** Avisos rápidos calculados (ej. "Por contactar", "Pago pendiente"), para la columna de estatus. */
+  alertas: string[];
 }
 
 export interface MantenimientoPendiente {
+  /** id del servicio_realizado que generó la sugerencia (para poder descartarla). */
+  servicioRealizadoId: string;
   clienteId: string;
   clienteNombre: string;
   servicioNombre: string | null;
@@ -91,37 +95,11 @@ export interface MantenimientoPendiente {
   fechaSugerida: string;
 }
 
-export interface CitaExpedienteRow {
-  id: string;
-  fecha: string;
-  hora: string;
-  estado: string;
-  servicioNombre: string | null;
-}
-
-export interface ServicioRealizadoExpedienteRow {
-  id: string;
-  codigoServicio: string;
-  fecha: string;
-  servicioNombre: string | null;
-  precio: number | null;
-  estatusPago: string;
-  estatus: string;
-}
-
-export interface PagoExpedienteRow {
-  id: string;
-  fecha: string;
-  monto: number;
-  metodoPago: string;
-  estatus: string;
-}
-
-export interface ClienteExpediente {
-  cliente: Cliente;
-  citas: CitaExpedienteRow[];
-  servicios: ServicioRealizadoExpedienteRow[];
-  pagos: PagoExpedienteRow[];
+/** Resumen de citas/servicios/pagos de una clienta, usado por la búsqueda de clientes en Citas. */
+export interface ResumenClienteCitas {
+  serviciosCerrados: number;
+  totalCobrado: number;
+  saldoPendiente: number;
 }
 
 export interface ServicioCatalogo {
@@ -150,6 +128,8 @@ export interface CitaRow {
   esMantenimiento: boolean;
   notas: string | null;
   servicioRealizadoId: string | null;
+  /** Saldo pendiente de esa cita ya cerrada (0 si aún no se cierra, está pagada o fue cancelada). */
+  saldoPendiente: number;
 }
 
 export interface ServicioRealizado {
@@ -167,6 +147,18 @@ export interface ServicioRealizado {
   carpetaPath: string | null;
   proximaCitaSugerida: string | null;
   tieneComprobante: boolean;
+}
+
+export interface DetalleServicioRealizado {
+  precio: number;
+  estatusPago: string;
+  estatus: string;
+  observaciones: string | null;
+  productosConsumidos: { productoNombre: string; cantidad: number }[];
+  productosVendidos: { productoNombre: string; cantidad: number }[];
+  pagos: { fecha: string; monto: number; metodoPago: string }[];
+  totalCobrado: number;
+  saldoPendiente: number;
 }
 
 export interface DesgloseMetodo {
@@ -226,6 +218,8 @@ export interface RespaldoRow {
   tamanioBytes: number | null;
   estatus: string;
   createdAt: number;
+  /** true si lo generó la app automáticamente antes de un borrado/restauración riesgosos. */
+  esAutomatico: boolean;
 }
 
 export interface ReporteCobranzaFila {
@@ -262,6 +256,14 @@ export interface ReporteServicios {
 export interface ReporteClientes {
   nuevosClientes: number;
   mantenimientosGenerados: number;
+}
+
+export interface ResumenDashboard {
+  cobradoHoy: number;
+  pendienteDeCortar: number;
+  serviciosDelMes: number;
+  ticketPromedioMes: number;
+  clientasActivas: number;
 }
 
 export interface MovimientoRow {

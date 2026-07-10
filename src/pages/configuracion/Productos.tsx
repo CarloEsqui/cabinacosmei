@@ -1,14 +1,18 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, Trash2, Power, PowerOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { NumberInput } from "@/components/ui/number-input";
 import { SortableHeader } from "@/components/ui/sortable-header";
+import { useToast } from "@/components/ui/toast";
+import { mensajeDeError } from "@/lib/errores";
+import { useEliminarHibrido } from "@/hooks/use-eliminar-hibrido";
 import type { Producto } from "@shared/types";
 import type { ProductoInput } from "@shared/schemas";
 
@@ -31,6 +35,8 @@ const VACIO: ProductoInput = {
 
 export function ProductosTab() {
   const queryClient = useQueryClient();
+  const toast = useToast();
+  const eliminarHibrido = useEliminarHibrido();
   const { data: productos = [] } = useQuery({
     queryKey: ["productos"],
     queryFn: () => window.api.productos.listar(),
@@ -57,8 +63,34 @@ export function ProductosTab() {
       queryClient.invalidateQueries({ queryKey: ["productos"] });
       queryClient.invalidateQueries({ queryKey: ["inventarioResumen"] });
       setModalAbierto(false);
+      toast.success(editando ? "Producto actualizado." : "Producto creado.");
     },
+    onError: (e) => toast.error(mensajeDeError(e)),
   });
+
+  function invalidar() {
+    queryClient.invalidateQueries({ queryKey: ["productos"] });
+    queryClient.invalidateQueries({ queryKey: ["inventarioResumen"] });
+  }
+
+  async function alternarActivo(p: Producto) {
+    try {
+      await window.api.productos.setActivo(p.id, !p.activo);
+      invalidar();
+      toast.success(p.activo ? "Producto desactivado." : "Producto activado.");
+    } catch (e) {
+      toast.error(mensajeDeError(e));
+    }
+  }
+
+  function eliminar(p: Producto) {
+    eliminarHibrido({
+      nombre: `el producto "${p.nombre}"`,
+      eliminar: () => window.api.productos.eliminar(p.id),
+      desactivar: () => window.api.productos.setActivo(p.id, false),
+      onExito: invalidar,
+    });
+  }
 
   function abrirNuevo() {
     setEditando(null);
@@ -90,8 +122,8 @@ export function ProductosTab() {
   }
 
   const [busqueda, setBusqueda] = useState("");
-  const [filtroTipo, setFiltroTipo] = useState("");
-  const [filtroEstatus, setFiltroEstatus] = useState("");
+  const [filtrosTipo, setFiltrosTipo] = useState<string[]>([]);
+  const [filtrosEstatus, setFiltrosEstatus] = useState<string[]>([]);
   const [orden, setOrden] = useState<OrdenKey>("nombre");
   const [direccion, setDireccion] = useState<"asc" | "desc">("asc");
 
@@ -107,9 +139,8 @@ export function ProductosTab() {
   const filtrados = useMemo(() => {
     let lista = productos.filter((p) => {
       if (busqueda && !p.nombre.toLowerCase().includes(busqueda.toLowerCase())) return false;
-      if (filtroTipo && p.tipoProductoId !== filtroTipo) return false;
-      if (filtroEstatus === "activo" && !p.activo) return false;
-      if (filtroEstatus === "inactivo" && p.activo) return false;
+      if (filtrosTipo.length > 0 && !filtrosTipo.includes(p.tipoProductoId ?? "")) return false;
+      if (filtrosEstatus.length > 0 && !filtrosEstatus.includes(p.activo ? "activo" : "inactivo")) return false;
       return true;
     });
     lista = [...lista].sort((a, b) => {
@@ -118,7 +149,7 @@ export function ProductosTab() {
       return direccion === "asc" ? cmp : -cmp;
     });
     return lista;
-  }, [productos, busqueda, filtroTipo, filtroEstatus, orden, direccion]);
+  }, [productos, busqueda, filtrosTipo, filtrosEstatus, orden, direccion]);
 
   return (
     <div className="p-8">
@@ -136,26 +167,26 @@ export function ProductosTab() {
           onChange={(e) => setBusqueda(e.target.value)}
           className="max-w-xs"
         />
-        <Select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} className="max-w-[180px]">
-          <option value="">Todos los tipos</option>
-          {tipos.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.nombreTipo}
-            </option>
-          ))}
-        </Select>
-        <Select
-          value={filtroEstatus}
-          onChange={(e) => setFiltroEstatus(e.target.value)}
+        <MultiSelect
+          options={tipos.map((t) => ({ value: t.id, label: t.nombreTipo }))}
+          selected={filtrosTipo}
+          onChange={setFiltrosTipo}
+          placeholder="Todos los tipos"
+          className="max-w-[180px]"
+        />
+        <MultiSelect
+          options={[
+            { value: "activo", label: "Activo" },
+            { value: "inactivo", label: "Inactivo" },
+          ]}
+          selected={filtrosEstatus}
+          onChange={setFiltrosEstatus}
+          placeholder="Todos los estatus"
           className="max-w-[160px]"
-        >
-          <option value="">Todos los estatus</option>
-          <option value="activo">Activo</option>
-          <option value="inactivo">Inactivo</option>
-        </Select>
+        />
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
             <tr>
@@ -184,9 +215,22 @@ export function ProductosTab() {
                   <Badge variant={p.activo ? "success" : "neutral"}>{p.activo ? "Activo" : "Inactivo"}</Badge>
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <Button variant="ghost" size="sm" onClick={() => abrirEditar(p)}>
-                    <Pencil size={14} />
-                  </Button>
+                  <div className="flex justify-end gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => abrirEditar(p)} title="Editar">
+                      <Pencil size={14} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => alternarActivo(p)}
+                      title={p.activo ? "Desactivar" : "Activar"}
+                    >
+                      {p.activo ? <PowerOff size={14} /> : <Power size={14} />}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => eliminar(p)} title="Eliminar">
+                      <Trash2 size={14} className="text-danger-500" />
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}

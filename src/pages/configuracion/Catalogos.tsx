@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, Trash2, Power, PowerOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/ui/toast";
+import { mensajeDeError } from "@/lib/errores";
+import { useEliminarHibrido } from "@/hooks/use-eliminar-hibrido";
 import type { TipoProducto } from "@shared/types";
 import type { TipoProductoInput } from "@shared/schemas";
 
@@ -19,6 +22,8 @@ const VACIO: TipoProductoInput = {
 
 export function CatalogosTab() {
   const queryClient = useQueryClient();
+  const toast = useToast();
+  const eliminarHibrido = useEliminarHibrido();
   const { data: tipos = [] } = useQuery({
     queryKey: ["tiposProducto"],
     queryFn: () => window.api.tiposProducto.listar(),
@@ -36,8 +41,33 @@ export function CatalogosTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tiposProducto"] });
       setModalAbierto(false);
+      toast.success(editando ? "Tipo de producto actualizado." : "Tipo de producto creado.");
     },
+    onError: (e) => toast.error(mensajeDeError(e)),
   });
+
+  function invalidar() {
+    queryClient.invalidateQueries({ queryKey: ["tiposProducto"] });
+  }
+
+  async function alternarActivo(t: TipoProducto) {
+    try {
+      await window.api.tiposProducto.setActivo(t.id, !t.activo);
+      invalidar();
+      toast.success(t.activo ? "Tipo desactivado." : "Tipo activado.");
+    } catch (e) {
+      toast.error(mensajeDeError(e));
+    }
+  }
+
+  function eliminar(t: TipoProducto) {
+    eliminarHibrido({
+      nombre: `el tipo "${t.nombreTipo}"`,
+      eliminar: () => window.api.tiposProducto.eliminar(t.id),
+      desactivar: () => window.api.tiposProducto.setActivo(t.id, false),
+      onExito: invalidar,
+    });
+  }
 
   function abrirNuevo() {
     setEditando(null);
@@ -66,7 +96,7 @@ export function CatalogosTab() {
         </Button>
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
             <tr>
@@ -89,9 +119,22 @@ export function CatalogosTab() {
                   <Badge variant={t.activo ? "success" : "neutral"}>{t.activo ? "Activo" : "Inactivo"}</Badge>
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <Button variant="ghost" size="sm" onClick={() => abrirEditar(t)}>
-                    <Pencil size={14} />
-                  </Button>
+                  <div className="flex justify-end gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => abrirEditar(t)} title="Editar">
+                      <Pencil size={14} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => alternarActivo(t)}
+                      title={t.activo ? "Desactivar" : "Activar"}
+                    >
+                      {t.activo ? <PowerOff size={14} /> : <Power size={14} />}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => eliminar(t)} title="Eliminar">
+                      <Trash2 size={14} className="text-danger-500" />
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}

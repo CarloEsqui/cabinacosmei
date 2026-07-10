@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { ipcMain, dialog, app, type BrowserWindow } from "electron";
 import * as auth from "../services/auth";
 import * as configService from "../services/config";
@@ -15,7 +16,10 @@ import * as archivosService from "../services/archivos";
 import * as corteService from "../services/corte";
 import * as bitacoraService from "../services/bitacora";
 import * as respaldosService from "../services/respaldos";
+import * as reinicioService from "../services/reinicio";
 import * as reportesService from "../services/reportes";
+import * as dashboardService from "../services/dashboard";
+import { buscarActualizaciones, instalarYReiniciar } from "../services/actualizaciones";
 import { usuarioActualId } from "../services/usuarios";
 import {
   proveedorInputSchema,
@@ -32,6 +36,7 @@ import {
   guardarRecetaInputSchema,
   bitacoraFiltroSchema,
   rangoFechasSchema,
+  loteInputSchema,
 } from "../../shared/schemas";
 
 export function registrarIpc(mainWindow: BrowserWindow): void {
@@ -71,6 +76,12 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle("proveedores:actualizar", (_e, id: string, input) =>
     proveedoresService.actualizarProveedor(id, proveedorInputSchema.parse(input)),
   );
+  ipcMain.handle("proveedores:eliminar", (_e, id: string) =>
+    proveedoresService.eliminarProveedor(id, usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("proveedores:setActivo", (_e, id: string, activo: boolean) =>
+    proveedoresService.setActivoProveedor(id, activo, usuarioActualId() ?? undefined),
+  );
 
   // -- Tipos de producto ----------------------------------------------------
   ipcMain.handle("tiposProducto:listar", () => tiposProductoService.listarTiposProducto());
@@ -79,6 +90,12 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
   );
   ipcMain.handle("tiposProducto:actualizar", (_e, id: string, input) =>
     tiposProductoService.actualizarTipoProducto(id, tipoProductoInputSchema.parse(input)),
+  );
+  ipcMain.handle("tiposProducto:eliminar", (_e, id: string) =>
+    tiposProductoService.eliminarTipoProducto(id, usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("tiposProducto:setActivo", (_e, id: string, activo: boolean) =>
+    tiposProductoService.setActivoTipoProducto(id, activo, usuarioActualId() ?? undefined),
   );
 
   // -- Productos ------------------------------------------------------------
@@ -89,6 +106,12 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle("productos:actualizar", (_e, id: string, input) =>
     productosService.actualizarProducto(id, productoInputSchema.parse(input), usuarioActualId() ?? undefined),
   );
+  ipcMain.handle("productos:eliminar", (_e, id: string) =>
+    productosService.eliminarProducto(id, usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("productos:setActivo", (_e, id: string, activo: boolean) =>
+    productosService.setActivoProducto(id, activo, usuarioActualId() ?? undefined),
+  );
 
   // -- Inventario -------------------------------------------------------------
   ipcMain.handle("inventario:resumen", () => inventarioService.resumenInventario());
@@ -97,6 +120,15 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
   );
   ipcMain.handle("inventario:proximosACaducar", () => inventarioService.lotesProximosACaducar());
   ipcMain.handle("inventario:caducados", () => inventarioService.lotesCaducados());
+  ipcMain.handle("inventario:actualizarLote", (_e, id: string, input) =>
+    inventarioService.actualizarLote(id, loteInputSchema.parse(input), usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("inventario:cambiarEstadoLote", (_e, id: string, estado: "activo" | "bloqueado") =>
+    inventarioService.cambiarEstadoLote(id, estado, usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("inventario:eliminarLote", (_e, id: string) =>
+    inventarioService.eliminarLote(id, usuarioActualId() ?? undefined),
+  );
   ipcMain.handle("inventario:registrarEntrada", (_e, input) =>
     inventarioService.registrarEntrada(entradaInputSchema.parse(input), usuarioActualId() ?? undefined),
   );
@@ -116,6 +148,12 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
     clientesService.actualizarCliente(id, clienteInputSchema.parse(input), usuarioActualId() ?? undefined),
   );
   ipcMain.handle("clientes:obtenerExpediente", (_e, id: string) => clientesService.obtenerExpediente(id));
+  ipcMain.handle("clientes:eliminar", (_e, id: string) =>
+    clientesService.eliminarCliente(id, usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("clientes:setActivo", (_e, id: string, activo: boolean) =>
+    clientesService.setActivoCliente(id, activo, usuarioActualId() ?? undefined),
+  );
 
   // -- Catálogo de servicios ----------------------------------------------------
   ipcMain.handle("serviciosCatalogo:listar", () => serviciosCatalogoService.listarServiciosCatalogo());
@@ -132,6 +170,12 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
     const parsed = guardarRecetaInputSchema.parse(input);
     return serviciosCatalogoService.guardarReceta(parsed.servicioCatalogoId, parsed.items);
   });
+  ipcMain.handle("serviciosCatalogo:eliminar", (_e, id: string) =>
+    serviciosCatalogoService.eliminarServicioCatalogo(id, usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("serviciosCatalogo:setActivo", (_e, id: string, activo: boolean) =>
+    serviciosCatalogoService.setActivoServicioCatalogo(id, activo, usuarioActualId() ?? undefined),
+  );
 
   // -- Citas ------------------------------------------------------------------
   ipcMain.handle("citas:listar", (_e, filtro) => citasService.listarCitas(citasFiltroSchema.parse(filtro ?? {})));
@@ -145,6 +189,10 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
     citasService.cambiarEstadoCita(id, estado, usuarioActualId() ?? undefined),
   );
   ipcMain.handle("citas:mantenimientosNoProgramados", () => citasService.listarMantenimientosNoProgramados());
+  ipcMain.handle("citas:descartarMantenimiento", (_e, servicioRealizadoId: string) =>
+    citasService.descartarMantenimiento(servicioRealizadoId, usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("citas:resumenCliente", (_e, clienteId: string) => citasService.resumenCliente(clienteId));
 
   // -- Cierre de cita / servicios realizados -----------------------------------
   ipcMain.handle("serviciosRealizados:abrirCierre", (_e, citaId: string) =>
@@ -152,6 +200,9 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
   );
   ipcMain.handle("serviciosRealizados:cerrarCita", (_e, input) =>
     serviciosRealizadosService.cerrarCita(cierreCitaInputSchema.parse(input), usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("serviciosRealizados:obtenerDetalle", (_e, servicioRealizadoId: string) =>
+    serviciosRealizadosService.obtenerDetalle(servicioRealizadoId),
   );
 
   // -- Archivos -----------------------------------------------------------------
@@ -184,6 +235,13 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle("corte:historial", () => corteService.listarHistorial());
   ipcMain.handle("corte:resumenDesde", (_e, fechaIso: string) => corteService.resumenDesde(fechaIso));
 
+  // -- Dashboard ----------------------------------------------------------------
+  ipcMain.handle("dashboard:resumen", () => dashboardService.resumenDashboard());
+
+  // -- Actualizaciones automáticas ------------------------------------------------
+  ipcMain.handle("actualizaciones:buscar", () => buscarActualizaciones());
+  ipcMain.handle("actualizaciones:instalarYReiniciar", () => instalarYReiniciar());
+
   // -- Bitácora de auditoría -----------------------------------------------------
   ipcMain.handle("bitacora:listar", (_e, filtro) =>
     bitacoraService.listarBitacora(bitacoraFiltroSchema.parse(filtro ?? {})),
@@ -198,6 +256,35 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
   });
   ipcMain.handle("respaldos:restaurar", (_e, id: string, pin: string) =>
     respaldosService.restaurarRespaldo(id, pin, usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("respaldos:restaurarDesdeArchivo", async (_e, pin: string) => {
+    const resultado = await dialog.showOpenDialog(mainWindow, {
+      title: "Selecciona un respaldo de Cabina",
+      filters: [{ name: "Respaldo de Cabina", extensions: ["zip", "sqlite3"] }],
+      properties: ["openFile"],
+    });
+    if (resultado.canceled || resultado.filePaths.length === 0) return false;
+    await respaldosService.restaurarDesdeArchivo(resultado.filePaths[0], pin, usuarioActualId() ?? undefined);
+    return true;
+  });
+  ipcMain.handle("respaldos:exportar", async (_e, id: string) => {
+    const ruta = await respaldosService.obtenerRutaRespaldo(id);
+    const resultado = await dialog.showSaveDialog(mainWindow, {
+      title: "Exportar respaldo",
+      defaultPath: path.basename(ruta),
+      filters: [{ name: "Respaldo de Cabina", extensions: ["zip"] }],
+    });
+    if (resultado.canceled || !resultado.filePath) return false;
+    fs.copyFileSync(ruta, resultado.filePath);
+    return true;
+  });
+
+  // -- Borrado / reinicio de datos ------------------------------------------------
+  ipcMain.handle("datos:borrarNegocio", (_e, pin: string, eliminarArchivos: boolean) =>
+    reinicioService.borrarDatosNegocio(pin, { eliminarArchivos }, usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("datos:restablecerFabrica", (_e, pin: string, eliminarArchivos: boolean) =>
+    reinicioService.restablecerDeFabrica(pin, { eliminarArchivos }, usuarioActualId() ?? undefined),
   );
 
   // -- Reportes ---------------------------------------------------------------

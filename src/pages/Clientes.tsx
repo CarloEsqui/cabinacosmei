@@ -1,19 +1,51 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, FolderOpen, IdCard } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Plus, Pencil, FolderOpen, IdCard, Trash2, Power, PowerOff } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { SortableHeader } from "@/components/ui/sortable-header";
+import { useToast } from "@/components/ui/toast";
 import { formatFecha } from "@/lib/format";
+import { mensajeDeError } from "@/lib/errores";
+import { useEliminarHibrido } from "@/hooks/use-eliminar-hibrido";
 import type { Cliente } from "@shared/types";
 import type { ClienteInput } from "@shared/schemas";
 
 type OrdenKey = "nombreCompleto" | "fechaAlta";
+
+/** A dónde llevar a la usuaria al hacer clic en cada tipo de flag de alerta de una clienta. */
+function rutaAlerta(alerta: string, clienteId: string): string | null {
+  if (alerta === "Pago pendiente") return `/citas?clienteId=${clienteId}&pago=pendiente`;
+  if (alerta === "Por contactar") return "/citas?vista=mantenimientos";
+  return null;
+}
+
+function AlertaBadge({ alerta, clienteId }: { alerta: string; clienteId: string }) {
+  const navigate = useNavigate();
+  const ruta = rutaAlerta(alerta, clienteId);
+  return (
+    <Badge
+      variant={alerta === "Pago pendiente" ? "danger" : "warning"}
+      className={ruta ? "cursor-pointer hover:opacity-80" : undefined}
+      onClick={
+        ruta
+          ? (e) => {
+              e.stopPropagation();
+              navigate(ruta);
+            }
+          : undefined
+      }
+    >
+      {alerta}
+    </Badge>
+  );
+}
 
 const VACIO: ClienteInput = {
   nombreCompleto: "",
@@ -29,6 +61,8 @@ const VACIO: ClienteInput = {
 
 export function ClientesPage() {
   const queryClient = useQueryClient();
+  const toast = useToast();
+  const eliminarHibrido = useEliminarHibrido();
   const { data: clientes = [] } = useQuery({
     queryKey: ["clientes"],
     queryFn: () => window.api.clientes.listar(),
@@ -40,7 +74,7 @@ export function ClientesPage() {
   const [expedienteId, setExpedienteId] = useState<string | null>(null);
 
   const [busqueda, setBusqueda] = useState("");
-  const [filtroEstatus, setFiltroEstatus] = useState("");
+  const [filtrosEstatus, setFiltrosEstatus] = useState<string[]>([]);
   const [orden, setOrden] = useState<OrdenKey>("nombreCompleto");
   const [direccion, setDireccion] = useState<"asc" | "desc">("asc");
 
@@ -52,8 +86,33 @@ export function ClientesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clientes"] });
       setModalAbierto(false);
+      toast.success(editando ? "Clienta actualizada." : "Clienta creada.");
     },
+    onError: (e) => toast.error(mensajeDeError(e)),
   });
+
+  function invalidar() {
+    queryClient.invalidateQueries({ queryKey: ["clientes"] });
+  }
+
+  async function alternarActivo(c: Cliente) {
+    try {
+      await window.api.clientes.setActivo(c.id, !c.activo);
+      invalidar();
+      toast.success(c.activo ? "Clienta desactivada." : "Clienta activada.");
+    } catch (e) {
+      toast.error(mensajeDeError(e));
+    }
+  }
+
+  function eliminar(c: Cliente) {
+    eliminarHibrido({
+      nombre: `a "${c.nombreCompleto}"`,
+      eliminar: () => window.api.clientes.eliminar(c.id),
+      desactivar: () => window.api.clientes.setActivo(c.id, false),
+      onExito: invalidar,
+    });
+  }
 
   function abrirNuevo() {
     setEditando(null);
@@ -95,8 +154,7 @@ export function ClientesPage() {
         !c.codigoCliente.toLowerCase().includes(busqueda.toLowerCase())
       )
         return false;
-      if (filtroEstatus === "activo" && !c.activo) return false;
-      if (filtroEstatus === "inactivo" && c.activo) return false;
+      if (filtrosEstatus.length > 0 && !filtrosEstatus.includes(c.activo ? "activo" : "inactivo")) return false;
       return true;
     });
     lista = [...lista].sort((a, b) => {
@@ -107,7 +165,7 @@ export function ClientesPage() {
       return direccion === "asc" ? cmp : -cmp;
     });
     return lista;
-  }, [clientes, busqueda, filtroEstatus, orden, direccion]);
+  }, [clientes, busqueda, filtrosEstatus, orden, direccion]);
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -129,18 +187,19 @@ export function ClientesPage() {
             onChange={(e) => setBusqueda(e.target.value)}
             className="max-w-xs"
           />
-          <Select
-            value={filtroEstatus}
-            onChange={(e) => setFiltroEstatus(e.target.value)}
+          <MultiSelect
+            options={[
+              { value: "activo", label: "Activo" },
+              { value: "inactivo", label: "Inactivo" },
+            ]}
+            selected={filtrosEstatus}
+            onChange={setFiltrosEstatus}
+            placeholder="Todos los estatus"
             className="max-w-[160px]"
-          >
-            <option value="">Todos los estatus</option>
-            <option value="activo">Activo</option>
-            <option value="inactivo">Inactivo</option>
-          </Select>
+          />
         </div>
 
-        <Card className="overflow-hidden">
+        <Card className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
               <tr>
@@ -177,17 +236,33 @@ export function ClientesPage() {
                   <td className="px-4 py-2 text-ink-700">{c.telefono || "—"}</td>
                   <td className="px-4 py-2 text-ink-700">{formatFecha(c.fechaAlta)}</td>
                   <td className="px-4 py-2">
-                    <Badge variant={c.activo ? "success" : "neutral"}>
-                      {c.activo ? "Activo" : "Inactivo"}
-                    </Badge>
+                    <div className="flex flex-wrap gap-1">
+                      <Badge variant={c.activo ? "success" : "neutral"}>
+                        {c.activo ? "Activo" : "Inactivo"}
+                      </Badge>
+                      {c.alertas.map((alerta) => (
+                        <AlertaBadge key={alerta} alerta={alerta} clienteId={c.id} />
+                      ))}
+                    </div>
                   </td>
                   <td className="px-4 py-2 text-right">
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => setExpedienteId(c.id)}>
+                      <Button variant="ghost" size="sm" onClick={() => setExpedienteId(c.id)} title="Expediente">
                         <IdCard size={14} />
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => abrirEditar(c)}>
+                      <Button variant="ghost" size="sm" onClick={() => abrirEditar(c)} title="Editar">
                         <Pencil size={14} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => alternarActivo(c)}
+                        title={c.activo ? "Desactivar" : "Activar"}
+                      >
+                        {c.activo ? <PowerOff size={14} /> : <Power size={14} />}
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => eliminar(c)} title="Eliminar">
+                        <Trash2 size={14} className="text-danger-500" />
                       </Button>
                     </div>
                   </td>
@@ -279,7 +354,16 @@ export function ClientesPage() {
         </form>
       </Modal>
 
-      {expedienteId && <ExpedienteModal clienteId={expedienteId} onClose={() => setExpedienteId(null)} />}
+      {expedienteId && (
+        <ExpedienteModal
+          clienteId={expedienteId}
+          onClose={() => setExpedienteId(null)}
+          onEditar={(c) => {
+            setExpedienteId(null);
+            abrirEditar(c);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -293,86 +377,95 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function ExpedienteModal({ clienteId, onClose }: { clienteId: string; onClose: () => void }) {
-  const { data: expediente } = useQuery({
+function ExpedienteModal({
+  clienteId,
+  onClose,
+  onEditar,
+}: {
+  clienteId: string;
+  onClose: () => void;
+  onEditar: (cliente: Cliente) => void;
+}) {
+  const { data: cliente } = useQuery({
     queryKey: ["clienteExpediente", clienteId],
     queryFn: () => window.api.clientes.obtenerExpediente(clienteId),
   });
 
-  if (!expediente) {
+  if (!cliente) {
     return (
-      <Modal open onClose={onClose} title="Expediente">
+      <Modal open onClose={onClose} title="Ficha de clienta">
         <p className="text-sm text-ink-500">Cargando...</p>
       </Modal>
     );
   }
 
-  const { cliente, citas, servicios, pagos } = expediente;
-
   return (
-    <Modal open onClose={onClose} title={`Expediente · ${cliente.nombreCompleto}`}>
+    <Modal open onClose={onClose} title={`Ficha de clienta · ${cliente.nombreCompleto}`}>
       <div className="flex flex-col gap-5">
-        <div className="flex items-center justify-between rounded-xl bg-beige-100 p-3">
-          <div className="text-sm text-ink-700">
-            <p className="font-medium text-ink-900">{cliente.codigoCliente}</p>
-            <p className="text-xs text-ink-500">{cliente.telefono || "Sin teléfono"}</p>
+        <div className="flex items-start justify-between gap-3 rounded-xl bg-beige-100 p-4">
+          <div>
+            <p className="text-lg font-semibold text-ink-900">{cliente.nombreCompleto}</p>
+            <p className="text-sm text-ink-500">{cliente.codigoCliente}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <Badge variant={cliente.activo ? "success" : "neutral"}>
+                {cliente.activo ? "Activo" : "Inactivo"}
+              </Badge>
+              {cliente.alertas.map((alerta) => (
+                <AlertaBadge key={alerta} alerta={alerta} clienteId={cliente.id} />
+              ))}
+            </div>
           </div>
-          {cliente.carpetaPath && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => window.api.carpetas.abrirCarpeta(cliente.carpetaPath!)}
-            >
-              <FolderOpen size={16} /> Abrir carpeta
+          <div className="flex flex-col gap-2">
+            <Button variant="secondary" size="sm" onClick={() => onEditar(cliente)}>
+              <Pencil size={14} /> Editar
             </Button>
-          )}
+            {cliente.carpetaPath && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => window.api.carpetas.abrirCarpeta(cliente.carpetaPath!)}
+              >
+                <FolderOpen size={14} /> Abrir carpeta
+              </Button>
+            )}
+          </div>
         </div>
 
-        <ExpedienteSeccion titulo="Citas">
-          {citas.length === 0 && <p className="text-xs text-ink-500">Sin citas registradas aún.</p>}
-          {citas.map((c) => (
-            <div key={c.id} className="flex justify-between text-sm">
-              <span className="text-ink-700">
-                {formatFecha(c.fecha)} {c.hora} — {c.servicioNombre ?? "Servicio"}
-              </span>
-              <Badge variant="neutral">{c.estado}</Badge>
-            </div>
-          ))}
-        </ExpedienteSeccion>
+        <div className="grid grid-cols-2 gap-4">
+          <DatoCliente label="Teléfono" valor={cliente.telefono} />
+          <DatoCliente label="Correo" valor={cliente.correo} />
+          <DatoCliente
+            label="Fecha de nacimiento"
+            valor={cliente.fechaNacimiento ? formatFecha(cliente.fechaNacimiento) : null}
+          />
+          <DatoCliente label="Fecha de alta" valor={formatFecha(cliente.fechaAlta)} />
+          <DatoCliente label="Contacto de emergencia" valor={cliente.contactoEmergencia} />
+          <DatoCliente label="Dirección" valor={cliente.direccion} />
+        </div>
 
-        <ExpedienteSeccion titulo="Servicios realizados">
-          {servicios.length === 0 && <p className="text-xs text-ink-500">Sin servicios registrados aún.</p>}
-          {servicios.map((s) => (
-            <div key={s.id} className="flex justify-between text-sm">
-              <span className="text-ink-700">
-                {formatFecha(s.fecha)} — {s.servicioNombre ?? "Servicio"} ({s.codigoServicio})
-              </span>
-              <span className="text-ink-500">${(s.precio ?? 0).toFixed(2)}</span>
-            </div>
-          ))}
-        </ExpedienteSeccion>
+        <div>
+          <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Notas</h3>
+          <p className="text-sm text-ink-700">{cliente.notas || "Sin notas."}</p>
+        </div>
+        <div>
+          <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Observaciones</h3>
+          <p className="text-sm text-ink-700">{cliente.observaciones || "Sin observaciones."}</p>
+        </div>
 
-        <ExpedienteSeccion titulo="Pagos">
-          {pagos.length === 0 && <p className="text-xs text-ink-500">Sin pagos registrados aún.</p>}
-          {pagos.map((p) => (
-            <div key={p.id} className="flex justify-between text-sm">
-              <span className="text-ink-700">
-                {formatFecha(p.fecha)} — {p.metodoPago}
-              </span>
-              <span className="text-ink-900">${p.monto.toFixed(2)}</span>
-            </div>
-          ))}
-        </ExpedienteSeccion>
+        <p className="text-xs text-ink-500">
+          Para ver sus citas, servicios y pagos, búscala por nombre o código en la sección{" "}
+          <span className="font-medium text-jacaranda-700">Citas</span>.
+        </p>
       </div>
     </Modal>
   );
 }
 
-function ExpedienteSeccion({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function DatoCliente({ label, valor }: { label: string; valor: string | null | undefined }) {
   return (
     <div>
-      <h3 className="mb-2 text-sm font-semibold text-jacaranda-700">{titulo}</h3>
-      <div className="flex flex-col gap-1.5">{children}</div>
+      <p className="text-xs font-medium text-ink-500">{label}</p>
+      <p className="text-sm text-ink-900">{valor || "—"}</p>
     </div>
   );
 }

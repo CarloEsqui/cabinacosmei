@@ -56,3 +56,16 @@ export function closeDb(): void {
   sqliteInstance = null;
   dbInstance = null;
 }
+
+/** Ejecuta `fn` con las llaves foráneas desactivadas (para un borrado masivo sin importar el orden). */
+export function ejecutarSinForeignKeys<T>(fn: () => T): T {
+  if (!sqliteInstance) {
+    throw new Error("La base de datos no ha sido inicializada. Llama a initDb() primero.");
+  }
+  sqliteInstance.pragma("foreign_keys = OFF");
+  try {
+    return fn();
+  } finally {
+    sqliteInstance.pragma("foreign_keys = ON");
+  }
+}

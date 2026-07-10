@@ -1,15 +1,70 @@
 import { randomUUID } from "node:crypto";
-import { desc, eq, like } from "drizzle-orm";
+import { and, desc, eq, inArray, like } from "drizzle-orm";
 import { getDb } from "../db";
-import { clientes, citas, serviciosRealizados, serviciosCatalogo, pagos } from "../db/schema";
+import { clientes, serviciosRealizados, pagos } from "../db/schema";
 import { obtenerConfig } from "./config";
 import { crearCarpetaCliente } from "./folders";
 import { registrarAccion } from "./bitacora";
+import { eliminarOFallarConHistorial } from "./errores";
+import { listarMantenimientosNoProgramados } from "./citas";
+import { fechaLocalIso } from "../../shared/fechas";
 import type { ClienteInput } from "../../shared/schemas";
-import type { ClienteExpediente } from "../../shared/types";
+import type { Cliente } from "../../shared/types";
 
-function hoyIso(): string {
-  return new Date().toISOString().slice(0, 10);
+const EPSILON_SALDO = 0.005;
+
+/**
+ * Saldo real por clienta = Σ precio de servicios cerrados (sin contar los que quedaron
+ * "cancelado" en su estatus de pago) − Σ monto de pagos cobrados. No se usa el campo manual
+ * `estatusPago` de servicios_realizados como fuente de verdad porque puede quedar
+ * desactualizado (ej. un servicio pagado por completo que alguien nunca marcó "pagado").
+ */
+export async function calcularSaldosPorCliente(clienteIds: string[]): Promise<Map<string, number>> {
+  const db = getDb();
+  const mapa = new Map<string, number>();
+  if (clienteIds.length === 0) return mapa;
+
+  const cargos = db
+    .select({ clienteId: serviciosRealizados.clienteId, precio: serviciosRealizados.precio })
+    .from(serviciosRealizados)
+    .where(
+      and(eq(serviciosRealizados.estatus, "cerrado"), inArray(serviciosRealizados.estatusPago, ["pagado", "parcial", "pendiente"])),
+    )
+    .all();
+  const cobros = db
+    .select({ clienteId: pagos.clienteId, monto: pagos.monto })
+    .from(pagos)
+    .where(eq(pagos.estatus, "cobrado"))
+    .all();
+
+  for (const id of clienteIds) mapa.set(id, 0);
+  for (const c of cargos) {
+    if (!mapa.has(c.clienteId)) continue;
+    mapa.set(c.clienteId, (mapa.get(c.clienteId) ?? 0) + (c.precio ?? 0));
+  }
+  for (const p of cobros) {
+    if (!mapa.has(p.clienteId)) continue;
+    mapa.set(p.clienteId, (mapa.get(p.clienteId) ?? 0) - p.monto);
+  }
+  return mapa;
+}
+
+/** Avisos rápidos por clienta: mantenimiento por contactar y/o saldo real pendiente. */
+async function calcularAlertasPorCliente(clienteIds: string[]): Promise<Map<string, string[]>> {
+  const mapa = new Map<string, string[]>();
+  if (clienteIds.length === 0) return mapa;
+
+  const mantenimientos = await listarMantenimientosNoProgramados();
+  const conMantenimiento = new Set(mantenimientos.map((m) => m.clienteId));
+  const saldos = await calcularSaldosPorCliente(clienteIds);
+
+  for (const id of clienteIds) {
+    const alertas: string[] = [];
+    if (conMantenimiento.has(id)) alertas.push("Por contactar");
+    if ((saldos.get(id) ?? 0) > EPSILON_SALDO) alertas.push("Pago pendiente");
+    mapa.set(id, alertas);
+  }
+  return mapa;
 }
 
 function generarCodigoCliente(): string {
@@ -28,9 +83,11 @@ function generarCodigoCliente(): string {
   return `CL-${String(maxN + 1).padStart(4, "0")}`;
 }
 
-export async function listarClientes() {
+export async function listarClientes(): Promise<Cliente[]> {
   const db = getDb();
-  return db.select().from(clientes).orderBy(desc(clientes.createdAt)).all();
+  const filas = db.select().from(clientes).orderBy(desc(clientes.createdAt)).all();
+  const alertas = await calcularAlertasPorCliente(filas.map((f) => f.id));
+  return filas.map((f) => ({ ...f, alertas: alertas.get(f.id) ?? [] }));
 }
 
 export async function crearCliente(input: ClienteInput, usuarioId?: string) {
@@ -50,7 +107,7 @@ export async function crearCliente(input: ClienteInput, usuarioId?: string) {
       fechaNacimiento: input.fechaNacimiento || null,
       direccion: input.direccion || null,
       contactoEmergencia: input.contactoEmergencia || null,
-      fechaAlta: hoyIso(),
+      fechaAlta: fechaLocalIso(),
       activo: input.activo,
       notas: input.notas || null,
       observaciones: input.observaciones || null,
@@ -96,53 +153,37 @@ export async function actualizarCliente(id: string, input: ClienteInput, usuario
   return db.select().from(clientes).where(eq(clientes.id, id)).get();
 }
 
-export async function obtenerExpediente(id: string): Promise<ClienteExpediente | null> {
+export async function eliminarCliente(id: string, usuarioId?: string): Promise<void> {
+  const db = getDb();
+  eliminarOFallarConHistorial(
+    () => db.delete(clientes).where(eq(clientes.id, id)).run(),
+    "Esta clienta tiene citas, servicios o pagos asociados. Desactívala en su lugar.",
+  );
+  registrarAccion(db, {
+    usuarioId,
+    accion: "cliente_eliminado",
+    entidadTipo: "cliente",
+    entidadId: id,
+  });
+}
+
+export async function setActivoCliente(id: string, activo: boolean, usuarioId?: string) {
+  const db = getDb();
+  db.update(clientes).set({ activo, updatedAt: new Date() }).where(eq(clientes.id, id)).run();
+  registrarAccion(db, {
+    usuarioId,
+    accion: activo ? "cliente_activado" : "cliente_desactivado",
+    entidadTipo: "cliente",
+    entidadId: id,
+  });
+  return db.select().from(clientes).where(eq(clientes.id, id)).get();
+}
+
+export async function obtenerExpediente(id: string): Promise<Cliente | null> {
   const db = getDb();
   const cliente = db.select().from(clientes).where(eq(clientes.id, id)).get();
   if (!cliente) return null;
 
-  const citasFilas = db
-    .select({
-      id: citas.id,
-      fecha: citas.fecha,
-      hora: citas.hora,
-      estado: citas.estado,
-      servicioNombre: serviciosCatalogo.nombre,
-    })
-    .from(citas)
-    .leftJoin(serviciosCatalogo, eq(citas.servicioCatalogoId, serviciosCatalogo.id))
-    .where(eq(citas.clienteId, id))
-    .orderBy(desc(citas.fecha))
-    .all();
-
-  const serviciosFilas = db
-    .select({
-      id: serviciosRealizados.id,
-      codigoServicio: serviciosRealizados.codigoServicio,
-      fecha: serviciosRealizados.fecha,
-      servicioNombre: serviciosCatalogo.nombre,
-      precio: serviciosRealizados.precio,
-      estatusPago: serviciosRealizados.estatusPago,
-      estatus: serviciosRealizados.estatus,
-    })
-    .from(serviciosRealizados)
-    .leftJoin(serviciosCatalogo, eq(serviciosRealizados.servicioCatalogoId, serviciosCatalogo.id))
-    .where(eq(serviciosRealizados.clienteId, id))
-    .orderBy(desc(serviciosRealizados.fecha))
-    .all();
-
-  const pagosFilas = db
-    .select({
-      id: pagos.id,
-      fecha: pagos.fecha,
-      monto: pagos.monto,
-      metodoPago: pagos.metodoPago,
-      estatus: pagos.estatus,
-    })
-    .from(pagos)
-    .where(eq(pagos.clienteId, id))
-    .orderBy(desc(pagos.fecha))
-    .all();
-
-  return { cliente, citas: citasFilas, servicios: serviciosFilas, pagos: pagosFilas };
+  const alertas = await calcularAlertasPorCliente([id]);
+  return { ...cliente, alertas: alertas.get(id) ?? [] };
 }

@@ -8,8 +8,9 @@ import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
 import { formatFecha } from "@/lib/format";
 import type { SalidaInput } from "@shared/schemas";
+import { fechaLocalIso } from "@shared/fechas";
 
-const HOY = new Date().toISOString().slice(0, 10);
+const HOY = fechaLocalIso();
 
 const TIPOS_SALIDA: { value: SalidaInput["tipoSalida"]; label: string }[] = [
   { value: "venta", label: "Venta" },

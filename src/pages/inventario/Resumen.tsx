@@ -1,12 +1,21 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
+import { ChevronDown, ChevronUp, Pencil, Lock, Unlock, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge, semaforoVariant } from "@/components/ui/badge";
-import { Select } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
+import { NumberInput } from "@/components/ui/number-input";
 import { SortableHeader } from "@/components/ui/sortable-header";
+import { useToast } from "@/components/ui/toast";
+import { mensajeDeError } from "@/lib/errores";
+import { useEliminarHibrido } from "@/hooks/use-eliminar-hibrido";
 import { formatFecha } from "@/lib/format";
+import type { Lote } from "@shared/types";
+import type { LoteInput } from "@shared/schemas";
 
 type OrdenKey = "nombre" | "stockTotal" | "loteMasProximoACaducar";
 
@@ -17,12 +26,23 @@ export function ResumenTab() {
   });
   const [expandido, setExpandido] = useState<string | null>(null);
 
+  const [searchParams] = useSearchParams();
   const [busqueda, setBusqueda] = useState("");
-  const [filtroTipo, setFiltroTipo] = useState("");
-  const [filtroProveedor, setFiltroProveedor] = useState("");
-  const [filtroSemaforo, setFiltroSemaforo] = useState("");
+  const [filtrosTipo, setFiltrosTipo] = useState<string[]>([]);
+  const [filtrosProveedor, setFiltrosProveedor] = useState<string[]>([]);
+  const [filtrosSemaforo, setFiltrosSemaforo] = useState<string[]>(
+    () => searchParams.get("semaforo")?.split(",").filter(Boolean) ?? [],
+  );
   const [orden, setOrden] = useState<OrdenKey>("nombre");
   const [direccion, setDireccion] = useState<"asc" | "desc">("asc");
+
+  // Si se llega desde un enlace (ej. la tarjeta "Stock bajo" del Dashboard, que puede traer
+  // varios estados a la vez: "critico,bajo") mientras esta pestaña ya estaba montada, el filtro
+  // debe reaccionar al cambio de la URL.
+  useEffect(() => {
+    const semaforo = searchParams.get("semaforo");
+    if (semaforo) setFiltrosSemaforo(semaforo.split(",").filter(Boolean));
+  }, [searchParams]);
 
   const tipos = useMemo(
     () => [...new Set(productos.map((p) => p.tipoProductoNombre).filter(Boolean))] as string[],
@@ -45,9 +65,9 @@ export function ResumenTab() {
   const filtrados = useMemo(() => {
     let lista = productos.filter((p) => {
       if (busqueda && !p.nombre.toLowerCase().includes(busqueda.toLowerCase())) return false;
-      if (filtroTipo && p.tipoProductoNombre !== filtroTipo) return false;
-      if (filtroProveedor && p.proveedorNombre !== filtroProveedor) return false;
-      if (filtroSemaforo && p.semaforo !== filtroSemaforo) return false;
+      if (filtrosTipo.length > 0 && !filtrosTipo.includes(p.tipoProductoNombre ?? "")) return false;
+      if (filtrosProveedor.length > 0 && !filtrosProveedor.includes(p.proveedorNombre ?? "")) return false;
+      if (filtrosSemaforo.length > 0 && !filtrosSemaforo.includes(p.semaforo)) return false;
       return true;
     });
 
@@ -64,7 +84,7 @@ export function ResumenTab() {
     });
 
     return lista;
-  }, [productos, busqueda, filtroTipo, filtroProveedor, filtroSemaforo, orden, direccion]);
+  }, [productos, busqueda, filtrosTipo, filtrosProveedor, filtrosSemaforo, orden, direccion]);
 
   return (
     <div className="p-8">
@@ -75,39 +95,34 @@ export function ResumenTab() {
           onChange={(e) => setBusqueda(e.target.value)}
           className="max-w-xs"
         />
-        <Select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} className="max-w-[160px]">
-          <option value="">Todos los tipos</option>
-          {tipos.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </Select>
-        <Select
-          value={filtroProveedor}
-          onChange={(e) => setFiltroProveedor(e.target.value)}
-          className="max-w-[180px]"
-        >
-          <option value="">Todos los proveedores</option>
-          {proveedores.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </Select>
-        <Select
-          value={filtroSemaforo}
-          onChange={(e) => setFiltroSemaforo(e.target.value)}
+        <MultiSelect
+          options={tipos.map((t) => ({ value: t, label: t }))}
+          selected={filtrosTipo}
+          onChange={setFiltrosTipo}
+          placeholder="Todos los tipos"
           className="max-w-[160px]"
-        >
-          <option value="">Todos los estados</option>
-          <option value="critico">Crítico</option>
-          <option value="bajo">Bajo</option>
-          <option value="adecuado">Adecuado</option>
-        </Select>
+        />
+        <MultiSelect
+          options={proveedores.map((p) => ({ value: p, label: p }))}
+          selected={filtrosProveedor}
+          onChange={setFiltrosProveedor}
+          placeholder="Todos los proveedores"
+          className="max-w-[180px]"
+        />
+        <MultiSelect
+          options={[
+            { value: "critico", label: "Crítico" },
+            { value: "bajo", label: "Bajo" },
+            { value: "adecuado", label: "Adecuado" },
+          ]}
+          selected={filtrosSemaforo}
+          onChange={setFiltrosSemaforo}
+          placeholder="Todos los estados"
+          className="max-w-[160px]"
+        />
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
             <tr>
@@ -167,11 +182,42 @@ function ProductoFila({
   expandido: boolean;
   onToggle: () => void;
 }) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const eliminarHibrido = useEliminarHibrido();
+  const [editando, setEditando] = useState<Lote | null>(null);
+
   const { data: lotes = [] } = useQuery({
     queryKey: ["lotesPorProducto", producto.id],
     queryFn: () => window.api.inventario.lotesPorProducto(producto.id),
     enabled: expandido,
   });
+
+  function invalidar() {
+    queryClient.invalidateQueries({ queryKey: ["lotesPorProducto", producto.id] });
+    queryClient.invalidateQueries({ queryKey: ["inventarioResumen"] });
+  }
+
+  async function alternarEstado(l: Lote) {
+    try {
+      await window.api.inventario.cambiarEstadoLote(l.id, l.estado === "bloqueado" ? "activo" : "bloqueado");
+      invalidar();
+      toast.success(l.estado === "bloqueado" ? "Lote desbloqueado." : "Lote bloqueado.");
+    } catch (e) {
+      toast.error(mensajeDeError(e));
+    }
+  }
+
+  function eliminar(l: Lote) {
+    eliminarHibrido({
+      nombre: `el lote "${l.numeroLote || l.id.slice(0, 8)}"`,
+      eliminar: () => window.api.inventario.eliminarLote(l.id),
+      desactivar: () => window.api.inventario.cambiarEstadoLote(l.id, "bloqueado"),
+      alternativaLabel: "Bloquear en su lugar",
+      mensajeExitoAlternativa: "Lote bloqueado.",
+      onExito: invalidar,
+    });
+  }
 
   return (
     <>
@@ -205,6 +251,7 @@ function ProductoFila({
                     <th className="px-2 py-1 text-left">Caducidad</th>
                     <th className="px-2 py-1 text-left">Disponible</th>
                     <th className="px-2 py-1 text-left">Estado</th>
+                    <th className="px-2 py-1"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -214,6 +261,43 @@ function ProductoFila({
                       <td className="px-2 py-1">{formatFecha(l.fechaCaducidad)}</td>
                       <td className="px-2 py-1">{l.cantidadDisponible}</td>
                       <td className="px-2 py-1 capitalize">{l.estado}</td>
+                      <td className="px-2 py-1 text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditando(l);
+                            }}
+                            title="Editar"
+                          >
+                            <Pencil size={12} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              alternarEstado(l);
+                            }}
+                            title={l.estado === "bloqueado" ? "Desbloquear" : "Bloquear"}
+                          >
+                            {l.estado === "bloqueado" ? <Unlock size={12} /> : <Lock size={12} />}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              eliminar(l);
+                            }}
+                            title="Eliminar"
+                          >
+                            <Trash2 size={12} className="text-danger-500" />
+                          </Button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -222,6 +306,96 @@ function ProductoFila({
           </td>
         </tr>
       )}
+
+      {editando && (
+        <LoteEditModal
+          lote={editando}
+          onClose={() => setEditando(null)}
+          onGuardado={() => {
+            invalidar();
+            setEditando(null);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function LoteEditModal({
+  lote,
+  onClose,
+  onGuardado,
+}: {
+  lote: Lote;
+  onClose: () => void;
+  onGuardado: () => void;
+}) {
+  const toast = useToast();
+  const [form, setForm] = useState<LoteInput>({
+    numeroLote: lote.numeroLote ?? "",
+    fechaCaducidad: lote.fechaCaducidad ?? "",
+    ubicacion: lote.ubicacion ?? "",
+    notas: lote.notas ?? "",
+    costoUnitarioLote: lote.costoUnitarioLote ?? 0,
+  });
+
+  const guardar = useMutation({
+    mutationFn: () => window.api.inventario.actualizarLote(lote.id, form),
+    onSuccess: () => {
+      toast.success("Lote actualizado.");
+      onGuardado();
+    },
+    onError: (e) => toast.error(mensajeDeError(e)),
+  });
+
+  return (
+    <Modal open onClose={onClose} title={`Editar lote · ${lote.productoNombre}`}>
+      <form
+        className="flex flex-col gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          guardar.mutate();
+        }}
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink-500">Número de lote</label>
+            <Input
+              value={form.numeroLote}
+              onChange={(e) => setForm({ ...form, numeroLote: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink-500">Fecha de caducidad</label>
+            <Input
+              type="date"
+              value={form.fechaCaducidad}
+              onChange={(e) => setForm({ ...form, fechaCaducidad: e.target.value })}
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink-500">Ubicación</label>
+            <Input value={form.ubicacion} onChange={(e) => setForm({ ...form, ubicacion: e.target.value })} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink-500">Costo unitario</label>
+            <NumberInput
+              placeholder="0.00"
+              value={form.costoUnitarioLote}
+              onValueChange={(v) => setForm({ ...form, costoUnitarioLote: v ?? 0 })}
+            />
+          </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-ink-500">Notas</label>
+          <Input value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} />
+        </div>
+        <Button type="submit" disabled={guardar.isPending} className="mt-2">
+          Guardar
+        </Button>
+      </form>
+    </Modal>
   );
 }

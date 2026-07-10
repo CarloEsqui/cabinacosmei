@@ -1,14 +1,28 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { CalendarClock, Bell, PackageX, Timer, Lock, CalendarDays } from "lucide-react";
+import {
+  CalendarClock,
+  Bell,
+  PackageX,
+  Timer,
+  Lock,
+  CalendarDays,
+  Wallet,
+  Receipt,
+  Sparkles,
+  Users,
+  UserPlus,
+  Package,
+} from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatFecha } from "@/lib/format";
+import { fechaLocalIso, sumarDiasIso } from "@shared/fechas";
 
-const HOY = new Date().toISOString().slice(0, 10);
-const EN_7_DIAS = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const HOY = fechaLocalIso();
+const EN_7_DIAS = sumarDiasIso(HOY, 7);
 
 export function DashboardPage() {
   const { data: resumen = [] } = useQuery({
@@ -39,6 +53,14 @@ export function DashboardPage() {
     queryKey: ["corteResumenPendiente"],
     queryFn: () => window.api.corte.resumenPendiente(),
   });
+  const { data: kpis } = useQuery({
+    queryKey: ["dashboardResumen"],
+    queryFn: () => window.api.dashboard.resumen(),
+  });
+  const { data: clientes = [] } = useQuery({
+    queryKey: ["clientes"],
+    queryFn: () => window.api.clientes.listar(),
+  });
 
   const horaActual = new Date().toTimeString().slice(0, 5);
   const esHoraDelCorte =
@@ -62,7 +84,7 @@ export function DashboardPage() {
       label: "Citas próximas",
       hint: "Hoy, mañana y próximos días",
       valor: citasActivas.length,
-      to: "/citas",
+      to: `/citas?desde=${HOY}&hasta=${EN_7_DIAS}`,
       items: citasActivas
         .slice(0, 4)
         .map((c) => `${c.clienteNombre} · ${formatFecha(c.fecha)} ${c.hora} · ${c.servicioNombre ?? ""}`),
@@ -72,7 +94,7 @@ export function DashboardPage() {
       label: "Mantenimientos no programados",
       hint: "Clientas que ya deberían agendar",
       valor: mantenimientos.length,
-      to: "/citas",
+      to: "/citas?vista=mantenimientos",
       items: mantenimientos
         .slice(0, 4)
         .map((m) => `${m.clienteNombre} · sugerida ${formatFecha(m.fechaSugerida)}`),
@@ -82,7 +104,7 @@ export function DashboardPage() {
       label: "Stock bajo",
       hint: "Productos por debajo del umbral",
       valor: stockBajoLista.length,
-      to: "/inventario",
+      to: "/inventario?tab=resumen&semaforo=critico,bajo",
       items: stockBajoLista.slice(0, 4).map((p) => `${p.nombre} · ${p.stockTotal} disponibles`),
     },
     {
@@ -90,7 +112,7 @@ export function DashboardPage() {
       label: "Caducidad",
       hint: "Lotes vencidos o próximos a vencer",
       valor: caducidadLista.length,
-      to: "/inventario",
+      to: "/inventario?tab=caducidad",
       items: caducidadLista
         .slice(0, 4)
         .map(
@@ -99,6 +121,18 @@ export function DashboardPage() {
         ),
     },
   ];
+
+  const mostrarOnboarding = clientes.length === 0 && resumen.length === 0;
+
+  const KPIS = kpis
+    ? [
+        { icon: Wallet, label: "Cobrado hoy", valor: `$${kpis.cobradoHoy.toFixed(2)}` },
+        { icon: Lock, label: "Pendiente de cortar", valor: `$${kpis.pendienteDeCortar.toFixed(2)}` },
+        { icon: Sparkles, label: "Servicios del mes", valor: `${kpis.serviciosDelMes}` },
+        { icon: Receipt, label: "Ticket promedio", valor: `$${kpis.ticketPromedioMes.toFixed(2)}` },
+        { icon: Users, label: "Clientas activas", valor: `${kpis.clientasActivas}` },
+      ]
+    : [];
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -118,6 +152,50 @@ export function DashboardPage() {
           <Link to="/corte">
             <Button size="sm">Hacer corte</Button>
           </Link>
+        </div>
+      )}
+
+      {mostrarOnboarding && (
+        <div className="mx-8 mt-6 rounded-2xl border border-jacaranda-300 bg-jacaranda-50 p-5">
+          <p className="font-medium text-jacaranda-800">Primeros pasos</p>
+          <p className="mt-1 text-sm text-jacaranda-700">
+            Empieza registrando tus productos y a tus clientas para aprovechar el resto de la app.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link to="/configuracion">
+              <Button size="sm" variant="secondary">
+                <Package size={16} /> Agregar productos
+              </Button>
+            </Link>
+            <Link to="/clientes">
+              <Button size="sm" variant="secondary">
+                <UserPlus size={16} /> Agregar clienta
+              </Button>
+            </Link>
+            <Link to="/agenda">
+              <Button size="sm" variant="secondary">
+                <CalendarDays size={16} /> Agendar cita
+              </Button>
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {kpis && !mostrarOnboarding && (
+        <div className="grid grid-cols-2 gap-4 px-8 pt-6 md:grid-cols-3 xl:grid-cols-5">
+          {KPIS.map(({ icon: Icon, label, valor }) => (
+            <Card key={label}>
+              <CardContent className="flex items-center gap-3 pt-5">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-jacaranda-100 text-jacaranda-600">
+                  <Icon size={18} />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-lg font-semibold text-ink-900">{valor}</p>
+                  <p className="truncate text-xs text-ink-500">{label}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
 

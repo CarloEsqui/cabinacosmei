@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { HashRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ToastProvider } from "@/components/ui/toast";
+import { ConfirmProvider } from "@/components/ui/confirm-dialog";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { LockScreen } from "@/pages/Lock";
 import { AppShell } from "@/components/AppShell";
 import { DashboardPage } from "@/pages/Dashboard";
@@ -22,21 +25,27 @@ export default function App() {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <HashRouter>
-        <Routes>
-          <Route element={<AppShell />}>
-            <Route index element={<DashboardPage />} />
-            <Route path="agenda" element={<AgendaPage />} />
-            <Route path="citas" element={<CitasPage />} />
-            <Route path="clientes" element={<ClientesPage />} />
-            <Route path="inventario" element={<InventarioPage />} />
-            <Route path="corte" element={<CortePage />} />
-            <Route path="reportes" element={<ReportesPage />} />
-            <Route path="configuracion" element={<ConfiguracionPage />} />
-          </Route>
-        </Routes>
-      </HashRouter>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <ConfirmProvider>
+            <HashRouter>
+              <Routes>
+                <Route element={<AppShell />}>
+                  <Route index element={<DashboardPage />} />
+                  <Route path="agenda" element={<AgendaPage />} />
+                  <Route path="citas" element={<CitasPage />} />
+                  <Route path="clientes" element={<ClientesPage />} />
+                  <Route path="inventario" element={<InventarioPage />} />
+                  <Route path="corte" element={<CortePage />} />
+                  <Route path="reportes" element={<ReportesPage />} />
+                  <Route path="configuracion" element={<ConfiguracionPage />} />
+                </Route>
+              </Routes>
+            </HashRouter>
+          </ConfirmProvider>
+        </ToastProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }

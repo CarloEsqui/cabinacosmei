@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Badge } from "@/components/ui/badge";
 import { formatFecha } from "@/lib/format";
 import type { MovimientosFiltro } from "@shared/schemas";
@@ -50,37 +50,29 @@ export function MovimientosTab() {
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-ink-500">Producto</label>
-          <Select
-            value={filtro.productoId ?? ""}
-            onChange={(e) => setFiltro({ ...filtro, productoId: e.target.value || undefined })}
+          <MultiSelect
+            options={productos.map((p) => ({ value: p.id, label: p.nombre }))}
+            selected={filtro.productoIds ?? []}
+            onChange={(productoIds) =>
+              setFiltro({ ...filtro, productoIds: productoIds.length > 0 ? productoIds : undefined })
+            }
+            placeholder="Todos"
             className="min-w-[180px]"
-          >
-            <option value="">Todos</option>
-            {productos.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nombre}
-              </option>
-            ))}
-          </Select>
+          />
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-ink-500">Tipo</label>
-          <Select
-            value={filtro.tipo ?? ""}
-            onChange={(e) => setFiltro({ ...filtro, tipo: e.target.value || undefined })}
+          <MultiSelect
+            options={Object.entries(TIPO_LABEL).map(([valor, label]) => ({ value: valor, label }))}
+            selected={filtro.tipos ?? []}
+            onChange={(tipos) => setFiltro({ ...filtro, tipos: tipos.length > 0 ? tipos : undefined })}
+            placeholder="Todos"
             className="min-w-[160px]"
-          >
-            <option value="">Todos</option>
-            {Object.entries(TIPO_LABEL).map(([valor, label]) => (
-              <option key={valor} value={valor}>
-                {label}
-              </option>
-            ))}
-          </Select>
+          />
         </div>
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
             <tr>

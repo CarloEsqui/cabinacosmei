@@ -3,6 +3,7 @@ import { desc, eq, like } from "drizzle-orm";
 import { getDb } from "../db";
 import { productos, tiposProducto } from "../db/schema";
 import { registrarAccion } from "./bitacora";
+import { eliminarOFallarConHistorial } from "./errores";
 import type { ProductoInput } from "../../shared/schemas";
 
 function prefijoDesdeNombre(nombreTipo: string | undefined): string {
@@ -101,6 +102,32 @@ export async function actualizarProducto(id: string, input: ProductoInput, usuar
     entidadTipo: "producto",
     entidadId: id,
     detalle: input.nombre,
+  });
+  return db.select().from(productos).where(eq(productos.id, id)).get();
+}
+
+export async function eliminarProducto(id: string, usuarioId?: string): Promise<void> {
+  const db = getDb();
+  eliminarOFallarConHistorial(
+    () => db.delete(productos).where(eq(productos.id, id)).run(),
+    "Este producto tiene lotes, entradas o salidas asociadas. Desactívalo en su lugar.",
+  );
+  registrarAccion(db, {
+    usuarioId,
+    accion: "producto_eliminado",
+    entidadTipo: "producto",
+    entidadId: id,
+  });
+}
+
+export async function setActivoProducto(id: string, activo: boolean, usuarioId?: string) {
+  const db = getDb();
+  db.update(productos).set({ activo, updatedAt: new Date() }).where(eq(productos.id, id)).run();
+  registrarAccion(db, {
+    usuarioId,
+    accion: activo ? "producto_activado" : "producto_desactivado",
+    entidadTipo: "producto",
+    entidadId: id,
   });
   return db.select().from(productos).where(eq(productos.id, id)).get();
 }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Power, PowerOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,9 @@ import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/ui/toast";
+import { mensajeDeError } from "@/lib/errores";
+import { useEliminarHibrido } from "@/hooks/use-eliminar-hibrido";
 import type { ServicioCatalogo } from "@shared/types";
 import type { ServicioCatalogoInput } from "@shared/schemas";
 
@@ -25,6 +28,8 @@ const VACIO: ServicioCatalogoInput = {
 
 export function ServiciosTab() {
   const queryClient = useQueryClient();
+  const toast = useToast();
+  const eliminarHibrido = useEliminarHibrido();
   const { data: servicios = [] } = useQuery({
     queryKey: ["serviciosCatalogo"],
     queryFn: () => window.api.serviciosCatalogo.listar(),
@@ -39,11 +44,44 @@ export function ServiciosTab() {
       if (editando) return window.api.serviciosCatalogo.actualizar(editando.id, form);
       return window.api.serviciosCatalogo.crear(form);
     },
-    onSuccess: () => {
+    onSuccess: (servicio) => {
       queryClient.invalidateQueries({ queryKey: ["serviciosCatalogo"] });
-      setModalAbierto(false);
+      if (editando) {
+        setModalAbierto(false);
+        toast.success("Servicio actualizado.");
+      } else {
+        // En vez de cerrar, se deja el modal abierto sobre el servicio recién creado para que
+        // se pueda definir de una vez su plantilla de insumos (antes solo era posible reabriendo
+        // "editar" después, lo que hacía que casi nadie la usara).
+        setEditando(servicio);
+        toast.success("Servicio creado. Ya puedes agregar su plantilla de insumos abajo.");
+      }
     },
+    onError: (e) => toast.error(mensajeDeError(e)),
   });
+
+  function invalidar() {
+    queryClient.invalidateQueries({ queryKey: ["serviciosCatalogo"] });
+  }
+
+  async function alternarActivo(s: ServicioCatalogo) {
+    try {
+      await window.api.serviciosCatalogo.setActivo(s.id, !s.activo);
+      invalidar();
+      toast.success(s.activo ? "Servicio desactivado." : "Servicio activado.");
+    } catch (e) {
+      toast.error(mensajeDeError(e));
+    }
+  }
+
+  function eliminar(s: ServicioCatalogo) {
+    eliminarHibrido({
+      nombre: `el servicio "${s.nombre}"`,
+      eliminar: () => window.api.serviciosCatalogo.eliminar(s.id),
+      desactivar: () => window.api.serviciosCatalogo.setActivo(s.id, false),
+      onExito: invalidar,
+    });
+  }
 
   function abrirNuevo() {
     setEditando(null);
@@ -78,7 +116,7 @@ export function ServiciosTab() {
         </Button>
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
             <tr>
@@ -103,9 +141,22 @@ export function ServiciosTab() {
                   <Badge variant={s.activo ? "success" : "neutral"}>{s.activo ? "Activo" : "Inactivo"}</Badge>
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <Button variant="ghost" size="sm" onClick={() => abrirEditar(s)}>
-                    <Pencil size={14} />
-                  </Button>
+                  <div className="flex justify-end gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => abrirEditar(s)} title="Editar">
+                      <Pencil size={14} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => alternarActivo(s)}
+                      title={s.activo ? "Desactivar" : "Activar"}
+                    >
+                      {s.activo ? <PowerOff size={14} /> : <Power size={14} />}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => eliminar(s)} title="Eliminar">
+                      <Trash2 size={14} className="text-danger-500" />
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -215,6 +266,7 @@ interface FilaReceta {
 
 function RecetaEditor({ servicioCatalogoId }: { servicioCatalogoId: string }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const { data: receta = [] } = useQuery({
     queryKey: ["recetaServicio", servicioCatalogoId],
     queryFn: () => window.api.serviciosCatalogo.listarReceta(servicioCatalogoId),
@@ -236,7 +288,9 @@ function RecetaEditor({ servicioCatalogoId }: { servicioCatalogoId: string }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["recetaServicio", servicioCatalogoId] });
       setFilas(null);
+      toast.success("Insumos guardados.");
     },
+    onError: (e) => toast.error(mensajeDeError(e)),
   });
 
   function actualizar(i: number, cambios: Partial<FilaReceta>) {
@@ -252,7 +306,7 @@ function RecetaEditor({ servicioCatalogoId }: { servicioCatalogoId: string }) {
   return (
     <div className="mt-5 border-t border-beige-300 pt-4">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-jacaranda-700">Insumos por defecto</h3>
+        <h3 className="text-sm font-semibold text-jacaranda-700">Plantilla de insumos (por defecto)</h3>
         <Button type="button" variant="ghost" size="sm" onClick={agregar}>
           <Plus size={14} /> Agregar
         </Button>

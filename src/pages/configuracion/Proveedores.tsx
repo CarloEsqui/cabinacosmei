@@ -1,14 +1,17 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, Trash2, Power, PowerOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { NumberInput } from "@/components/ui/number-input";
 import { SortableHeader } from "@/components/ui/sortable-header";
+import { useToast } from "@/components/ui/toast";
+import { mensajeDeError } from "@/lib/errores";
+import { useEliminarHibrido } from "@/hooks/use-eliminar-hibrido";
 import type { Proveedor } from "@shared/types";
 import type { ProveedorInput } from "@shared/schemas";
 
@@ -29,10 +32,35 @@ const VACIO: ProveedorInput = {
 
 export function ProveedoresTab() {
   const queryClient = useQueryClient();
+  const toast = useToast();
+  const eliminarHibrido = useEliminarHibrido();
   const { data: proveedores = [] } = useQuery({
     queryKey: ["proveedores"],
     queryFn: () => window.api.proveedores.listar(),
   });
+
+  function invalidar() {
+    queryClient.invalidateQueries({ queryKey: ["proveedores"] });
+  }
+
+  async function alternarActivo(p: Proveedor) {
+    try {
+      await window.api.proveedores.setActivo(p.id, !p.activo);
+      invalidar();
+      toast.success(p.activo ? "Proveedor desactivado." : "Proveedor activado.");
+    } catch (e) {
+      toast.error(mensajeDeError(e));
+    }
+  }
+
+  function eliminar(p: Proveedor) {
+    eliminarHibrido({
+      nombre: `el proveedor "${p.nombreComercial}"`,
+      eliminar: () => window.api.proveedores.eliminar(p.id),
+      desactivar: () => window.api.proveedores.setActivo(p.id, false),
+      onExito: invalidar,
+    });
+  }
 
   const [modalAbierto, setModalAbierto] = useState(false);
   const [editando, setEditando] = useState<Proveedor | null>(null);
@@ -48,7 +76,9 @@ export function ProveedoresTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["proveedores"] });
       setModalAbierto(false);
+      toast.success(editando ? "Proveedor actualizado." : "Proveedor creado.");
     },
+    onError: (e) => toast.error(mensajeDeError(e)),
   });
 
   function abrirNuevo() {
@@ -75,7 +105,7 @@ export function ProveedoresTab() {
   }
 
   const [busqueda, setBusqueda] = useState("");
-  const [filtroEstatus, setFiltroEstatus] = useState("");
+  const [filtrosEstatus, setFiltrosEstatus] = useState<string[]>([]);
   const [orden, setOrden] = useState<OrdenKey>("nombreComercial");
   const [direccion, setDireccion] = useState<"asc" | "desc">("asc");
 
@@ -96,8 +126,7 @@ export function ProveedoresTab() {
         !(p.contacto ?? "").toLowerCase().includes(busqueda.toLowerCase())
       )
         return false;
-      if (filtroEstatus === "activo" && !p.activo) return false;
-      if (filtroEstatus === "inactivo" && p.activo) return false;
+      if (filtrosEstatus.length > 0 && !filtrosEstatus.includes(p.activo ? "activo" : "inactivo")) return false;
       return true;
     });
     lista = [...lista].sort((a, b) => {
@@ -108,7 +137,7 @@ export function ProveedoresTab() {
       return direccion === "asc" ? cmp : -cmp;
     });
     return lista;
-  }, [proveedores, busqueda, filtroEstatus, orden, direccion]);
+  }, [proveedores, busqueda, filtrosEstatus, orden, direccion]);
 
   return (
     <div className="p-8">
@@ -126,18 +155,19 @@ export function ProveedoresTab() {
           onChange={(e) => setBusqueda(e.target.value)}
           className="max-w-xs"
         />
-        <Select
-          value={filtroEstatus}
-          onChange={(e) => setFiltroEstatus(e.target.value)}
+        <MultiSelect
+          options={[
+            { value: "activo", label: "Activo" },
+            { value: "inactivo", label: "Inactivo" },
+          ]}
+          selected={filtrosEstatus}
+          onChange={setFiltrosEstatus}
+          placeholder="Todos los estatus"
           className="max-w-[160px]"
-        >
-          <option value="">Todos los estatus</option>
-          <option value="activo">Activo</option>
-          <option value="inactivo">Inactivo</option>
-        </Select>
+        />
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
             <tr>
@@ -168,9 +198,22 @@ export function ProveedoresTab() {
                   </Badge>
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <Button variant="ghost" size="sm" onClick={() => abrirEditar(p)}>
-                    <Pencil size={14} />
-                  </Button>
+                  <div className="flex justify-end gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => abrirEditar(p)} title="Editar">
+                      <Pencil size={14} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => alternarActivo(p)}
+                      title={p.activo ? "Desactivar" : "Activar"}
+                    >
+                      {p.activo ? <PowerOff size={14} /> : <Power size={14} />}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => eliminar(p)} title="Eliminar">
+                      <Trash2 size={14} className="text-danger-500" />
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}

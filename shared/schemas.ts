@@ -70,6 +70,15 @@ export const salidaInputSchema = z.object({
 });
 export type SalidaInput = z.infer<typeof salidaInputSchema>;
 
+export const loteInputSchema = z.object({
+  numeroLote: z.string().optional(),
+  fechaCaducidad: z.string().optional(),
+  ubicacion: z.string().optional(),
+  notas: z.string().optional(),
+  costoUnitarioLote: z.number().nonnegative().default(0),
+});
+export type LoteInput = z.infer<typeof loteInputSchema>;
+
 export const clienteInputSchema = z.object({
   nombreCompleto: z.string().min(1, "El nombre es obligatorio"),
   telefono: z.string().optional(),
@@ -109,7 +118,7 @@ export type CitaInput = z.infer<typeof citaInputSchema>;
 export const citasFiltroSchema = z.object({
   fechaDesde: z.string().optional(),
   fechaHasta: z.string().optional(),
-  estado: z.string().optional(),
+  estados: z.array(z.string()).optional(),
   clienteId: z.string().optional(),
 });
 export type CitasFiltro = z.infer<typeof citasFiltroSchema>;
@@ -166,10 +175,10 @@ export type BitacoraFiltro = z.infer<typeof bitacoraFiltroSchema>;
 export const movimientosFiltroSchema = z.object({
   fechaDesde: z.string().optional(),
   fechaHasta: z.string().optional(),
-  productoId: z.string().optional(),
+  productoIds: z.array(z.string()).optional(),
   loteId: z.string().optional(),
   clienteId: z.string().optional(),
   proveedorId: z.string().optional(),
-  tipo: z.string().optional(),
+  tipos: z.array(z.string()).optional(),
 });
 export type MovimientosFiltro = z.infer<typeof movimientosFiltroSchema>;

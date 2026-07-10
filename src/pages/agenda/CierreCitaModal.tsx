@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
 import { Badge } from "@/components/ui/badge";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { formatFecha } from "@/lib/format";
 
 interface FilaProducto {
   productoId: string;
@@ -16,10 +18,13 @@ interface FilaProducto {
 interface CierreCitaModalProps {
   citaId: string;
   onClose: () => void;
+  /** Se llama cuando la cita cerrada sugiere una fecha de mantenimiento y la usuaria confirma agendarla ya. */
+  onAgendarMantenimiento: (clienteId: string, fecha: string) => void;
 }
 
-export function CierreCitaModal({ citaId, onClose }: CierreCitaModalProps) {
+export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: CierreCitaModalProps) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
 
   const { data: servicio } = useQuery({
     queryKey: ["abrirCierre", citaId],
@@ -61,7 +66,17 @@ export function CierreCitaModal({ citaId, onClose }: CierreCitaModalProps) {
   const [error, setError] = useState<string | null>(null);
 
   const precioEfectivo = precio ?? servicio?.precio ?? 0;
-  const montoEfectivo = monto ?? precioEfectivo;
+  // El monto NUNCA debe asumir "precio completo" por defecto salvo cuando el estatus es
+  // "pagado": si no, un cierre con estatus "parcial" o "pendiente" en el que nadie tocó el campo
+  // Monto terminaba registrando un pago por el precio completo (esto es lo que distorsionaba
+  // "cobrado hoy" y el corte con los pagos parciales).
+  const montoPorDefecto = estatusPago === "pagado" ? precioEfectivo : 0;
+  const montoEfectivo = monto ?? montoPorDefecto;
+
+  function elegirEstatusPago(op: typeof estatusPago) {
+    setEstatusPago(op);
+    setMonto(null);
+  }
 
   const subirComprobante = useMutation({
     mutationFn: () => {
@@ -88,12 +103,25 @@ export function CierreCitaModal({ citaId, onClose }: CierreCitaModalProps) {
         pinOverride: usarPin ? pin : undefined,
       });
     },
-    onSuccess: () => {
+    onSuccess: async (actualizado) => {
       queryClient.invalidateQueries({ queryKey: ["citas"] });
       queryClient.invalidateQueries({ queryKey: ["inventarioResumen"] });
       queryClient.invalidateQueries({ queryKey: ["movimientos"] });
       queryClient.invalidateQueries({ queryKey: ["clientes"] });
+      queryClient.invalidateQueries({ queryKey: ["mantenimientosNoProgramados"] });
       onClose();
+
+      if (actualizado.proximaCitaSugerida) {
+        const resultado = await confirm({
+          titulo: "Agendar mantenimiento",
+          mensaje: `${actualizado.clienteNombre} debería regresar el ${formatFecha(actualizado.proximaCitaSugerida)} para su próximo mantenimiento. ¿Quieres agendar esa cita ahora?`,
+          confirmarLabel: "Agendar ahora",
+          cancelarLabel: "Ahora no",
+        });
+        if (resultado === "confirmado") {
+          onAgendarMantenimiento(actualizado.clienteId, actualizado.proximaCitaSugerida);
+        }
+      }
     },
     onError: (e) => setError(e instanceof Error ? e.message : "No se pudo cerrar la cita."),
   });
@@ -187,7 +215,7 @@ export function CierreCitaModal({ citaId, onClose }: CierreCitaModalProps) {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-500">Monto</label>
-              <NumberInput placeholder="0.00" value={monto ?? precioEfectivo} onValueChange={setMonto} />
+              <NumberInput placeholder="0.00" value={montoEfectivo} onValueChange={setMonto} />
             </div>
           </div>
           <div className="mt-3">
@@ -199,7 +227,7 @@ export function CierreCitaModal({ citaId, onClose }: CierreCitaModalProps) {
                   type="button"
                   size="sm"
                   variant={estatusPago === op ? "primary" : "secondary"}
-                  onClick={() => setEstatusPago(op)}
+                  onClick={() => elegirEstatusPago(op)}
                 >
                   {op}
                 </Button>

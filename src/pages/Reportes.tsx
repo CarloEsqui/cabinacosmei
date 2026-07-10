@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatFecha } from "@/lib/format";
+import { fechaLocalIso, inicioDeMesIso } from "@shared/fechas";
 import type { RangoFechas } from "@shared/schemas";
 
 const TABS = [
@@ -16,17 +17,9 @@ const TABS = [
   { value: "clientes", label: "Clientes" },
 ];
 
-function inicioMesIso(): string {
-  const hoy = new Date();
-  return new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().slice(0, 10);
-}
-function hoyIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function ReportesPage() {
   const [tab, setTab] = useState("cobranza");
-  const [rango, setRango] = useState<RangoFechas>({ fechaDesde: inicioMesIso(), fechaHasta: hoyIso() });
+  const [rango, setRango] = useState<RangoFechas>({ fechaDesde: inicioDeMesIso(), fechaHasta: fechaLocalIso() });
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -115,7 +108,7 @@ function CobranzaTab({ rango }: { rango: RangoFechas }) {
         <ExportarBoton tipo="cobranza" rango={rango} />
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
             <tr>
@@ -188,7 +181,7 @@ function InventarioTab({ rango }: { rango: RangoFechas }) {
         <ExportarBoton tipo="inventario" rango={rango} />
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
             <tr>
@@ -248,7 +241,7 @@ function ServiciosTab({ rango }: { rango: RangoFechas }) {
         <ExportarBoton tipo="servicios" rango={rango} />
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
             <tr>

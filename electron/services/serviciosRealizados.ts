@@ -1,19 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { eq, like } from "drizzle-orm";
+import { and, eq, like } from "drizzle-orm";
 import { getDb } from "../db";
-import { serviciosRealizados, citas, clientes, serviciosCatalogo } from "../db/schema";
+import { serviciosRealizados, citas, clientes, serviciosCatalogo, productos, salidasInventario, pagos } from "../db/schema";
 import { crearCarpetaServicio } from "./folders";
 import { tieneComprobante } from "./archivos";
 import { registrarSalida } from "./inventario";
 import { registrarPago } from "./pagos";
 import { verificarPin } from "./auth";
 import { registrarAccion } from "./bitacora";
+import { sumarDiasIso } from "../../shared/fechas";
 import type { CierreCitaInput } from "../../shared/schemas";
-import type { ServicioRealizado } from "../../shared/types";
-
-function hoyIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+import type { ServicioRealizado, DetalleServicioRealizado } from "../../shared/types";
 
 function generarCodigoServicio(): string {
   const db = getDb();
@@ -86,7 +83,9 @@ export async function abrirCierre(citaId: string): Promise<ServicioRealizado> {
     .get();
   if (!servicioCat) throw new Error("El servicio del catálogo no existe.");
 
-  const fecha = hoyIso();
+  // Se usa la fecha programada de la cita (no "hoy"), para que un cierre tardío o retroactivo
+  // calcule bien la próxima fecha de mantenimiento sugerida.
+  const fecha = cita.fecha;
   const codigoServicio = generarCodigoServicio();
   const carpetaPath = cliente.carpetaPath
     ? crearCarpetaServicio(cliente.carpetaPath, codigoServicio, fecha, servicioCat.nombre)
@@ -134,7 +133,9 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
     cerradoConPinOverride = true;
   }
 
-  const fecha = hoyIso();
+  // Misma fecha que se guardó al abrir el cierre (la de la cita), para que consumos, pago y el
+  // cálculo de "próxima cita sugerida" queden consistentes con cuándo ocurrió el servicio.
+  const fecha = servicio.fecha;
 
   // Cada salida ya es atómica por sí misma (inventario.registrarSalida abre su propia transacción).
   for (const p of input.productosConsumidos) {
@@ -172,9 +173,7 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
 
   let proximaCitaSugerida: string | null = null;
   if (servicioCat?.periodicidadMantenimientoDias) {
-    const proxima = new Date(fecha);
-    proxima.setDate(proxima.getDate() + servicioCat.periodicidadMantenimientoDias);
-    proximaCitaSugerida = proxima.toISOString().slice(0, 10);
+    proximaCitaSugerida = sumarDiasIso(fecha, servicioCat.periodicidadMantenimientoDias);
   }
 
   db.transaction((tx) => {
@@ -234,4 +233,61 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
     .where(eq(serviciosRealizados.id, servicio.id))
     .get()!;
   return mapear(actualizado);
+}
+
+/**
+ * Expediente de una cita ya cerrada: insumos usados, productos vendidos y estado real de pago.
+ * Se usa para expandir el detalle de una cita en la lista, en vez de un "expediente" separado.
+ */
+export async function obtenerDetalle(servicioRealizadoId: string): Promise<DetalleServicioRealizado | null> {
+  const db = getDb();
+  const servicio = db
+    .select()
+    .from(serviciosRealizados)
+    .where(eq(serviciosRealizados.id, servicioRealizadoId))
+    .get();
+  if (!servicio) return null;
+
+  const productosConsumidos = db
+    .select({ productoNombre: productos.nombre, cantidad: salidasInventario.cantidad })
+    .from(salidasInventario)
+    .innerJoin(productos, eq(salidasInventario.productoId, productos.id))
+    .where(
+      and(
+        eq(salidasInventario.servicioRealizadoId, servicioRealizadoId),
+        eq(salidasInventario.tipoSalida, "consumo_servicio"),
+      ),
+    )
+    .all();
+
+  const productosVendidos = db
+    .select({ productoNombre: productos.nombre, cantidad: salidasInventario.cantidad })
+    .from(salidasInventario)
+    .innerJoin(productos, eq(salidasInventario.productoId, productos.id))
+    .where(
+      and(eq(salidasInventario.servicioRealizadoId, servicioRealizadoId), eq(salidasInventario.tipoSalida, "venta")),
+    )
+    .all();
+
+  const pagosFilas = db
+    .select({ fecha: pagos.fecha, monto: pagos.monto, metodoPago: pagos.metodoPago })
+    .from(pagos)
+    .where(and(eq(pagos.servicioRealizadoId, servicioRealizadoId), eq(pagos.estatus, "cobrado")))
+    .all();
+
+  const precio = servicio.precio ?? 0;
+  const totalCobrado = pagosFilas.reduce((acc, p) => acc + p.monto, 0);
+  const saldoPendiente = servicio.estatusPago === "cancelado" ? 0 : Math.max(0, precio - totalCobrado);
+
+  return {
+    precio,
+    estatusPago: servicio.estatusPago,
+    estatus: servicio.estatus,
+    observaciones: servicio.observaciones,
+    productosConsumidos,
+    productosVendidos,
+    pagos: pagosFilas,
+    totalCobrado,
+    saldoPendiente,
+  };
 }
