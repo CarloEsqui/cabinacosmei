@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+@theme {
+  /* Identidad de marca: beige de fondo + morado jacaranda de acento + texto gris-café oscuro */
+  --color-beige-50: #fbf8f3;
+  --color-beige-100: #f6efe4;
+  --color-beige-200: #efe4d2;
+  --color-beige-300: #e2d3b8;
+  --color-beige-400: #cdb890;
+
+  --color-jacaranda-50: #f3edfb;
+  --color-jacaranda-100: #e2d2f5;
+  --color-jacaranda-200: #c9ade9;
+  --color-jacaranda-300: #ab84da;
+  --color-jacaranda-400: #9066c9;
+  --color-jacaranda-500: #7549b3;
+  --color-jacaranda-600: #603a95;
+  --color-jacaranda-700: #4b2e75;
+  --color-jacaranda-800: #362154;
+
+  --color-ink-900: #241f1b;
+  --color-ink-700: #3d352d;
+  --color-ink-500: #6b6055;
+  --color-ink-300: #9a8f81;
+
+  --color-success-500: #6f9767;
+  --color-warning-500: #c98a3a;
+  --color-danger-500: #b8543f;
+
+  --font-sans: "Inter Variable", "Inter", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-beige-100 text-ink-900 antialiased;
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    @apply bg-jacaranda-200 text-ink-900;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-beige-300;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-jacaranda-200;
+  }
+}
+
+/* -----------------------------------------------------------------------
+   FullCalendar — retonado a la identidad beige / jacaranda de la app
+   ----------------------------------------------------------------------- */
+.fc {
+  --fc-border-color: var(--color-beige-200);
+  --fc-page-bg-color: transparent;
+  --fc-neutral-bg-color: var(--color-beige-100);
+  --fc-list-event-hover-bg-color: var(--color-beige-100);
+  --fc-today-bg-color: var(--color-jacaranda-50);
+  --fc-event-border-color: transparent;
+  --fc-button-bg-color: var(--color-beige-50);
+  --fc-button-border-color: var(--color-beige-300);
+  --fc-button-text-color: var(--color-ink-700);
+  --fc-button-hover-bg-color: var(--color-beige-200);
+  --fc-button-hover-border-color: var(--color-beige-300);
+  --fc-button-active-bg-color: var(--color-jacaranda-600);
+  --fc-button-active-border-color: var(--color-jacaranda-600);
+  font-family: var(--font-sans);
+}
+
+.fc .fc-toolbar-title {
+  @apply text-lg font-semibold text-jacaranda-700;
+}
+
+.fc .fc-button {
+  @apply rounded-lg text-sm font-medium shadow-none;
+  padding: 0.4rem 0.75rem;
+}
+
+.fc .fc-button-primary:not(:disabled).fc-button-active,
+.fc .fc-button-primary:not(:disabled):active {
+  @apply text-beige-50;
+  box-shadow: none !important;
+}
+
+.fc .fc-button:focus,
+.fc .fc-button-primary:focus {
+  box-shadow: 0 0 0 2px var(--color-jacaranda-400) !important;
+}
+
+.fc .fc-col-header-cell {
+  @apply bg-beige-100;
+}
+
+.fc .fc-col-header-cell-cushion {
+  @apply py-2 text-xs font-semibold uppercase tracking-wide text-ink-500;
+}
+
+.fc .fc-daygrid-day-number {
+  @apply px-2 py-1 text-sm text-ink-700;
+}
+
+.fc .fc-day-today .fc-daygrid-day-number {
+  @apply font-semibold text-jacaranda-700;
+}
+
+.fc .fc-daygrid-event {
+  @apply rounded-lg border-none px-1.5 py-0.5 text-xs font-medium shadow-sm;
+}
+
+.fc .fc-timegrid-slot-label-cushion {
+  @apply text-xs text-ink-500;
+}
+
+.fc-theme-standard td,
+.fc-theme-standard th {
+  border-color: var(--color-beige-200);
+}
+
+.fc-theme-standard .fc-scrollgrid {
+  border-color: var(--color-beige-200);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}

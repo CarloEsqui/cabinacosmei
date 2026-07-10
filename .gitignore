@@ -1,0 +1,15 @@
+node_modules/
+
+# Salidas de compilación
+dist/
+dist-electron/
+release/
+*.tsbuildinfo
+
+# Editor / SO
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+
+# Logs
+npm-debug.log*
