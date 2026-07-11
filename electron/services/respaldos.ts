@@ -4,12 +4,13 @@ import path from "node:path";
 import { app } from "electron";
 import AdmZip from "adm-zip";
 import { desc, eq } from "drizzle-orm";
-import { getDb, getDbPath, checkpointDb, closeDb } from "../db";
+import { getDb, getDbPath, checkpointDb, closeDb, reabrirDb } from "../db";
 import { respaldosLog } from "../db/schema";
 import { obtenerConfig } from "./config";
 import { verificarPin } from "./auth";
 import { registrarAccion } from "./bitacora";
-import { carpetaDatos } from "./folders";
+import { carpetaDatos, asegurarEstructuraRaiz } from "./folders";
+import { migrarRutasCarpetas } from "./migracionCarpetas";
 import { fechaLocalIso } from "../../shared/fechas";
 import type { RespaldoRow } from "../../shared/types";
 
@@ -124,7 +125,7 @@ async function aplicarRespaldoDesdeArchivo(rutaOrigen: string): Promise<void> {
   const esZip = rutaOrigen.toLowerCase().endsWith(".zip");
   const esSqlite = rutaOrigen.toLowerCase().endsWith(".sqlite3");
   if (!esZip && !esSqlite) {
-    throw new Error("Formato no soportado. Selecciona un respaldo .zip o .sqlite3 de Cabina.");
+    throw new Error("Formato no soportado. Selecciona un respaldo .zip o .sqlite3 de Bellora.");
   }
 
   // Captura la carpeta raíz ANTES de cerrar la base de datos (obtenerConfig la necesita abierta).
@@ -139,12 +140,12 @@ async function aplicarRespaldoDesdeArchivo(rutaOrigen: string): Promise<void> {
     const entradaManifest = zip.getEntry("manifest.json");
     const entradaDb = zip.getEntry("cabina.sqlite3");
     if (!entradaManifest || !entradaDb) {
-      throw new Error("El archivo no es un respaldo válido de Cabina (falta manifest.json o cabina.sqlite3).");
+      throw new Error("El archivo no es un respaldo válido de Bellora (falta manifest.json o cabina.sqlite3).");
     }
     try {
       JSON.parse(zip.readAsText(entradaManifest));
     } catch {
-      throw new Error("El archivo no es un respaldo válido de Cabina (manifest.json corrupto).");
+      throw new Error("El archivo no es un respaldo válido de Bellora (manifest.json corrupto).");
     }
     bufferDb = entradaDb.getData();
     entradasArchivos = zip.getEntries().filter((e) => !e.isDirectory && e.entryName.startsWith("archivos/"));
@@ -172,8 +173,14 @@ async function aplicarRespaldoDesdeArchivo(rutaOrigen: string): Promise<void> {
     }
   }
 
-  app.relaunch();
-  app.exit(0);
+  // Reabrir sobre el archivo recién escrito y rehacer la estructura de carpetas + rutas, en vez de
+  // reiniciar el proceso (que en dev deja la ventana en blanco). Quien invoca recarga la ventana
+  // para que el renderer vuelva a leer los datos restaurados.
+  reabrirDb();
+  if (config.carpetaRaiz) {
+    asegurarEstructuraRaiz(config.carpetaRaiz);
+    migrarRutasCarpetas(config.carpetaRaiz);
+  }
 }
 
 /** Restaura uno de los respaldos ya listados en el historial. */

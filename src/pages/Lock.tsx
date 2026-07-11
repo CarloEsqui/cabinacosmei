@@ -12,6 +12,7 @@ interface LockScreenProps {
 export function LockScreen({ onUnlock }: LockScreenProps) {
   const [cargando, setCargando] = useState(true);
   const [tienePin, setTienePin] = useState(false);
+  const [nombre, setNombre] = useState("");
   const [pin, setPin] = useState("");
   const [confirmarPin, setConfirmarPin] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +28,11 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
   async function handleCrearPin(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const nombreLimpio = nombre.trim();
+    if (nombreLimpio.length < 2 || nombreLimpio.length > 40) {
+      setError("El nombre debe tener entre 2 y 40 caracteres.");
+      return;
+    }
     if (pin.length < 4) {
       setError("El PIN debe tener al menos 4 dígitos.");
       return;
@@ -38,6 +44,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
     setProcesando(true);
     try {
       await window.api.auth.crearPin(pin);
+      await window.api.usuarios.actualizarNombre(nombreLimpio);
       onUnlock();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo crear el PIN.");
@@ -79,7 +86,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-jacaranda-600 text-beige-50">
             <Sparkles size={22} />
           </div>
-          <h1 className="text-xl font-semibold text-jacaranda-700">Cabina</h1>
+          <h1 className="text-jacaranda-700">Bellora</h1>
           <p className="text-sm text-ink-500">Dashboard de operación diaria</p>
         </div>
 
@@ -107,11 +114,23 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
                 <p className="text-sm text-ink-700">
                   Es la primera vez que abres el sistema. Crea un PIN para proteger el acceso.
                 </p>
+                <div>
+                  <label className="text-sm font-medium text-ink-700">¿Cómo te gustaría que te llamemos?</label>
+                  <Input
+                    autoFocus
+                    maxLength={40}
+                    placeholder="Ej. Daniela"
+                    value={nombre}
+                    onChange={(e) => setNombre(e.target.value)}
+                  />
+                  <p className="mt-1 text-xs text-ink-500">
+                    Usaremos este nombre para personalizar tu experiencia dentro de la aplicación.
+                  </p>
+                </div>
                 <label className="text-sm font-medium text-ink-700">Nuevo PIN (4-8 dígitos)</label>
                 <Input
                   type="password"
                   inputMode="numeric"
-                  autoFocus
                   maxLength={8}
                   value={pin}
                   onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
@@ -125,7 +144,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
                   onChange={(e) => setConfirmarPin(e.target.value.replace(/\D/g, ""))}
                 />
                 {error && <p className="text-sm text-danger-500">{error}</p>}
-                <Button type="submit" disabled={procesando} className="mt-1">
+                <Button type="submit" disabled={procesando || nombre.trim().length < 2 || pin.length < 4} className="mt-1">
                   Crear PIN y continuar
                 </Button>
               </form>

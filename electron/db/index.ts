@@ -9,12 +9,10 @@ let dbInstance: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let sqliteInstance: Database.Database | null = null;
 let dbPath: string | null = null;
 
-export function initDb(userDataPath: string) {
-  if (dbInstance) return dbInstance;
-
-  fs.mkdirSync(userDataPath, { recursive: true });
-  dbPath = path.join(userDataPath, "cabina.sqlite3");
-
+function abrirConexion() {
+  if (!dbPath) {
+    throw new Error("La ruta de la base de datos no ha sido establecida.");
+  }
   const sqlite = new Database(dbPath);
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
@@ -29,6 +27,23 @@ export function initDb(userDataPath: string) {
   sqliteInstance = sqlite;
   dbInstance = db;
   return db;
+}
+
+export function initDb(userDataPath: string) {
+  if (dbInstance) return dbInstance;
+
+  fs.mkdirSync(userDataPath, { recursive: true });
+  dbPath = path.join(userDataPath, "cabina.sqlite3");
+  return abrirConexion();
+}
+
+/**
+ * Reabre la base de datos sobre el mismo archivo tras un restore que sobrescribió `cabina.sqlite3`.
+ * Evita reiniciar todo el proceso (que en modo dev deja la ventana en blanco porque el plugin de
+ * Vite mata su servidor al salir Electron). Debe llamarse justo después de `closeDb()`.
+ */
+export function reabrirDb() {
+  return abrirConexion();
 }
 
 export function getDb() {

@@ -7,6 +7,14 @@ const api: IpcApi = {
     crearPin: (pin) => ipcRenderer.invoke("auth:crearPin", pin),
     verificarPin: (pin) => ipcRenderer.invoke("auth:verificarPin", pin),
   },
+  licencia: {
+    estado: () => ipcRenderer.invoke("licencia:estado"),
+    instalarToken: (token) => ipcRenderer.invoke("licencia:instalarToken", token),
+  },
+  usuarios: {
+    obtenerActual: () => ipcRenderer.invoke("usuarios:obtenerActual"),
+    actualizarNombre: (nombre) => ipcRenderer.invoke("usuarios:actualizarNombre", nombre),
+  },
   config: {
     obtener: () => ipcRenderer.invoke("config:obtener"),
     actualizar: (valores) => ipcRenderer.invoke("config:actualizar", valores),
@@ -17,6 +25,7 @@ const api: IpcApi = {
   },
   app: {
     version: () => ipcRenderer.invoke("app:version"),
+    matricula: () => ipcRenderer.invoke("app:matricula"),
   },
   proveedores: {
     listar: () => ipcRenderer.invoke("proveedores:listar"),

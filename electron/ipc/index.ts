@@ -20,7 +20,9 @@ import * as reinicioService from "../services/reinicio";
 import * as reportesService from "../services/reportes";
 import * as dashboardService from "../services/dashboard";
 import { buscarActualizaciones, instalarYReiniciar } from "../services/actualizaciones";
-import { usuarioActualId } from "../services/usuarios";
+import { usuarioActualId, obtenerUsuarioActual, actualizarNombreUsuario } from "../services/usuarios";
+import { obtenerMatricula } from "../services/matricula";
+import { estadoLicencia, instalarToken } from "../services/licencia";
 import {
   proveedorInputSchema,
   tipoProductoInputSchema,
@@ -39,10 +41,45 @@ import {
   loteInputSchema,
 } from "../../shared/schemas";
 
-export function registrarIpc(mainWindow: BrowserWindow): void {
+let ventanaActual: BrowserWindow | null = null;
+let ipcRegistrado = false;
+
+/**
+ * Actualiza la referencia a la ventana principal vigente. Se llama cada vez que se (re)crea (ej.
+ * al reabrir la app en macOS tras cerrar todas las ventanas), a diferencia de `registrarIpc` que
+ * solo debe correr una vez por proceso.
+ */
+export function establecerVentanaPrincipal(ventana: BrowserWindow): void {
+  ventanaActual = ventana;
+}
+
+function mainWindow(): BrowserWindow {
+  if (!ventanaActual || ventanaActual.isDestroyed()) {
+    throw new Error("No hay una ventana principal activa.");
+  }
+  return ventanaActual;
+}
+
+/**
+ * Registra todos los handlers de IPC. `ipcMain.handle` lanza si se registra dos veces el mismo
+ * canal, así que esto debe llamarse UNA sola vez por proceso — nunca por ventana. (Antes se
+ * llamaba dentro de `crearVentanaPrincipal`, y en macOS, al cerrar la ventana con el botón rojo y
+ * reabrir la app, esa función se ejecutaba de nuevo, lanzaba aquí mismo y la ventana quedaba en
+ * blanco porque nunca se llegaba a `loadURL`/`loadFile`.)
+ */
+export function registrarIpc(): void {
+  if (ipcRegistrado) return;
+  ipcRegistrado = true;
+
   ipcMain.handle("auth:tienePin", () => auth.tienePin());
   ipcMain.handle("auth:crearPin", (_e, pin: string) => auth.crearPin(pin));
   ipcMain.handle("auth:verificarPin", (_e, pin: string) => auth.verificarPin(pin));
+
+  ipcMain.handle("licencia:estado", () => estadoLicencia());
+  ipcMain.handle("licencia:instalarToken", (_e, token: string) => instalarToken(token));
+
+  ipcMain.handle("usuarios:obtenerActual", () => obtenerUsuarioActual());
+  ipcMain.handle("usuarios:actualizarNombre", (_e, nombre: string) => actualizarNombreUsuario(nombre));
 
   ipcMain.handle("config:obtener", () => configService.obtenerConfig());
   ipcMain.handle("config:actualizar", async (_e, cambios) => {
@@ -50,13 +87,16 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
     if (cambios.carpetaRaiz) {
       folders.asegurarEstructuraRaiz(cambios.carpetaRaiz);
     }
+    if (cambios.escalaTexto !== undefined) {
+      mainWindow().webContents.setZoomFactor(cambios.escalaTexto);
+    }
     return siguiente;
   });
 
   ipcMain.handle("carpetas:elegirCarpetaRaiz", async () => {
-    const resultado = await dialog.showOpenDialog(mainWindow, {
+    const resultado = await dialog.showOpenDialog(mainWindow(), {
       properties: ["openDirectory", "createDirectory"],
-      title: "Elegir carpeta raíz para Cabina",
+      title: "Elegir carpeta raíz para Bellora",
     });
     if (resultado.canceled || resultado.filePaths.length === 0) return null;
     const ruta = resultado.filePaths[0];
@@ -67,6 +107,7 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle("carpetas:abrirCarpeta", (_e, ruta: string) => folders.abrirCarpeta(ruta));
 
   ipcMain.handle("app:version", () => app.getVersion());
+  ipcMain.handle("app:matricula", () => obtenerMatricula());
 
   // -- Proveedores --------------------------------------------------------
   ipcMain.handle("proveedores:listar", () => proveedoresService.listarProveedores());
@@ -209,7 +250,7 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle(
     "archivos:subirComprobante",
     async (_e, entidadTipo: string, entidadId: string, carpetaDestino: string) => {
-      const resultado = await dialog.showOpenDialog(mainWindow, {
+      const resultado = await dialog.showOpenDialog(mainWindow(), {
         properties: ["openFile"],
         title: "Selecciona el comprobante de pago",
         filters: [{ name: "Imágenes y PDF", extensions: ["jpg", "jpeg", "png", "pdf", "webp"] }],
@@ -254,25 +295,35 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
     const dir = await respaldosService.carpetaRespaldosActual();
     return folders.abrirCarpeta(dir);
   });
-  ipcMain.handle("respaldos:restaurar", (_e, id: string, pin: string) =>
-    respaldosService.restaurarRespaldo(id, pin, usuarioActualId() ?? undefined),
-  );
+  // Tras restaurar, la base de datos y los archivos ya se reemplazaron en el sitio; recargar la
+  // ventana para que el renderer vuelva a leer los datos restaurados (queda en la pantalla de PIN).
+  // Se recarga en el siguiente tick para no cortar la respuesta IPC antes de que llegue al renderer.
+  function recargarTrasRestaurar() {
+    setTimeout(() => {
+      if (ventanaActual && !ventanaActual.isDestroyed()) ventanaActual.webContents.reload();
+    }, 50);
+  }
+  ipcMain.handle("respaldos:restaurar", async (_e, id: string, pin: string) => {
+    await respaldosService.restaurarRespaldo(id, pin, usuarioActualId() ?? undefined);
+    recargarTrasRestaurar();
+  });
   ipcMain.handle("respaldos:restaurarDesdeArchivo", async (_e, pin: string) => {
-    const resultado = await dialog.showOpenDialog(mainWindow, {
-      title: "Selecciona un respaldo de Cabina",
-      filters: [{ name: "Respaldo de Cabina", extensions: ["zip", "sqlite3"] }],
+    const resultado = await dialog.showOpenDialog(mainWindow(), {
+      title: "Selecciona un respaldo de Bellora",
+      filters: [{ name: "Respaldo de Bellora", extensions: ["zip", "sqlite3"] }],
       properties: ["openFile"],
     });
     if (resultado.canceled || resultado.filePaths.length === 0) return false;
     await respaldosService.restaurarDesdeArchivo(resultado.filePaths[0], pin, usuarioActualId() ?? undefined);
+    recargarTrasRestaurar();
     return true;
   });
   ipcMain.handle("respaldos:exportar", async (_e, id: string) => {
     const ruta = await respaldosService.obtenerRutaRespaldo(id);
-    const resultado = await dialog.showSaveDialog(mainWindow, {
+    const resultado = await dialog.showSaveDialog(mainWindow(), {
       title: "Exportar respaldo",
       defaultPath: path.basename(ruta),
-      filters: [{ name: "Respaldo de Cabina", extensions: ["zip"] }],
+      filters: [{ name: "Respaldo de Bellora", extensions: ["zip"] }],
     });
     if (resultado.canceled || !resultado.filePath) return false;
     fs.copyFileSync(ruta, resultado.filePath);
@@ -303,7 +354,7 @@ export function registrarIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle("reportes:exportarCsv", async (_e, tipo: reportesService.TipoReporte, rango) => {
     const rangoValido = rangoFechasSchema.parse(rango);
     const { nombreArchivo, contenido } = await reportesService.construirCsv(tipo, rangoValido);
-    const resultado = await dialog.showSaveDialog(mainWindow, {
+    const resultado = await dialog.showSaveDialog(mainWindow(), {
       title: "Exportar reporte",
       defaultPath: nombreArchivo,
       filters: [{ name: "CSV", extensions: ["csv"] }],

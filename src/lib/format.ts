@@ -21,3 +21,8 @@ export function formatFechaHora(iso: string | null | undefined, hora?: string | 
 export function formatFechaHoraMs(ms: number): string {
   return format(new Date(ms), "dd/MM/yyyy HH:mm");
 }
+
+/** Primer nombre de un nombre completo, para saludos personalizados ("Daniela Fernanda López" → "Daniela"). */
+export function getFirstName(fullName: string): string {
+  return fullName.trim().split(/\s+/)[0];
+}

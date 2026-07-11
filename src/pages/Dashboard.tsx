@@ -14,7 +14,7 @@ import {
   UserPlus,
   Package,
 } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
+import { WelcomeGreeting } from "@/components/WelcomeGreeting";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -136,7 +136,12 @@ export function DashboardPage() {
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <PageHeader title="Dashboard" subtitle="Lo que necesitas saber hoy para operar la cabina" />
+      <WelcomeGreeting
+        citasProximas={citasActivas.length}
+        mantenimientosPendientes={mantenimientos.length}
+        stockBajo={stockBajoLista.length}
+        proximosACaducar={caducidadLista.length}
+      />
 
       {esHoraDelCorte && (
         <div className="mx-8 mt-6 flex items-center justify-between rounded-2xl border border-jacaranda-300 bg-jacaranda-50 px-5 py-4">

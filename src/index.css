@@ -27,7 +27,10 @@
   --color-warning-500: #c98a3a;
   --color-danger-500: #b8543f;
 
-  --font-sans: "Inter Variable", "Inter", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+  /* Combinación tipográfica de marca: Cormorant Garamond para títulos/elementos de marca,
+     Manrope para toda la interfaz funcional (textos, formularios, tablas, botones). */
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-ui: "Manrope", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {
@@ -39,9 +42,53 @@
 
   body {
     @apply bg-beige-100 text-ink-900 antialiased;
-    font-family: var(--font-sans);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.55;
+    font-weight: 400;
     font-feature-settings: "cv11", "ss01";
+    text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  .page-title {
+    font-family: var(--font-display);
+    font-size: 34px;
+    line-height: 1.1;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  h2,
+  .section-title {
+    font-family: var(--font-display);
+    font-size: 24px;
+    line-height: 1.2;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  h3,
+  .card-title {
+    font-family: var(--font-ui);
+    font-size: 16px;
+    line-height: 1.3;
+    font-weight: 600;
+  }
+
+  /* Solo para frases decorativas breves (subtítulos, mensajes de bienvenida) — nunca en
+     tablas, botones, formularios o alertas. */
+  .font-display-italic {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600;
+  }
+
+  .metric-value {
+    font-family: var(--font-ui);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
   }
 
   ::selection {
@@ -82,7 +129,7 @@
   --fc-button-hover-border-color: var(--color-beige-300);
   --fc-button-active-bg-color: var(--color-jacaranda-600);
   --fc-button-active-border-color: var(--color-jacaranda-600);
-  font-family: var(--font-sans);
+  font-family: var(--font-ui);
 }
 
 .fc .fc-toolbar-title {

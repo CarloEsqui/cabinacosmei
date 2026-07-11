@@ -1,11 +1,14 @@
 {
-  "name": "cabina-dashboard",
+  "name": "bellora-dashboard",
   "version": "0.1.0",
   "description": "",
   "main": "dist-electron/main.js",
   "scripts": {
     "postinstall": "node scripts/rebuild-native.mjs",
     "icon:generar": "node scripts/generar-icono.mjs",
+    "licencia:generar-llaves": "node scripts/generar-llaves.mjs",
+    "licencia:nueva": "node scripts/firmar-licencia.mjs",
+    "licencia:listar": "node scripts/listar-licencias.mjs",
     "dev": "cross-env ELECTRON_RUN_AS_NODE= vite",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
     "build": "npm run typecheck && vite build",
@@ -19,9 +22,9 @@
   "license": "ISC",
   "private": true,
   "build": {
-    "appId": "com.cabina.dashboard",
-    "productName": "Cabina Dashboard",
-    "copyright": "Copyright © 2026 Cabina",
+    "appId": "com.bellora.dashboard",
+    "productName": "Bellora Dashboard",
+    "copyright": "Copyright © 2026 Bellora",
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
@@ -56,7 +59,8 @@
     }
   },
   "dependencies": {
-    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/manrope": "^5.2.8",
+    "@fontsource/cormorant-garamond": "^5.2.11",
     "@fullcalendar/daygrid": "^6.1.21",
     "@fullcalendar/interaction": "^6.1.21",
     "@fullcalendar/react": "^6.1.21",

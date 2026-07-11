@@ -29,7 +29,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <AlertTriangle size={28} />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-ink-900">Algo salió mal</h1>
+            <h1 className="font-display text-xl font-semibold text-ink-900">Algo salió mal</h1>
             <p className="mt-1 max-w-sm text-sm text-ink-500">
               Ocurrió un error inesperado en esta pantalla. Tus datos no se han perdido; intenta recargar.
             </p>

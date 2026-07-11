@@ -8,7 +8,7 @@ import { asegurarRespaldoAutomaticoDiario } from "./services/respaldos";
 import { asegurarUsuarioPorDefecto } from "./services/usuarios";
 import { inicializarVentanaStore, leerEstadoVentana, guardarEstadoVentana } from "./services/ventana";
 import { inicializarActualizaciones, buscarActualizaciones } from "./services/actualizaciones";
-import { registrarIpc } from "./ipc";
+import { registrarIpc, establecerVentanaPrincipal } from "./ipc";
 
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
 
@@ -34,6 +34,16 @@ if (!obtuvoLock) {
 }
 
 function iniciarApp() {
+  // En macOS, cerrar la ventana con el botón rojo NO debe pedir el PIN de nuevo al reabrir —debe
+  // comportarse como "minimizar" (Slack, Spotify, etc.): la ventana se esconde pero el proceso y su
+  // estado de React (incluida la sesión ya desbloqueada) siguen vivos. Solo una salida de verdad
+  // (Cmd+Q, "Salir", o un restablecimiento de fábrica que relanza el proceso) debe exigir el PIN
+  // otra vez en el siguiente arranque.
+  let estaSaliendoDeVerdad = false;
+  app.on("before-quit", () => {
+    estaSaliendoDeVerdad = true;
+  });
+
   async function crearVentanaPrincipal() {
     const estadoGuardado = leerEstadoVentana();
 
@@ -45,7 +55,7 @@ function iniciarApp() {
       minWidth: 1024,
       minHeight: 680,
       backgroundColor: "#F3ECE1", // beige de marca, evita flash blanco al cargar
-      title: "Cabina — Dashboard de Operación",
+      title: "Bellora — Dashboard de Operación",
       icon: path.join(__dirname, "..", "build", "icon.png"),
       webPreferences: {
         preload: path.join(__dirname, "preload.js"),
@@ -70,7 +80,16 @@ function iniciarApp() {
     }
     mainWindow.on("resize", programarGuardadoEstado);
     mainWindow.on("move", programarGuardadoEstado);
-    mainWindow.on("close", persistirEstadoVentana);
+    mainWindow.on("close", (event) => {
+      persistirEstadoVentana();
+      if (process.platform === "darwin" && !estaSaliendoDeVerdad) {
+        event.preventDefault();
+        // Minimizar (no `.hide()`): en macOS, esconder una ventana con render acelerado por GPU
+        // hace que el sistema descarte su superficie de composición; al reaparecer se queda en
+        // negro hasta forzar un repintado. Minimizar de verdad evita ese problema.
+        mainWindow.minimize();
+      }
+    });
 
     // Enlaces externos (p. ej. desde notas o futuras vistas con links) abren en el navegador
     // del sistema, nunca dentro de la propia app.
@@ -87,7 +106,8 @@ function iniciarApp() {
       }
     });
 
-    registrarIpc(mainWindow);
+    establecerVentanaPrincipal(mainWindow);
+    registrarIpc();
     inicializarActualizaciones(mainWindow);
     if (app.isPackaged) {
       buscarActualizaciones().catch((error) => console.error("Error al buscar actualizaciones:", error));
@@ -95,10 +115,12 @@ function iniciarApp() {
 
     if (VITE_DEV_SERVER_URL) {
       await mainWindow.loadURL(VITE_DEV_SERVER_URL);
-      mainWindow.webContents.openDevTools({ mode: "detach" });
     } else {
       await mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
     }
+
+    const { escalaTexto } = await obtenerConfig();
+    mainWindow.webContents.setZoomFactor(escalaTexto);
   }
 
   app.whenReady().then(async () => {
@@ -108,7 +130,7 @@ function iniciarApp() {
     await asegurarUsuarioPorDefecto();
 
     const config = await obtenerConfig();
-    const carpetaRaizPorDefecto = config.carpetaRaiz || path.join(app.getPath("documents"), "Cabina");
+    const carpetaRaizPorDefecto = config.carpetaRaiz || path.join(app.getPath("documents"), "Bellora");
     asegurarEstructuraRaiz(carpetaRaizPorDefecto);
     // Corrige las rutas ya guardadas (carpetaPath, rutaFisica) si asegurarEstructuraRaiz acaba de
     // mover Clientes/Inventario/Comprobantes/Servicios a "Datos/". Es barato repetirlo siempre.
@@ -128,8 +150,14 @@ function iniciarApp() {
     await crearVentanaPrincipal();
 
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
+      const existentes = BrowserWindow.getAllWindows();
+      if (existentes.length === 0) {
         crearVentanaPrincipal();
+      } else {
+        const ventana = existentes[0];
+        if (ventana.isMinimized()) ventana.restore();
+        ventana.show();
+        ventana.focus();
       }
     });
   });

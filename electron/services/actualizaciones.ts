@@ -2,10 +2,19 @@ import { autoUpdater } from "electron-updater";
 import type { BrowserWindow } from "electron";
 
 let ventanaPrincipal: BrowserWindow | null = null;
+let listenersRegistrados = false;
 
-/** Registra los listeners que avisan al renderer cuando hay una actualización. */
+/**
+ * Registra los listeners que avisan al renderer cuando hay una actualización. Se llama cada vez
+ * que se (re)crea la ventana principal (ej. al reabrir la app en macOS tras cerrar todas las
+ * ventanas), así que los listeners de `autoUpdater` solo se agregan la primera vez — si no, cada
+ * reapertura sumaría un listener más y los eventos llegarían duplicados al renderer.
+ */
 export function inicializarActualizaciones(mainWindow: BrowserWindow): void {
   ventanaPrincipal = mainWindow;
+  if (listenersRegistrados) return;
+  listenersRegistrados = true;
+
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = false;
 

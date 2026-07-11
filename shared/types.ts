@@ -280,3 +280,14 @@ export interface MovimientoRow {
   observaciones: string | null;
   createdAt: number;
 }
+
+export type EstadoLicenciaTipo = "no_activada" | "activa" | "por_vencer" | "vencida" | "invalida";
+
+export interface EstadoLicencia {
+  estado: EstadoLicenciaTipo;
+  cliente: string | null;
+  plan: "mensual" | "anual" | null;
+  expira: string | null;
+  diasRestantes: number | null;
+  matricula: string;
+}

@@ -42,6 +42,7 @@ import type {
   ReporteClientes,
   ResumenDashboard,
   ResumenClienteCitas,
+  EstadoLicencia,
 } from "./types";
 
 export interface IpcApi {
@@ -49,6 +50,14 @@ export interface IpcApi {
     tienePin(): Promise<boolean>;
     crearPin(pin: string): Promise<void>;
     verificarPin(pin: string): Promise<boolean>;
+  };
+  licencia: {
+    estado(): Promise<EstadoLicencia>;
+    instalarToken(token: string): Promise<EstadoLicencia>;
+  };
+  usuarios: {
+    obtenerActual(): Promise<{ id: string; nombre: string }>;
+    actualizarNombre(nombre: string): Promise<{ id: string; nombre: string }>;
   };
   config: {
     obtener(): Promise<ConfigValues>;
@@ -60,6 +69,7 @@ export interface IpcApi {
   };
   app: {
     version(): Promise<string>;
+    matricula(): Promise<string>;
   };
   proveedores: {
     listar(): Promise<Proveedor[]>;
@@ -172,11 +182,16 @@ export type IpcChannel =
   | "auth:tienePin"
   | "auth:crearPin"
   | "auth:verificarPin"
+  | "licencia:estado"
+  | "licencia:instalarToken"
+  | "usuarios:obtenerActual"
+  | "usuarios:actualizarNombre"
   | "config:obtener"
   | "config:actualizar"
   | "carpetas:elegirCarpetaRaiz"
   | "carpetas:abrirCarpeta"
   | "app:version"
+  | "app:matricula"
   | "proveedores:listar"
   | "proveedores:crear"
   | "proveedores:actualizar"

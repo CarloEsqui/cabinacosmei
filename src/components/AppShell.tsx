@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ActualizacionBanner } from "@/components/ActualizacionBanner";
+import { LicenciaBanner } from "@/components/LicenciaBanner";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -33,7 +34,7 @@ export function AppShell() {
             <Sparkles size={18} />
           </div>
           <div>
-            <p className="text-sm font-semibold tracking-tight text-jacaranda-700 leading-tight">Cabina</p>
+            <p className="font-display text-base font-semibold text-jacaranda-700 leading-tight">Bellora</p>
             <p className="text-xs text-ink-500 leading-tight">Operación diaria</p>
           </div>
         </div>
@@ -60,12 +61,13 @@ export function AppShell() {
         </nav>
 
         <div className="border-t border-beige-300 px-2 pt-3">
-          <p className="text-xs text-ink-300">Cabina Dashboard</p>
+          <p className="text-xs text-ink-300">Bellora Dashboard</p>
         </div>
       </aside>
 
       <main className="flex flex-1 flex-col overflow-hidden">
         <ActualizacionBanner />
+        <LicenciaBanner />
         <div className="flex-1 overflow-y-auto">
           <Outlet />
         </div>

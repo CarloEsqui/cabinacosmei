@@ -13,3 +13,10 @@ release/
 
 # Logs
 npm-debug.log*
+
+# Llave privada de licencias — jamás se sube al repo (ver scripts/generar-llaves.mjs).
+# La pública (keys/licencia-publica.pem) sí es seguro versionarla si algún día se necesita.
+/keys/licencia-privada.pem
+
+# Registro de clientas/pagos (nombres, montos) — datos del negocio, no del código.
+/keys/clientes-licencias.json
