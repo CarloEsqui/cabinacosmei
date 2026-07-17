@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, Power, PowerOff } from "lucide-react";
+import { Plus, Pencil, Trash2, Power, PowerOff, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
@@ -41,7 +42,7 @@ export function CatalogosTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tiposProducto"] });
       setModalAbierto(false);
-      toast.success(editando ? "Tipo de producto actualizado." : "Tipo de producto creado.");
+      toast.success(editando ? "Categoría actualizada." : "Categoría creada.");
     },
     onError: (e) => toast.error(mensajeDeError(e)),
   });
@@ -54,7 +55,7 @@ export function CatalogosTab() {
     try {
       await window.api.tiposProducto.setActivo(t.id, !t.activo);
       invalidar();
-      toast.success(t.activo ? "Tipo desactivado." : "Tipo activado.");
+      toast.success(t.activo ? "Categoría desactivada." : "Categoría activada.");
     } catch (e) {
       toast.error(mensajeDeError(e));
     }
@@ -62,7 +63,7 @@ export function CatalogosTab() {
 
   function eliminar(t: TipoProducto) {
     eliminarHibrido({
-      nombre: `el tipo "${t.nombreTipo}"`,
+      nombre: `la categoría "${t.nombreTipo}"`,
       eliminar: () => window.api.tiposProducto.eliminar(t.id),
       desactivar: () => window.api.tiposProducto.setActivo(t.id, false),
       onExito: invalidar,
@@ -90,9 +91,9 @@ export function CatalogosTab() {
   return (
     <div className="p-8">
       <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-ink-500">Tipos o categorías de producto (sueros, cremas, equipos...)</p>
+        <p className="text-sm text-ink-500">Categorías de producto (sueros, cremas, equipos...)</p>
         <Button size="sm" onClick={abrirNuevo}>
-          <Plus size={16} /> Nuevo tipo
+          <Plus size={16} /> Nueva categoría
         </Button>
       </div>
 
@@ -140,8 +141,8 @@ export function CatalogosTab() {
             ))}
             {tipos.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-ink-500">
-                  Aún no hay tipos de producto.
+                <td colSpan={6} className="px-4 py-6">
+                  <EmptyState icon={Tag} mensaje="Aún no hay categorías." submensaje="Crea una con el botón de arriba." />
                 </td>
               </tr>
             )}
@@ -152,7 +153,7 @@ export function CatalogosTab() {
       <Modal
         open={modalAbierto}
         onClose={() => setModalAbierto(false)}
-        title={editando ? "Editar tipo de producto" : "Nuevo tipo de producto"}
+        title={editando ? "Editar categoría" : "Nueva categoría"}
       >
         <form
           className="flex flex-col gap-3"

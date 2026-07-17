@@ -13,7 +13,7 @@ const TABS = [
   { value: "general", label: "General" },
   { value: "proveedores", label: "Proveedores" },
   { value: "productos", label: "Productos" },
-  { value: "catalogos", label: "Catálogos" },
+  { value: "catalogos", label: "Categorías" },
   { value: "servicios", label: "Servicios" },
   { value: "respaldos", label: "Respaldos" },
   { value: "bitacora", label: "Bitácora" },

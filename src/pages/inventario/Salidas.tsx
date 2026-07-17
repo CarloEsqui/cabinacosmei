@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PackageMinus } from "lucide-react";
+import { PackageMinus, UserRound } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
+import { Expandable } from "@/components/ui/expandable";
 import { formatFecha } from "@/lib/format";
 import type { SalidaInput } from "@shared/schemas";
 import { fechaLocalIso } from "@shared/fechas";
@@ -38,6 +39,11 @@ export function SalidasTab() {
   const { data: productos = [] } = useQuery({
     queryKey: ["productos"],
     queryFn: () => window.api.productos.listar(),
+  });
+
+  const { data: clientes = [] } = useQuery({
+    queryKey: ["clientes"],
+    queryFn: () => window.api.clientes.listar(),
   });
 
   const [form, setForm] = useState<SalidaInput>(VACIO);
@@ -132,6 +138,27 @@ export function SalidasTab() {
                 ))}
             </Select>
           </div>
+
+          {/* En una venta conviene registrar a qué clienta se le vendió; el selector se despliega
+              solo cuando el tipo de salida es "venta". */}
+          <Expandable open={form.tipoSalida === "venta"}>
+            <div className="rounded-xl border border-jacaranda-200 bg-jacaranda-50/60 p-3">
+              <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-jacaranda-700">
+                <UserRound size={14} /> Cliente de la venta
+              </div>
+              <Select
+                value={form.clienteId ?? ""}
+                onChange={(e) => setForm({ ...form, clienteId: e.target.value || null })}
+              >
+                <option value="">Sin cliente asignado</option>
+                {clientes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombreCompleto}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </Expandable>
 
           <div>
             <label className="mb-1 block text-xs font-medium text-ink-500">Cantidad *</label>

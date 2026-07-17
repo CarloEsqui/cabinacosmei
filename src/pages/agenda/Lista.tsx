@@ -1,13 +1,14 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
+import { motion } from "framer-motion";
 import { Lock, XCircle, Search, X, ChevronDown, ChevronUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatFecha } from "@/lib/format";
+import { formatFecha, formatMoneda } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { CitasFiltro } from "@shared/schemas";
 import type { Cliente, CitaRow } from "@shared/types";
@@ -169,10 +170,10 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
             Servicios cerrados: <strong>{resumenCliente?.serviciosCerrados ?? "—"}</strong>
           </span>
           <span className="text-ink-700">
-            Total cobrado: <strong>${(resumenCliente?.totalCobrado ?? 0).toFixed(2)}</strong>
+            Total cobrado: <strong>{formatMoneda(resumenCliente?.totalCobrado)}</strong>
           </span>
           <span className={resumenCliente && resumenCliente.saldoPendiente > 0.005 ? "text-danger-500" : "text-ink-700"}>
-            Saldo pendiente: <strong>${(resumenCliente?.saldoPendiente ?? 0).toFixed(2)}</strong>
+            Saldo pendiente: <strong>{formatMoneda(resumenCliente?.saldoPendiente)}</strong>
           </span>
         </div>
       )}
@@ -238,7 +239,9 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
                   {expandible && expandido === c.id && (
                     <tr className="border-t border-beige-200 bg-beige-100">
                       <td colSpan={8} className="px-4 py-3">
-                        <DetalleCita servicioRealizadoId={c.servicioRealizadoId!} />
+                        <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+                          <DetalleCita servicioRealizadoId={c.servicioRealizadoId!} />
+                        </motion.div>
                       </td>
                     </tr>
                   )}
@@ -272,18 +275,18 @@ function DetalleCita({ servicioRealizadoId }: { servicioRealizadoId: string }) {
     <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-3">
       <div>
         <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Pago</h4>
-        <p className="text-ink-700">Precio: ${detalle.precio.toFixed(2)}</p>
-        <p className="text-ink-700">Cobrado: ${detalle.totalCobrado.toFixed(2)}</p>
+        <p className="text-ink-700">Precio: {formatMoneda(detalle.precio)}</p>
+        <p className="text-ink-700">Cobrado: {formatMoneda(detalle.totalCobrado)}</p>
         <p className={detalle.saldoPendiente > 0.005 ? "font-medium text-danger-500" : "text-success-500"}>
           {detalle.saldoPendiente > 0.005
-            ? `Saldo pendiente: $${detalle.saldoPendiente.toFixed(2)}`
+            ? `Saldo pendiente: ${formatMoneda(detalle.saldoPendiente)}`
             : "Pagado por completo"}
         </p>
         {detalle.pagos.length > 0 && (
           <div className="mt-2 flex flex-col gap-0.5">
             {detalle.pagos.map((p, i) => (
               <p key={i} className="text-xs text-ink-500">
-                {formatFecha(p.fecha)} · {p.metodoPago} · ${p.monto.toFixed(2)}
+                {formatFecha(p.fecha)} · {p.metodoPago} · {formatMoneda(p.monto)}
               </p>
             ))}
           </div>

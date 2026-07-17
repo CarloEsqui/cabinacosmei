@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PackagePlus } from "lucide-react";
+import { CalendarClock, PackagePlus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
+import { Expandable } from "@/components/ui/expandable";
 import type { EntradaInput } from "@shared/schemas";
 import { fechaLocalIso } from "@shared/fechas";
 
@@ -33,6 +34,10 @@ export function EntradasTab() {
     queryKey: ["productos"],
     queryFn: () => window.api.productos.listar(),
   });
+  const { data: tipos = [] } = useQuery({
+    queryKey: ["tiposProducto"],
+    queryFn: () => window.api.tiposProducto.listar(),
+  });
   const { data: proveedores = [] } = useQuery({
     queryKey: ["proveedores"],
     queryFn: () => window.api.proveedores.listar(),
@@ -42,6 +47,26 @@ export function EntradasTab() {
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [formKey, setFormKey] = useState(0);
+
+  const productoSel = productos.find((p) => p.id === form.productoId);
+  const tipoSel = tipos.find((t) => t.id === productoSel?.tipoProductoId);
+  // Por defecto NO se pide caducidad: solo aparece cuando el producto elegido pertenece a una
+  // categoría marcada como "Requiere control por caducidad".
+  const requiereCaducidad = tipoSel?.requiereCaducidad ?? false;
+
+  // Al elegir producto: precarga su costo base como costo unitario de la entrada (editable) y,
+  // si la categoría no maneja caducidad, limpia cualquier fecha que se hubiera puesto.
+  function seleccionarProducto(id: string) {
+    const prod = productos.find((p) => p.id === id);
+    const tipo = tipos.find((t) => t.id === prod?.tipoProductoId);
+    const permiteCaducidad = tipo?.requiereCaducidad ?? false;
+    setForm({
+      ...form,
+      productoId: id,
+      costoUnitario: prod?.costoBase ?? 0,
+      fechaCaducidad: permiteCaducidad ? form.fechaCaducidad : "",
+    });
+  }
 
   const registrar = useMutation({
     mutationFn: () => window.api.inventario.registrarEntrada(form),
@@ -67,20 +92,14 @@ export function EntradasTab() {
             registrar.mutate();
           }}
         >
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-ink-500">Fecha *</label>
-              <Input
-                type="date"
-                required
-                value={form.fecha}
-                onChange={(e) => setForm({ ...form, fecha: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-ink-500">Folio</label>
-              <Input value={form.folio} onChange={(e) => setForm({ ...form, folio: e.target.value })} />
-            </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink-500">Fecha *</label>
+            <Input
+              type="date"
+              required
+              value={form.fecha}
+              onChange={(e) => setForm({ ...form, fecha: e.target.value })}
+            />
           </div>
 
           <div>
@@ -88,7 +107,7 @@ export function EntradasTab() {
             <Select
               required
               value={form.productoId}
-              onChange={(e) => setForm({ ...form, productoId: e.target.value })}
+              onChange={(e) => seleccionarProducto(e.target.value)}
             >
               <option value="">Selecciona un producto</option>
               {productos.map((p) => (
@@ -114,26 +133,25 @@ export function EntradasTab() {
             </Select>
           </div>
 
-          <p className="text-xs text-ink-500">
-            Se creará un lote nuevo con los datos de abajo (caducidad propia de este lote).
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-ink-500">Número de lote</label>
-              <Input
-                value={form.numeroLote}
-                onChange={(e) => setForm({ ...form, numeroLote: e.target.value })}
-              />
-            </div>
-            <div>
+          {/* El módulo de caducidad solo se despliega (con animación) cuando el producto elegido
+              pertenece a una categoría que sí requiere control por caducidad. */}
+          <Expandable open={requiereCaducidad}>
+            <div className="rounded-xl border border-jacaranda-200 bg-jacaranda-50/60 p-3">
+              <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-jacaranda-700">
+                <CalendarClock size={14} /> Control por caducidad
+              </div>
               <label className="mb-1 block text-xs font-medium text-ink-500">Fecha de caducidad</label>
               <Input
                 type="date"
+                tabIndex={requiereCaducidad ? undefined : -1}
                 value={form.fechaCaducidad}
                 onChange={(e) => setForm({ ...form, fechaCaducidad: e.target.value })}
               />
+              <p className="mt-1 text-xs text-ink-400">
+                Este producto requiere control por caducidad. Aplica a este ingreso.
+              </p>
             </div>
-          </div>
+          </Expandable>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -149,7 +167,10 @@ export function EntradasTab() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-500">Costo unitario</label>
+              {/* key por producto: al cambiar de producto, el NumberInput se re-monta para reflejar
+                  el costo base recién precargado (mantiene su texto interno, no se resincroniza solo). */}
               <NumberInput
+                key={form.productoId}
                 min={0}
                 step="0.01"
                 placeholder="0.00"

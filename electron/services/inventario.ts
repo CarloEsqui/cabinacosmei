@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, like, lte, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import {
   productos,
@@ -30,6 +30,52 @@ function calcularSemaforo(
   if (stockTotal <= criticoEfectivo) return "critico";
   if (stockTotal <= umbralBajo) return "bajo";
   return "adecuado";
+}
+
+// ---------------------------------------------------------------------------
+// Folios y números de lote correlativos (automáticos, para no depender de que el
+// usuario los teclee bien). Mismo patrón que el código de cliente (CL-0001) o el SKU.
+// ---------------------------------------------------------------------------
+
+// Estructural, no nominal: acepta tanto `db` como el `tx` de una transacción.
+interface DbConSelect {
+  select: ReturnType<typeof getDb>["select"];
+}
+
+function siguienteCorrelativo(valores: (string | null)[], prefijo: string): string {
+  let maxN = 0;
+  for (const v of valores) {
+    const match = v?.match(/-(\d+)$/);
+    if (match) maxN = Math.max(maxN, Number(match[1]));
+  }
+  return `${prefijo}-${String(maxN + 1).padStart(4, "0")}`;
+}
+
+function generarFolioEntrada(db: DbConSelect): string {
+  const filas = db
+    .select({ folio: entradasInventario.folio })
+    .from(entradasInventario)
+    .where(like(entradasInventario.folio, "E-%"))
+    .all();
+  return siguienteCorrelativo(filas.map((f) => f.folio), "E");
+}
+
+function generarFolioSalida(db: DbConSelect): string {
+  const filas = db
+    .select({ folio: salidasInventario.folio })
+    .from(salidasInventario)
+    .where(like(salidasInventario.folio, "S-%"))
+    .all();
+  return siguienteCorrelativo(filas.map((f) => f.folio), "S");
+}
+
+function generarNumeroLote(db: DbConSelect): string {
+  const filas = db
+    .select({ numeroLote: lotes.numeroLote })
+    .from(lotes)
+    .where(like(lotes.numeroLote, "L-%"))
+    .all();
+  return siguienteCorrelativo(filas.map((f) => f.numeroLote), "L");
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +186,7 @@ export async function eliminarLote(id: string, usuarioId?: string): Promise<void
 export async function lotesProximosACaducar(): Promise<Lote[]> {
   const db = getDb();
   const config = await obtenerConfig();
+  const hoy = fechaLocalIso();
   const limite = new Date();
   limite.setDate(limite.getDate() + config.diasAlertaCaducidad);
   const limiteIso = fechaLocalIso(limite);
@@ -153,6 +200,9 @@ export async function lotesProximosACaducar(): Promise<Lote[]> {
         eq(lotes.estado, "activo"),
         sql`${lotes.cantidadDisponible} > 0`,
         isNotNull(lotes.fechaCaducidad),
+        // Estrictamente en el futuro: los que ya caducaron (fecha <= hoy) van solo en "Caducados",
+        // no deben duplicarse aquí.
+        gt(lotes.fechaCaducidad, hoy),
         lte(lotes.fechaCaducidad, limiteIso),
       ),
     )
@@ -209,7 +259,7 @@ export async function registrarEntrada(input: EntradaInput, usuarioId?: string) 
           id: loteId,
           productoId: input.productoId,
           proveedorId: input.proveedorId || null,
-          numeroLote: input.numeroLote || null,
+          numeroLote: input.numeroLote || generarNumeroLote(tx),
           fechaCompra: fecha,
           fechaEntrada: fecha,
           fechaCaducidad: input.fechaCaducidad || null,
@@ -223,11 +273,12 @@ export async function registrarEntrada(input: EntradaInput, usuarioId?: string) 
     }
 
     const entradaId = randomUUID();
+    const folio = input.folio || generarFolioEntrada(tx);
     tx.insert(entradasInventario)
       .values({
         id: entradaId,
         fecha,
-        folio: input.folio || null,
+        folio,
         proveedorId: input.proveedorId || null,
         productoId: input.productoId,
         loteId,
@@ -262,7 +313,7 @@ export async function registrarEntrada(input: EntradaInput, usuarioId?: string) 
       accion: "entrada_inventario",
       entidadTipo: "producto",
       entidadId: input.productoId,
-      detalle: `+${input.cantidad}${input.folio ? ` · folio ${input.folio}` : ""}`,
+      detalle: `+${input.cantidad} · folio ${folio}`,
     });
 
     return tx.select().from(entradasInventario).where(eq(entradasInventario.id, entradaId)).get();
@@ -316,6 +367,7 @@ export async function registrarSalida(input: SalidaInput, usuarioId?: string) {
 
     let restante = input.cantidad;
     const salidasCreadas: string[] = [];
+    const folio = input.folio || generarFolioSalida(tx);
 
     for (const lote of candidatos) {
       if (restante <= 0) break;
@@ -336,7 +388,7 @@ export async function registrarSalida(input: SalidaInput, usuarioId?: string) {
         .values({
           id: salidaId,
           fecha,
-          folio: input.folio || null,
+          folio,
           productoId: input.productoId,
           loteId: lote.id,
           tipoSalida: input.tipoSalida,
@@ -402,15 +454,20 @@ export async function listarMovimientos(filtro: MovimientosFiltro): Promise<Movi
   if (filtro.proveedorId) condiciones.push(eq(movimientos.proveedorId, filtro.proveedorId));
   if (filtro.tipos && filtro.tipos.length > 0) condiciones.push(inArray(movimientos.tipo, filtro.tipos));
 
+  // El folio vive en la entrada/salida que originó el movimiento (referenciaId). Se unen ambas
+  // tablas y se toma el que exista (los ids son UUID, no colisionan entre tablas).
   const filas = db
     .select({
       mov: movimientos,
       productoNombre: productos.nombre,
       numeroLote: lotes.numeroLote,
+      folio: sql<string | null>`COALESCE(${entradasInventario.folio}, ${salidasInventario.folio})`,
     })
     .from(movimientos)
     .leftJoin(productos, eq(movimientos.productoId, productos.id))
     .leftJoin(lotes, eq(movimientos.loteId, lotes.id))
+    .leftJoin(entradasInventario, eq(movimientos.referenciaId, entradasInventario.id))
+    .leftJoin(salidasInventario, eq(movimientos.referenciaId, salidasInventario.id))
     .where(condiciones.length ? and(...condiciones) : undefined)
     .orderBy(desc(movimientos.createdAt))
     .limit(500)
@@ -420,6 +477,7 @@ export async function listarMovimientos(filtro: MovimientosFiltro): Promise<Movi
     id: f.mov.id,
     fecha: f.mov.fecha,
     tipo: f.mov.tipo,
+    folio: f.folio,
     productoId: f.mov.productoId,
     productoNombre: f.productoNombre,
     loteId: f.mov.loteId,

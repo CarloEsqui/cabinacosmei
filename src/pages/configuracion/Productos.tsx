@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, Power, PowerOff } from "lucide-react";
+import { Plus, Pencil, Trash2, Power, PowerOff, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { NumberInput } from "@/components/ui/number-input";
 import { SortableHeader } from "@/components/ui/sortable-header";
 import { useToast } from "@/components/ui/toast";
+import { EmptyState } from "@/components/ui/empty-state";
+import { formatMoneda } from "@/lib/format";
 import { mensajeDeError } from "@/lib/errores";
 import { useEliminarHibrido } from "@/hooks/use-eliminar-hibrido";
 import type { Producto } from "@shared/types";
@@ -171,7 +173,7 @@ export function ProductosTab() {
           options={tipos.map((t) => ({ value: t.id, label: t.nombreTipo }))}
           selected={filtrosTipo}
           onChange={setFiltrosTipo}
-          placeholder="Todos los tipos"
+          placeholder="Todas las categorías"
           className="max-w-[180px]"
         />
         <MultiSelect
@@ -192,7 +194,8 @@ export function ProductosTab() {
             <tr>
               <SortableHeader label="Nombre" sortKey="nombre" activo={orden} direccion={direccion} onSort={alternarOrden} />
               <th className="px-4 py-2">SKU</th>
-              <th className="px-4 py-2">Tipo</th>
+              <th className="px-4 py-2">Categoría</th>
+              <th className="px-4 py-2">Precio base</th>
               <SortableHeader
                 label="Precio venta"
                 sortKey="precioVenta"
@@ -204,13 +207,14 @@ export function ProductosTab() {
               <th className="px-4 py-2"></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody key={`${filtrosTipo.join()}|${filtrosEstatus.join()}|${orden}|${direccion}`} className="aparecer-suave">
             {filtrados.map((p) => (
               <tr key={p.id} className="border-t border-beige-200">
                 <td className="px-4 py-2 font-medium text-ink-900">{p.nombre}</td>
                 <td className="px-4 py-2 text-ink-700">{p.sku || "—"}</td>
                 <td className="px-4 py-2 text-ink-700">{nombreTipo(p.tipoProductoId)}</td>
-                <td className="px-4 py-2 text-ink-700">${(p.precioVenta ?? 0).toFixed(2)}</td>
+                <td className="px-4 py-2 tabular-nums text-ink-700">{formatMoneda(p.costoBase)}</td>
+                <td className="px-4 py-2 tabular-nums text-ink-700">{formatMoneda(p.precioVenta)}</td>
                 <td className="px-4 py-2">
                   <Badge variant={p.activo ? "success" : "neutral"}>{p.activo ? "Activo" : "Inactivo"}</Badge>
                 </td>
@@ -236,10 +240,12 @@ export function ProductosTab() {
             ))}
             {filtrados.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-ink-500">
-                  {productos.length === 0
-                    ? "Aún no hay productos registrados."
-                    : "Ningún producto coincide con los filtros."}
+                <td colSpan={7} className="px-4 py-6">
+                  <EmptyState
+                    icon={Package}
+                    mensaje={productos.length === 0 ? "Aún no hay productos registrados." : "Ningún producto coincide con los filtros."}
+                    submensaje={productos.length === 0 ? "Crea tu primer producto con el botón de arriba." : undefined}
+                  />
                 </td>
               </tr>
             )}
@@ -278,12 +284,12 @@ export function ProductosTab() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-xs font-medium text-ink-500">Tipo de producto</label>
+              <label className="mb-1 block text-xs font-medium text-ink-500">Categoría</label>
               <Select
                 value={form.tipoProductoId ?? ""}
                 onChange={(e) => setForm({ ...form, tipoProductoId: e.target.value || null })}
               >
-                <option value="">Sin tipo</option>
+                <option value="">Sin categoría</option>
                 {tipos.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.nombreTipo}

@@ -270,6 +270,7 @@ export interface MovimientoRow {
   id: string;
   fecha: string;
   tipo: string;
+  folio: string | null;
   productoId: string | null;
   productoNombre: string | null;
   loteId: string | null;

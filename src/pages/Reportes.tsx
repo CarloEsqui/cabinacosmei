@@ -6,7 +6,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatFecha } from "@/lib/format";
+import { formatFecha, formatMoneda } from "@/lib/format";
 import { fechaLocalIso, inicioDeMesIso } from "@shared/fechas";
 import type { RangoFechas } from "@shared/schemas";
 
@@ -88,7 +88,7 @@ function CobranzaTab({ rango }: { rango: RangoFechas }) {
             <CardTitle>Total cobrado</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-semibold text-ink-900">${(data?.total ?? 0).toFixed(2)}</p>
+            <p className="text-2xl font-semibold tabular-nums text-ink-900">{formatMoneda(data?.total)}</p>
             <p className="text-xs text-ink-500">{data?.filas.length ?? 0} pagos en el rango</p>
           </CardContent>
         </Card>
@@ -98,7 +98,7 @@ function CobranzaTab({ rango }: { rango: RangoFechas }) {
               <CardTitle>{m.metodoPago}</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-semibold text-ink-900">${m.monto.toFixed(2)}</p>
+              <p className="text-2xl font-semibold tabular-nums text-ink-900">{formatMoneda(m.monto)}</p>
             </CardContent>
           </Card>
         ))}
@@ -114,7 +114,7 @@ function CobranzaTab({ rango }: { rango: RangoFechas }) {
             <tr>
               <th className="px-4 py-2">Fecha</th>
               <th className="px-4 py-2">Método de pago</th>
-              <th className="px-4 py-2">Monto</th>
+              <th className="px-4 py-2 text-right">Monto</th>
             </tr>
           </thead>
           <tbody>
@@ -122,7 +122,7 @@ function CobranzaTab({ rango }: { rango: RangoFechas }) {
               <tr key={i} className="border-t border-beige-200">
                 <td className="px-4 py-2 text-ink-700">{formatFecha(f.fecha)}</td>
                 <td className="px-4 py-2 text-ink-700">{f.metodoPago}</td>
-                <td className="px-4 py-2 font-medium text-ink-900">${f.monto.toFixed(2)}</td>
+                <td className="px-4 py-2 text-right font-medium tabular-nums text-ink-900">{formatMoneda(f.monto)}</td>
               </tr>
             ))}
             {(data?.filas ?? []).length === 0 && (
@@ -171,7 +171,7 @@ function InventarioTab({ rango }: { rango: RangoFechas }) {
             <CardTitle>Costo de consumo en servicios</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-semibold text-ink-900">${(data?.costoConsumo ?? 0).toFixed(2)}</p>
+            <p className="text-2xl font-semibold tabular-nums text-ink-900">{formatMoneda(data?.costoConsumo)}</p>
             <p className="text-xs text-ink-500">Valorizado a costo del lote</p>
           </CardContent>
         </Card>
@@ -232,7 +232,7 @@ function ServiciosTab({ rango }: { rango: RangoFechas }) {
             <CardTitle>Ticket promedio</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-semibold text-ink-900">${(data?.ticketPromedio ?? 0).toFixed(2)}</p>
+            <p className="text-2xl font-semibold tabular-nums text-ink-900">{formatMoneda(data?.ticketPromedio)}</p>
           </CardContent>
         </Card>
       </div>
@@ -246,16 +246,16 @@ function ServiciosTab({ rango }: { rango: RangoFechas }) {
           <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
             <tr>
               <th className="px-4 py-2">Servicio</th>
-              <th className="px-4 py-2">Cantidad</th>
-              <th className="px-4 py-2">Total</th>
+              <th className="px-4 py-2 text-right">Cantidad</th>
+              <th className="px-4 py-2 text-right">Total</th>
             </tr>
           </thead>
           <tbody>
             {(data?.porServicio ?? []).map((f) => (
               <tr key={f.servicioNombre} className="border-t border-beige-200">
                 <td className="px-4 py-2 text-ink-700">{f.servicioNombre}</td>
-                <td className="px-4 py-2 text-ink-700">{f.cantidad}</td>
-                <td className="px-4 py-2 font-medium text-ink-900">${f.total.toFixed(2)}</td>
+                <td className="px-4 py-2 text-right tabular-nums text-ink-700">{f.cantidad}</td>
+                <td className="px-4 py-2 text-right font-medium tabular-nums text-ink-900">{formatMoneda(f.total)}</td>
               </tr>
             ))}
             {(data?.porServicio ?? []).length === 0 && (

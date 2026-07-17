@@ -14,15 +14,28 @@ import {
   UserPlus,
   Package,
 } from "lucide-react";
+import { motion } from "framer-motion";
 import { WelcomeGreeting } from "@/components/WelcomeGreeting";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatFecha } from "@/lib/format";
+import { AnimatedNumber } from "@/components/ui/animated-number";
+import { formatFecha, formatMoneda } from "@/lib/format";
 import { fechaLocalIso, sumarDiasIso } from "@shared/fechas";
 
 const HOY = fechaLocalIso();
 const EN_7_DIAS = sumarDiasIso(HOY, 7);
+
+// Entrada escalonada: el contenedor reparte la aparición de sus hijos; cada tarjeta aparece con un
+// fade + leve subida. Da un arranque más "premium" sin distraer.
+const contenedorVariants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.06 } },
+};
+const tarjetaVariants = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] as const } },
+};
 
 export function DashboardPage() {
   const { data: resumen = [] } = useQuery({
@@ -124,13 +137,14 @@ export function DashboardPage() {
 
   const mostrarOnboarding = clientes.length === 0 && resumen.length === 0;
 
+  const enteroFmt = (n: number) => String(Math.round(n));
   const KPIS = kpis
     ? [
-        { icon: Wallet, label: "Cobrado hoy", valor: `$${kpis.cobradoHoy.toFixed(2)}` },
-        { icon: Lock, label: "Pendiente de cortar", valor: `$${kpis.pendienteDeCortar.toFixed(2)}` },
-        { icon: Sparkles, label: "Servicios del mes", valor: `${kpis.serviciosDelMes}` },
-        { icon: Receipt, label: "Ticket promedio", valor: `$${kpis.ticketPromedioMes.toFixed(2)}` },
-        { icon: Users, label: "Clientas activas", valor: `${kpis.clientasActivas}` },
+        { icon: Wallet, label: "Cobrado hoy", valor: kpis.cobradoHoy, fmt: formatMoneda },
+        { icon: Lock, label: "Pendiente de cortar", valor: kpis.pendienteDeCortar, fmt: formatMoneda },
+        { icon: Sparkles, label: "Servicios del mes", valor: kpis.serviciosDelMes, fmt: enteroFmt },
+        { icon: Receipt, label: "Ticket promedio", valor: kpis.ticketPromedioMes, fmt: formatMoneda },
+        { icon: Users, label: "Clientas activas", valor: kpis.clientasActivas, fmt: enteroFmt },
       ]
     : [];
 
@@ -150,7 +164,7 @@ export function DashboardPage() {
             <div>
               <p className="font-medium text-jacaranda-800">Es hora del corte de caja</p>
               <p className="text-sm text-jacaranda-700">
-                ${corteResumen!.total.toFixed(2)} pendientes de cortar ({corteResumen!.cantidadPagos} pagos).
+                {formatMoneda(corteResumen!.total)} pendientes de cortar ({corteResumen!.cantidadPagos} pagos).
               </p>
             </div>
           </div>
@@ -187,48 +201,66 @@ export function DashboardPage() {
       )}
 
       {kpis && !mostrarOnboarding && (
-        <div className="grid grid-cols-2 gap-4 px-8 pt-6 md:grid-cols-3 xl:grid-cols-5">
-          {KPIS.map(({ icon: Icon, label, valor }) => (
-            <Card key={label}>
-              <CardContent className="flex items-center gap-3 pt-5">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-jacaranda-100 text-jacaranda-600">
-                  <Icon size={18} />
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-lg font-semibold text-ink-900">{valor}</p>
-                  <p className="truncate text-xs text-ink-500">{label}</p>
-                </div>
-              </CardContent>
-            </Card>
+        <motion.div
+          variants={contenedorVariants}
+          initial="hidden"
+          animate="visible"
+          className="grid grid-cols-2 gap-4 px-8 pt-6 md:grid-cols-3 xl:grid-cols-5"
+        >
+          {KPIS.map(({ icon: Icon, label, valor, fmt }) => (
+            <motion.div key={label} variants={tarjetaVariants}>
+              <Card className="transition-shadow hover:shadow-md">
+                <CardContent className="flex items-center gap-3 pt-5">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-jacaranda-100 text-jacaranda-600">
+                    <Icon size={18} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="metric-value truncate text-lg text-ink-900">
+                      <AnimatedNumber value={valor} format={fmt} />
+                    </p>
+                    <p className="truncate text-xs text-ink-500">{label}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 p-8 md:grid-cols-2 xl:grid-cols-4">
+      <motion.div
+        variants={contenedorVariants}
+        initial="hidden"
+        animate="visible"
+        className="grid grid-cols-1 gap-4 p-8 md:grid-cols-2 xl:grid-cols-4"
+      >
         {ALERTAS.map(({ icon: Icon, label, hint, valor, to, items }) => (
-          <Link key={label} to={to}>
-            <Card className="h-full transition-shadow hover:shadow-md">
-              <CardHeader className="pb-1">
-                <CardTitle className="text-sm">{label}</CardTitle>
-                <Icon size={18} className="text-jacaranda-500" />
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-semibold text-ink-900">{valor}</p>
-                <p className="text-xs text-ink-500">{hint}</p>
-                {items.length > 0 && (
-                  <ul className="mt-3 flex flex-col gap-1.5 border-t border-beige-200 pt-3">
-                    {items.map((item, i) => (
-                      <li key={i} className="truncate text-xs text-ink-700">
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-          </Link>
+          <motion.div key={label} variants={tarjetaVariants} whileHover={{ y: -3 }}>
+            <Link to={to}>
+              <Card className="h-full transition-shadow hover:shadow-lg">
+                <CardHeader className="pb-1">
+                  <CardTitle className="text-sm">{label}</CardTitle>
+                  <Icon size={18} className="text-jacaranda-500" />
+                </CardHeader>
+                <CardContent>
+                  <p className="metric-value text-2xl text-ink-900">
+                    <AnimatedNumber value={valor} format={(n) => String(Math.round(n))} />
+                  </p>
+                  <p className="text-xs text-ink-500">{hint}</p>
+                  {items.length > 0 && (
+                    <ul className="mt-3 flex flex-col gap-1.5 border-t border-beige-200 pt-3">
+                      {items.map((item, i) => (
+                        <li key={i} className="truncate text-xs text-ink-700">
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+            </Link>
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
 
       <div className="px-8 pb-8">
         <Card>

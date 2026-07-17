@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Plus, Pencil, FolderOpen, IdCard, Trash2, Power, PowerOff } from "lucide-react";
+import { Plus, Pencil, FolderOpen, IdCard, Trash2, Power, PowerOff, Users } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Modal } from "@/components/ui/modal";
@@ -223,7 +224,7 @@ export function ClientesPage() {
                 <th className="px-4 py-2"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody key={`${filtrosEstatus.join()}|${orden}|${direccion}`} className="aparecer-suave">
               {filtrados.map((c) => (
                 <tr key={c.id} className="border-t border-beige-200">
                   <td className="px-4 py-2 text-ink-500">{c.codigoCliente}</td>
@@ -270,10 +271,12 @@ export function ClientesPage() {
               ))}
               {filtrados.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-ink-500">
-                    {clientes.length === 0
-                      ? "Aún no hay clientas registradas."
-                      : "Ninguna clienta coincide con los filtros."}
+                  <td colSpan={6} className="px-4 py-6">
+                    <EmptyState
+                      icon={Users}
+                      mensaje={clientes.length === 0 ? "Aún no hay clientas registradas." : "Ninguna clienta coincide con los filtros."}
+                      submensaje={clientes.length === 0 ? "Registra tu primera clienta con el botón de arriba." : undefined}
+                    />
                   </td>
                 </tr>
               )}

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, Power, PowerOff } from "lucide-react";
+import { Plus, Pencil, Trash2, Power, PowerOff, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -9,6 +10,8 @@ import { NumberInput } from "@/components/ui/number-input";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
+import { Expandable } from "@/components/ui/expandable";
+import { formatMoneda } from "@/lib/format";
 import { mensajeDeError } from "@/lib/errores";
 import { useEliminarHibrido } from "@/hooks/use-eliminar-hibrido";
 import type { ServicioCatalogo } from "@shared/types";
@@ -38,11 +41,19 @@ export function ServiciosTab() {
   const [modalAbierto, setModalAbierto] = useState(false);
   const [editando, setEditando] = useState<ServicioCatalogo | null>(null);
   const [form, setForm] = useState<ServicioCatalogoInput>(VACIO);
+  // Insumos capturados para un servicio que TODAVÍA no existe (mientras se crea). Se persisten
+  // justo después de crear el servicio, cuando ya hay un id al cual asociarlos.
+  const [recetaNueva, setRecetaNueva] = useState<FilaReceta[]>([]);
 
   const guardar = useMutation({
     mutationFn: async () => {
       if (editando) return window.api.serviciosCatalogo.actualizar(editando.id, form);
-      return window.api.serviciosCatalogo.crear(form);
+      const creado = await window.api.serviciosCatalogo.crear(form);
+      const items = recetaNueva.filter((f) => f.productoId && f.cantidadSugerida > 0);
+      if (creado && form.consumeInventario && items.length > 0) {
+        await window.api.serviciosCatalogo.guardarReceta({ servicioCatalogoId: creado.id, items });
+      }
+      return creado;
     },
     onSuccess: (servicio) => {
       queryClient.invalidateQueries({ queryKey: ["serviciosCatalogo"] });
@@ -50,11 +61,13 @@ export function ServiciosTab() {
         setModalAbierto(false);
         toast.success("Servicio actualizado.");
       } else {
-        // En vez de cerrar, se deja el modal abierto sobre el servicio recién creado para que
-        // se pueda definir de una vez su plantilla de insumos (antes solo era posible reabriendo
-        // "editar" después, lo que hacía que casi nadie la usara).
+        // En vez de cerrar, se deja el modal abierto sobre el servicio recién creado para poder
+        // seguir ajustando su plantilla de insumos (los que ya se capturaron durante la creación
+        // ya quedaron guardados arriba).
+        queryClient.invalidateQueries({ queryKey: ["recetaServicio", servicio?.id] });
+        setRecetaNueva([]);
         setEditando(servicio);
-        toast.success("Servicio creado. Ya puedes agregar su plantilla de insumos abajo.");
+        toast.success("Servicio creado.");
       }
     },
     onError: (e) => toast.error(mensajeDeError(e)),
@@ -86,6 +99,7 @@ export function ServiciosTab() {
   function abrirNuevo() {
     setEditando(null);
     setForm(VACIO);
+    setRecetaNueva([]);
     setModalAbierto(true);
   }
 
@@ -133,7 +147,7 @@ export function ServiciosTab() {
               <tr key={s.id} className="border-t border-beige-200">
                 <td className="px-4 py-2 font-medium text-ink-900">{s.nombre}</td>
                 <td className="px-4 py-2 text-ink-700">{s.categoriaServicio || "—"}</td>
-                <td className="px-4 py-2 text-ink-700">${(s.precioSugerido ?? 0).toFixed(2)}</td>
+                <td className="px-4 py-2 tabular-nums text-ink-700">{formatMoneda(s.precioSugerido)}</td>
                 <td className="px-4 py-2 text-ink-700">
                   {s.periodicidadMantenimientoDias ? `cada ${s.periodicidadMantenimientoDias} días` : "—"}
                 </td>
@@ -162,8 +176,8 @@ export function ServiciosTab() {
             ))}
             {servicios.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-ink-500">
-                  Aún no hay servicios en el catálogo.
+                <td colSpan={6} className="px-4 py-6">
+                  <EmptyState icon={Sparkles} mensaje="Aún no hay servicios en el catálogo." submensaje="Agrega tu primer servicio con el botón de arriba." />
                 </td>
               </tr>
             )}
@@ -253,7 +267,13 @@ export function ServiciosTab() {
           </Button>
         </form>
 
-        {editando && <RecetaEditor servicioCatalogoId={editando.id} />}
+        <Expandable open={form.consumeInventario}>
+          {editando ? (
+            <RecetaEditor servicioCatalogoId={editando.id} />
+          ) : (
+            <RecetaEditor value={recetaNueva} onChange={setRecetaNueva} />
+          )}
+        </Expandable>
       </Modal>
     </div>
   );
@@ -264,25 +284,50 @@ interface FilaReceta {
   cantidadSugerida: number;
 }
 
-function RecetaEditor({ servicioCatalogoId }: { servicioCatalogoId: string }) {
+/**
+ * Editor de la plantilla de insumos de un servicio. Dos modos:
+ * - Persistido (`servicioCatalogoId`): carga y guarda contra el servidor (servicio ya existente).
+ * - Buffer (`value` + `onChange`): edita un arreglo en memoria del padre, sin tocar el servidor,
+ *   para poder capturar insumos de un servicio que aún no se ha creado.
+ */
+function RecetaEditor({
+  servicioCatalogoId,
+  value,
+  onChange,
+}: {
+  servicioCatalogoId?: string;
+  value?: FilaReceta[];
+  onChange?: (filas: FilaReceta[]) => void;
+}) {
+  const persistido = !!servicioCatalogoId;
   const queryClient = useQueryClient();
   const toast = useToast();
   const { data: receta = [] } = useQuery({
     queryKey: ["recetaServicio", servicioCatalogoId],
-    queryFn: () => window.api.serviciosCatalogo.listarReceta(servicioCatalogoId),
+    queryFn: () => window.api.serviciosCatalogo.listarReceta(servicioCatalogoId!),
+    enabled: persistido,
   });
   const { data: productos = [] } = useQuery({
     queryKey: ["productos"],
     queryFn: () => window.api.productos.listar(),
   });
 
+  // En modo persistido, las ediciones sin guardar viven aquí (null = todavía sin cambios). En modo
+  // buffer, las filas viven en el padre vía value/onChange.
   const [filas, setFilas] = useState<FilaReceta[] | null>(null);
-  const activas = filas ?? receta.map((r) => ({ productoId: r.productoId, cantidadSugerida: r.cantidadSugerida }));
+  const activas = persistido
+    ? filas ?? receta.map((r) => ({ productoId: r.productoId, cantidadSugerida: r.cantidadSugerida }))
+    : value ?? [];
+
+  function setActivas(nuevas: FilaReceta[]) {
+    if (persistido) setFilas(nuevas);
+    else onChange?.(nuevas);
+  }
 
   const guardar = useMutation({
     mutationFn: () =>
       window.api.serviciosCatalogo.guardarReceta({
-        servicioCatalogoId,
+        servicioCatalogoId: servicioCatalogoId!,
         items: activas.filter((f) => f.productoId && f.cantidadSugerida > 0),
       }),
     onSuccess: () => {
@@ -294,13 +339,13 @@ function RecetaEditor({ servicioCatalogoId }: { servicioCatalogoId: string }) {
   });
 
   function actualizar(i: number, cambios: Partial<FilaReceta>) {
-    setFilas(activas.map((f, idx) => (idx === i ? { ...f, ...cambios } : f)));
+    setActivas(activas.map((f, idx) => (idx === i ? { ...f, ...cambios } : f)));
   }
   function agregar() {
-    setFilas([...activas, { productoId: "", cantidadSugerida: 1 }]);
+    setActivas([...activas, { productoId: "", cantidadSugerida: 1 }]);
   }
   function quitar(i: number) {
-    setFilas(activas.filter((_, idx) => idx !== i));
+    setActivas(activas.filter((_, idx) => idx !== i));
   }
 
   return (
@@ -313,6 +358,7 @@ function RecetaEditor({ servicioCatalogoId }: { servicioCatalogoId: string }) {
       </div>
       <p className="mb-2 text-xs text-ink-500">
         Se precargan automáticamente en "Productos consumidos" al cerrar una cita de este servicio.
+        {!persistido && " Se guardarán junto con el servicio."}
       </p>
       {activas.length === 0 && <p className="text-xs text-ink-500">Ningún insumo definido.</p>}
       <div className="flex flex-col gap-2">
@@ -342,7 +388,7 @@ function RecetaEditor({ servicioCatalogoId }: { servicioCatalogoId: string }) {
           </div>
         ))}
       </div>
-      {filas && (
+      {persistido && filas && (
         <Button type="button" size="sm" className="mt-3" disabled={guardar.isPending} onClick={() => guardar.mutate()}>
           Guardar insumos
         </Button>

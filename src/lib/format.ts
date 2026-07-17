@@ -1,5 +1,15 @@
 import { format, parseISO } from "date-fns";
 
+const formateadorMoneda = new Intl.NumberFormat("es-MX", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** Formatea un número como dinero con separador de miles y 2 decimales: 590 → "$590.00", 1234.5 → "$1,234.50". */
+export function formatMoneda(n: number | null | undefined): string {
+  return `$${formateadorMoneda.format(n ?? 0)}`;
+}
+
 /** Convierte una fecha ISO (YYYY-MM-DD) a DD/MM/YYYY para mostrar en la interfaz. */
 export function formatFecha(iso: string | null | undefined): string {
   if (!iso) return "—";

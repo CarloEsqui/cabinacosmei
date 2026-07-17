@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Lock, CheckCircle2 } from "lucide-react";
+import { Lock, CheckCircle2, Receipt } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { formatFechaHora, formatFecha } from "@/lib/format";
+import { EmptyState } from "@/components/ui/empty-state";
+import { formatFechaHora, formatFecha, formatMoneda } from "@/lib/format";
 import { inicioDeSemanaIso, inicioDeMesIso } from "@shared/fechas";
 
 export function CortePage() {
@@ -65,13 +66,13 @@ export function CortePage() {
                   {resumen.desglosePorMetodo.map((d) => (
                     <div key={d.metodoPago} className="flex justify-between text-sm">
                       <span className="text-ink-700">{d.metodoPago}</span>
-                      <span className="font-medium text-ink-900">${d.monto.toFixed(2)}</span>
+                      <span className="font-medium tabular-nums text-ink-900">{formatMoneda(d.monto)}</span>
                     </div>
                   ))}
                 </div>
                 <div className="flex justify-between border-t border-beige-300 pt-3 text-base">
                   <span className="font-semibold text-jacaranda-700">Total ({resumen.cantidadPagos} pagos)</span>
-                  <span className="font-bold text-ink-900">${resumen.total.toFixed(2)}</span>
+                  <span className="font-bold tabular-nums text-ink-900">{formatMoneda(resumen.total)}</span>
                 </div>
 
                 {!confirmando ? (
@@ -81,7 +82,7 @@ export function CortePage() {
                 ) : (
                   <div className="rounded-xl bg-beige-100 p-3">
                     <p className="mb-2 text-sm text-ink-700">
-                      ¿Confirmas el corte por ${resumen.total.toFixed(2)}? Esta acción queda registrada en el
+                      ¿Confirmas el corte por {formatMoneda(resumen.total)}? Esta acción queda registrada en el
                       historial.
                     </p>
                     <div className="flex gap-2">
@@ -105,7 +106,7 @@ export function CortePage() {
               <CardTitle>Esta semana</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-semibold text-ink-900">${(resumenSemana?.total ?? 0).toFixed(2)}</p>
+              <p className="text-2xl font-semibold tabular-nums text-ink-900">{formatMoneda(resumenSemana?.total)}</p>
               <p className="text-xs text-ink-500">{resumenSemana?.cantidadCortes ?? 0} cortes</p>
             </CardContent>
           </Card>
@@ -114,7 +115,7 @@ export function CortePage() {
               <CardTitle>Este mes</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-semibold text-ink-900">${(resumenMes?.total ?? 0).toFixed(2)}</p>
+              <p className="text-2xl font-semibold tabular-nums text-ink-900">{formatMoneda(resumenMes?.total)}</p>
               <p className="text-xs text-ink-500">{resumenMes?.cantidadCortes ?? 0} cortes</p>
             </CardContent>
           </Card>
@@ -131,7 +132,7 @@ export function CortePage() {
               <tr>
                 <th className="px-4 py-2">Fecha</th>
                 <th className="px-4 py-2">Desglose</th>
-                <th className="px-4 py-2">Total</th>
+                <th className="px-4 py-2 text-right">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -139,15 +140,15 @@ export function CortePage() {
                 <tr key={c.id} className="border-t border-beige-200">
                   <td className="px-4 py-2 text-ink-700">{formatFechaHora(c.fecha, c.hora)}</td>
                   <td className="px-4 py-2 text-ink-700">
-                    {c.desglosePorMetodo.map((d) => `${d.metodoPago}: $${d.monto.toFixed(2)}`).join(" · ")}
+                    {c.desglosePorMetodo.map((d) => `${d.metodoPago}: ${formatMoneda(d.monto)}`).join(" · ")}
                   </td>
-                  <td className="px-4 py-2 font-medium text-ink-900">${c.total.toFixed(2)}</td>
+                  <td className="px-4 py-2 text-right font-medium tabular-nums text-ink-900">{formatMoneda(c.total)}</td>
                 </tr>
               ))}
               {historial.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="px-4 py-8 text-center text-ink-500">
-                    Aún no se ha registrado ningún corte.
+                  <td colSpan={3} className="px-4 py-6">
+                    <EmptyState icon={Receipt} mensaje="Aún no se ha registrado ningún corte." />
                   </td>
                 </tr>
               )}

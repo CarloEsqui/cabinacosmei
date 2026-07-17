@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ArrowLeftRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +79,7 @@ export function MovimientosTab() {
           <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
             <tr>
               <th className="px-4 py-2">Fecha</th>
+              <th className="px-4 py-2">Folio</th>
               <th className="px-4 py-2">Tipo</th>
               <th className="px-4 py-2">Producto</th>
               <th className="px-4 py-2">Lote</th>
@@ -84,10 +87,11 @@ export function MovimientosTab() {
               <th className="px-4 py-2">Observaciones</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody key={JSON.stringify(filtro)} className="aparecer-suave">
             {movimientos.map((m) => (
               <tr key={m.id} className="border-t border-beige-200">
                 <td className="px-4 py-2 text-ink-700">{formatFecha(m.fecha)}</td>
+                <td className="px-4 py-2 text-ink-700">{m.folio || "—"}</td>
                 <td className="px-4 py-2">
                   <Badge variant={m.tipo === "entrada" ? "success" : "neutral"}>
                     {TIPO_LABEL[m.tipo] ?? m.tipo}
@@ -101,8 +105,8 @@ export function MovimientosTab() {
             ))}
             {movimientos.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-ink-500">
-                  Sin movimientos registrados aún.
+                <td colSpan={7} className="px-4 py-6">
+                  <EmptyState icon={ArrowLeftRight} mensaje="Sin movimientos registrados aún." submensaje="Las entradas y salidas de inventario aparecerán aquí." />
                 </td>
               </tr>
             )}

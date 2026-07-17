@@ -91,6 +91,26 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Aparición suave para el contenido de tablas/listas al cargar o cambiar de pestaña. */
+  @keyframes aparecer-suave {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .aparecer-suave {
+    animation: aparecer-suave 0.28s ease-out both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .aparecer-suave {
+      animation: none;
+    }
+  }
+
   ::selection {
     @apply bg-jacaranda-200 text-ink-900;
   }
@@ -215,4 +235,97 @@
 
 .fc .fc-timegrid-event {
   @apply rounded-lg border-none shadow-sm;
+}
+
+/* -----------------------------------------------------------------------
+   Sidebar retráctil — riel (solo íconos, 68px) / expandido por hover
+   (overlay flotante, no empuja el layout) / fijado (empuja el layout como
+   un sidebar clásico). El logo/íconos viven en una columna de grid de
+   ancho fijo que nunca cambia: solo el texto aparece/desaparece con fade,
+   así que nada "brinca" ni se re-centra entre estados.
+   ----------------------------------------------------------------------- */
+:root {
+  --sidebar-w: 240px;
+  --sidebar-rail-w: 68px;
+  --icon-slot: 44px;
+  --sidebar-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-rail-w) 1fr;
+  transition: grid-template-columns 0.18s var(--sidebar-ease);
+}
+.app-shell.pinned {
+  grid-template-columns: var(--sidebar-w) 1fr;
+}
+/* Columnas explícitas: cuando el sidebar pasa a `position: fixed` en hover,
+   sale del flujo normal, pero el grid del padre sigue reservando su columna
+   — así `.shell-main` nunca se expande a llenar el hueco. */
+.app-shell > .sidebar {
+  grid-column: 1;
+}
+.app-shell > .shell-main {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.sidebar {
+  width: var(--sidebar-rail-w);
+  transition: width 0.18s var(--sidebar-ease);
+}
+.sidebar.pinned {
+  width: var(--sidebar-w);
+}
+.sidebar.expanded:not(.pinned) {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 40;
+  width: var(--sidebar-w);
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+}
+
+.sidebar-brand,
+.nav-item {
+  display: grid;
+  align-items: center;
+}
+.sidebar-brand {
+  grid-template-columns: var(--icon-slot) 1fr auto;
+}
+.nav-item {
+  grid-template-columns: var(--icon-slot) 1fr;
+}
+
+.sidebar-icon-slot {
+  display: flex;
+  justify-content: center;
+}
+
+.sidebar-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 1;
+  max-width: 200px;
+  transition: opacity 0.15s ease 0.04s, max-width 0.2s var(--sidebar-ease);
+}
+
+.pin-btn {
+  opacity: 1;
+  max-width: 28px;
+  transition: opacity 0.15s ease 0.04s, max-width 0.2s var(--sidebar-ease);
+}
+
+.sidebar.rail .sidebar-text,
+.sidebar.rail .pin-btn {
+  opacity: 0;
+  max-width: 0;
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  pointer-events: none;
+  transition: opacity 0.08s ease, max-width 0.16s var(--sidebar-ease);
 }

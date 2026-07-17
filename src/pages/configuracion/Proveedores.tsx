@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, Power, PowerOff } from "lucide-react";
+import { Plus, Pencil, Trash2, Power, PowerOff, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -219,10 +220,12 @@ export function ProveedoresTab() {
             ))}
             {filtrados.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-ink-500">
-                  {proveedores.length === 0
-                    ? "Aún no hay proveedores registrados."
-                    : "Ningún proveedor coincide con los filtros."}
+                <td colSpan={6} className="px-4 py-6">
+                  <EmptyState
+                    icon={Truck}
+                    mensaje={proveedores.length === 0 ? "Aún no hay proveedores registrados." : "Ningún proveedor coincide con los filtros."}
+                    submensaje={proveedores.length === 0 ? "Agrega tu primer proveedor con el botón de arriba." : undefined}
+                  />
                 </td>
               </tr>
             )}

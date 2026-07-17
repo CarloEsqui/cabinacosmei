@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { ChevronDown, ChevronUp, Pencil, Lock, Unlock, Trash2 } from "lucide-react";
+import { motion } from "framer-motion";
+import { ChevronDown, ChevronUp, Pencil, Lock, Unlock, Trash2, Boxes } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Badge, semaforoVariant } from "@/components/ui/badge";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Input } from "@/components/ui/input";
@@ -99,7 +101,7 @@ export function ResumenTab() {
           options={tipos.map((t) => ({ value: t, label: t }))}
           selected={filtrosTipo}
           onChange={setFiltrosTipo}
-          placeholder="Todos los tipos"
+          placeholder="Todas las categorías"
           className="max-w-[160px]"
         />
         <MultiSelect
@@ -128,7 +130,7 @@ export function ResumenTab() {
             <tr>
               <th className="px-4 py-2"></th>
               <SortableHeader label="Producto" sortKey="nombre" activo={orden} direccion={direccion} onSort={alternarOrden} />
-              <th className="px-4 py-2">Tipo</th>
+              <th className="px-4 py-2">Categoría</th>
               <th className="px-4 py-2">Proveedor</th>
               <SortableHeader label="Stock total" sortKey="stockTotal" activo={orden} direccion={direccion} onSort={alternarOrden} />
               <SortableHeader
@@ -141,7 +143,7 @@ export function ResumenTab() {
               <th className="px-4 py-2">Estado</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody key={`${filtrosTipo.join()}|${filtrosProveedor.join()}|${filtrosSemaforo.join()}|${orden}|${direccion}`} className="aparecer-suave">
             {filtrados.map((p) => (
               <ProductoFila
                 key={p.id}
@@ -152,8 +154,8 @@ export function ResumenTab() {
             ))}
             {filtrados.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-ink-500">
-                  No hay productos que coincidan con los filtros.
+                <td colSpan={7} className="px-4 py-6">
+                  <EmptyState icon={Boxes} mensaje="No hay productos que coincidan con los filtros." />
                 </td>
               </tr>
             )}
@@ -241,6 +243,7 @@ function ProductoFila({
       {expandido && (
         <tr className="border-t border-beige-200 bg-beige-100">
           <td colSpan={7} className="px-4 py-3">
+            <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: "easeOut" }}>
             {lotes.length === 0 ? (
               <p className="text-xs text-ink-500">Sin lotes registrados.</p>
             ) : (
@@ -303,6 +306,7 @@ function ProductoFila({
                 </tbody>
               </table>
             )}
+            </motion.div>
           </td>
         </tr>
       )}
