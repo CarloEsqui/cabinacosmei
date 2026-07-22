@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Expandable } from "@/components/ui/expandable";
 import type { EntradaInput } from "@shared/schemas";
 import { fechaLocalIso } from "@shared/fechas";
@@ -167,12 +168,10 @@ export function EntradasTab() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-500">Costo unitario</label>
-              {/* key por producto: al cambiar de producto, el NumberInput se re-monta para reflejar
+              {/* key por producto: al cambiar de producto, el input se re-monta para reflejar
                   el costo base recién precargado (mantiene su texto interno, no se resincroniza solo). */}
-              <NumberInput
+              <MoneyInput
                 key={form.productoId}
-                min={0}
-                step="0.01"
                 placeholder="0.00"
                 value={form.costoUnitario}
                 onValueChange={(v) => setForm({ ...form, costoUnitario: v ?? 0 })}

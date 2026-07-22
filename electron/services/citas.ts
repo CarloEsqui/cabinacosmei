@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { getDb } from "../db";
 import { citas, clientes, serviciosCatalogo, serviciosRealizados, pagos } from "../db/schema";
 import { registrarAccion } from "./bitacora";
@@ -62,7 +62,7 @@ export async function listarCitas(filtro: CitasFiltro): Promise<CitaRow[]> {
     .leftJoin(serviciosCatalogo, eq(citas.servicioCatalogoId, serviciosCatalogo.id))
     .leftJoin(serviciosRealizados, eq(serviciosRealizados.citaId, citas.id))
     .where(condiciones.length ? and(...condiciones) : undefined)
-    .orderBy(asc(citas.fecha), asc(citas.hora))
+    .orderBy(desc(citas.fecha), desc(citas.hora))
     .all();
 
   const servicioIds = filas.map((f) => f.servicioRealizadoId).filter((id): id is string => !!id);

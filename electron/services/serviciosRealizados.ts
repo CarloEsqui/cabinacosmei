@@ -4,7 +4,7 @@ import { getDb } from "../db";
 import { serviciosRealizados, citas, clientes, serviciosCatalogo, productos, salidasInventario, pagos } from "../db/schema";
 import { crearCarpetaServicio } from "./folders";
 import { tieneComprobante } from "./archivos";
-import { registrarSalida } from "./inventario";
+import { registrarSalida, verificarStockSuficiente } from "./inventario";
 import { registrarPago } from "./pagos";
 import { verificarPin } from "./auth";
 import { registrarAccion } from "./bitacora";
@@ -136,6 +136,20 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
   // Misma fecha que se guardó al abrir el cierre (la de la cita), para que consumos, pago y el
   // cálculo de "próxima cita sugerida" queden consistentes con cuándo ocurrió el servicio.
   const fecha = servicio.fecha;
+
+  // Pre-chequeo de stock ANTES de tocar nada: como cada salida se confirma por separado, sin esta
+  // validación un faltante a media lista dejaría unos insumos ya descontados y la cita sin cerrar.
+  // Aquí se avisa todo junto (nombrando los productos) y no se modifica el inventario.
+  const aDescontar = [...input.productosConsumidos, ...input.productosVendidos];
+  const faltantes = verificarStockSuficiente(aDescontar);
+  if (faltantes.length > 0) {
+    const detalle = faltantes
+      .map((f) => `${f.nombre} (hay ${f.disponible}, se necesitan ${f.solicitado})`)
+      .join("; ");
+    throw new Error(
+      `No hay stock suficiente para cerrar la cita: ${detalle}. Ajusta las cantidades o registra una entrada de inventario primero.`,
+    );
+  }
 
   // Cada salida ya es atómica por sí misma (inventario.registrarSalida abre su propia transacción).
   for (const p of input.productosConsumidos) {

@@ -36,3 +36,20 @@ export function formatFechaHoraMs(ms: number): string {
 export function getFirstName(fullName: string): string {
   return fullName.trim().split(/\s+/)[0];
 }
+
+/** Formatea el valor de un KPI según su tipo. */
+export function formatKpi(valor: number | null, formato: "moneda" | "porcentaje" | "numero" | "dias" | "horas"): string {
+  if (valor === null || Number.isNaN(valor)) return "—";
+  switch (formato) {
+    case "moneda":
+      return formatMoneda(valor);
+    case "porcentaje":
+      return `${valor.toFixed(1)}%`;
+    case "dias":
+      return `${Math.round(valor)} d`;
+    case "horas":
+      return `${valor.toFixed(1)} h`;
+    default:
+      return new Intl.NumberFormat("es-MX").format(Math.round(valor));
+  }
+}

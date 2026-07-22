@@ -164,6 +164,21 @@ export const rangoFechasSchema = z.object({
 });
 export type RangoFechas = z.infer<typeof rangoFechasSchema>;
 
+export const resumenFiltroSchema = z.object({
+  fechaDesde: z.string().min(1),
+  fechaHasta: z.string().min(1),
+  comparacion: z.enum(["ninguna", "anterior", "mes_anterior", "anio_anterior"]).default("anterior"),
+});
+export type ResumenFiltro = z.infer<typeof resumenFiltroSchema>;
+
+export const establecerEstadoHallazgoInputSchema = z.object({
+  hallazgoId: z.string().min(1),
+  fechaDesde: z.string().min(1),
+  fechaHasta: z.string().min(1),
+  estado: z.enum(["nuevo", "revisado", "en_seguimiento", "resuelto", "descartado"]),
+});
+export type EstablecerEstadoHallazgoInput = z.infer<typeof establecerEstadoHallazgoInputSchema>;
+
 export const bitacoraFiltroSchema = z.object({
   fechaDesde: z.string().optional(),
   fechaHasta: z.string().optional(),

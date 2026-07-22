@@ -10,7 +10,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { NumberInput } from "@/components/ui/number-input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { SortableHeader } from "@/components/ui/sortable-header";
 import { useToast } from "@/components/ui/toast";
 import { mensajeDeError } from "@/lib/errores";
@@ -385,7 +385,7 @@ function LoteEditModal({
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-ink-500">Costo unitario</label>
-            <NumberInput
+            <MoneyInput
               placeholder="0.00"
               value={form.costoUnitarioLote}
               onValueChange={(v) => setForm({ ...form, costoUnitarioLote: v ?? 0 })}

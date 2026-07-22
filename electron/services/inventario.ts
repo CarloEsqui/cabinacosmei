@@ -324,6 +324,52 @@ export async function registrarEntrada(input: EntradaInput, usuarioId?: string) 
 // Salidas (con selección de lote por FEFO/FIFO)
 // ---------------------------------------------------------------------------
 
+export interface FaltanteStock {
+  productoId: string;
+  nombre: string;
+  disponible: number;
+  solicitado: number;
+}
+
+/**
+ * Verifica, SIN modificar nada, si hay stock suficiente para una lista de productos a descontar.
+ * Se usa antes de cerrar una cita para no descontar unos insumos y fallar a medias en otros
+ * (cada salida se confirma por separado): si algo falta, se avisa todo junto y no se toca nada.
+ * Agrupa por producto por si el mismo aparece repetido (insumo + venta del mismo artículo).
+ */
+export function verificarStockSuficiente(items: { productoId: string; cantidad: number }[]): FaltanteStock[] {
+  const db = getDb();
+  const hoy = fechaLocalIso();
+
+  const porProducto = new Map<string, number>();
+  for (const it of items) {
+    if (!it.productoId || it.cantidad <= 0) continue;
+    porProducto.set(it.productoId, (porProducto.get(it.productoId) ?? 0) + it.cantidad);
+  }
+
+  const faltantes: FaltanteStock[] = [];
+  for (const [productoId, solicitado] of porProducto) {
+    const filas = db
+      .select({ disp: lotes.cantidadDisponible })
+      .from(lotes)
+      .where(
+        and(
+          eq(lotes.productoId, productoId),
+          eq(lotes.estado, "activo"),
+          sql`${lotes.cantidadDisponible} > 0`,
+          sql`(${lotes.fechaCaducidad} IS NULL OR ${lotes.fechaCaducidad} >= ${hoy})`,
+        ),
+      )
+      .all();
+    const disponible = filas.reduce((acc, f) => acc + f.disp, 0);
+    if (disponible < solicitado) {
+      const prod = db.select({ nombre: productos.nombre }).from(productos).where(eq(productos.id, productoId)).get();
+      faltantes.push({ productoId, nombre: prod?.nombre ?? "Producto", disponible, solicitado });
+    }
+  }
+  return faltantes;
+}
+
 export async function registrarSalida(input: SalidaInput, usuarioId?: string) {
   const db = getDb();
   const config = await obtenerConfig();
@@ -360,8 +406,13 @@ export async function registrarSalida(input: SalidaInput, usuarioId?: string) {
 
     const disponibleTotal = candidatos.reduce((acc, l) => acc + l.cantidadDisponible, 0);
     if (disponibleTotal < input.cantidad) {
+      const prod = tx
+        .select({ nombre: productos.nombre })
+        .from(productos)
+        .where(eq(productos.id, input.productoId))
+        .get();
       throw new Error(
-        `Stock insuficiente: disponible ${disponibleTotal}, solicitado ${input.cantidad}.`,
+        `Stock insuficiente de ${prod?.nombre ?? "este producto"}: disponible ${disponibleTotal}, se necesitan ${input.cantidad}.`,
       );
     }
 

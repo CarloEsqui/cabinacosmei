@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
@@ -221,7 +222,7 @@ export function ServiciosTab() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-500">Precio sugerido</label>
-              <NumberInput
+              <MoneyInput
                 placeholder="0.00"
                 value={form.precioSugerido}
                 onValueChange={(v) => setForm({ ...form, precioSugerido: v ?? 0 })}

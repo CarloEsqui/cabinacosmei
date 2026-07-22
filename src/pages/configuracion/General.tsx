@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FolderOpen, FolderCog, Save, Sparkles, RefreshCw, User, ALargeSmall, KeyRound, Copy } from "lucide-react";
+import { FolderOpen, FolderCog, Save, Sparkles, RefreshCw, User, ALargeSmall, KeyRound, Copy, CalendarClock } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,9 @@ const ETIQUETA_ESTADO_LICENCIA: Record<EstadoLicencia["estado"], string> = {
   no_activada: "No activada",
   invalida: "Inválida",
 };
+
+// Índice = número de día de la semana (0 = domingo … 6 = sábado), como usa Date.getDay().
+const DIAS_SEMANA = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 const ESCALAS_TEXTO = [
   { valor: 0.9, etiqueta: "Pequeño" },
@@ -278,6 +281,108 @@ export function GeneralTab() {
               </p>
             </div>
             <Button size="sm" disabled={guardando} onClick={() => guardar({ horaCorte: config.horaCorte })}>
+              <Save size={16} /> Guardar cambios
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CalendarClock size={16} className="text-jacaranda-500" /> Horario de atención
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <p className="text-xs text-ink-500">
+              Se usa para calcular la <b>ocupación</b> de tu agenda en Reportes (qué tan llena está tu
+              capacidad).
+            </p>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-ink-500">Días laborales</label>
+              <div className="flex flex-wrap gap-1.5">
+                {DIAS_SEMANA.map((d, i) => (
+                  <Button
+                    key={i}
+                    type="button"
+                    size="sm"
+                    variant={config.diasLaborales.includes(i) ? "primary" : "secondary"}
+                    onClick={() =>
+                      setConfig({
+                        ...config,
+                        diasLaborales: config.diasLaborales.includes(i)
+                          ? config.diasLaborales.filter((x) => x !== i)
+                          : [...config.diasLaborales, i].sort((a, b) => a - b),
+                      })
+                    }
+                  >
+                    {d}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-ink-500">Apertura</label>
+                <Input
+                  type="time"
+                  value={config.horarioApertura}
+                  onChange={(e) => setConfig({ ...config, horarioApertura: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-ink-500">Cierre</label>
+                <Input
+                  type="time"
+                  value={config.horarioCierre}
+                  onChange={(e) => setConfig({ ...config, horarioCierre: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-ink-500">Descanso — inicio</label>
+                <Input
+                  type="time"
+                  value={config.descansoInicio}
+                  onChange={(e) => setConfig({ ...config, descansoInicio: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-ink-500">Descanso — fin</label>
+                <Input
+                  type="time"
+                  value={config.descansoFin}
+                  onChange={(e) => setConfig({ ...config, descansoFin: e.target.value })}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-ink-500">
+                Capacidad simultánea (clientas a la vez)
+              </label>
+              <NumberInput
+                min={1}
+                value={config.capacidadSimultanea}
+                onValueChange={(v) => setConfig({ ...config, capacidadSimultanea: v && v >= 1 ? Math.round(v) : 1 })}
+              />
+              <p className="mt-1 text-xs text-ink-500">
+                1 si atiendes de una en una; súbelo si tienes varias estaciones o profesionales al mismo tiempo.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              disabled={guardando}
+              onClick={() =>
+                guardar({
+                  diasLaborales: config.diasLaborales,
+                  horarioApertura: config.horarioApertura,
+                  horarioCierre: config.horarioCierre,
+                  descansoInicio: config.descansoInicio,
+                  descansoFin: config.descansoFin,
+                  capacidadSimultanea: config.capacidadSimultanea,
+                })
+              }
+            >
               <Save size={16} /> Guardar cambios
             </Button>
           </CardContent>

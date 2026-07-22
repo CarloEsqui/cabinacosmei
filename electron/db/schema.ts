@@ -389,3 +389,23 @@ export const cortes = sqliteTable("cortes", {
   usuarioId: text("usuario_id").references(() => usuarios.id, { onDelete: "set null" }),
   createdAt: createdAt(),
 });
+
+// ---------------------------------------------------------------------------
+// Estado de los hallazgos automáticos de Reportes (Centro de atención)
+// ---------------------------------------------------------------------------
+
+// Un hallazgo es de un TIPO (ej. "clientas_riesgo") calculado de nuevo en cada periodo, no una
+// entidad con id propio — por eso el estado se guarda por combinación (tipo, rango de fechas): así
+// "descartar" el aviso de cartera de julio no oculta el mismo tipo de aviso si reaparece en agosto
+// con cifras distintas.
+export const hallazgosEstado = sqliteTable("hallazgos_estado", {
+  id: id(),
+  clave: text("clave").notNull().unique(), // `${hallazgoId}|${fechaDesde}|${fechaHasta}`
+  hallazgoId: text("hallazgo_id").notNull(),
+  fechaDesde: text("fecha_desde").notNull(),
+  fechaHasta: text("fecha_hasta").notNull(),
+  estado: text("estado").notNull(), // nuevo | revisado | en_seguimiento | resuelto | descartado
+  usuarioId: text("usuario_id").references(() => usuarios.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});

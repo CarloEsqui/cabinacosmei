@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { formatFecha } from "@/lib/format";
@@ -172,7 +173,7 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
 
         <div>
           <label className="mb-1 block text-xs font-medium text-ink-500">Precio del servicio</label>
-          <NumberInput
+          <MoneyInput
             placeholder="0.00"
             value={precio ?? servicio.precio ?? 0}
             onValueChange={setPrecio}
@@ -215,7 +216,7 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-500">Monto</label>
-              <NumberInput placeholder="0.00" value={montoEfectivo} onValueChange={setMonto} />
+              <MoneyInput placeholder="0.00" value={montoEfectivo} onValueChange={setMonto} />
             </div>
           </div>
           <div className="mt-3">

@@ -108,7 +108,8 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
   });
 
   const ordenadas = useMemo(() => {
-    let lista = [...citas].sort((a, b) => (a.fecha + a.hora).localeCompare(b.fecha + b.hora));
+    // Más recientes/próximas primero (orden descendente), no las más antiguas.
+    let lista = [...citas].sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
     if (filtrosPago.length > 0) {
       lista = lista.filter((c) => filtrosPago.includes(estatusPagoCita(c)));
     }

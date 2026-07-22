@@ -18,6 +18,14 @@ import * as bitacoraService from "../services/bitacora";
 import * as respaldosService from "../services/respaldos";
 import * as reinicioService from "../services/reinicio";
 import * as reportesService from "../services/reportes";
+import * as reportesResumenService from "../services/reportesResumen";
+import * as reportesFinanzasService from "../services/reportesFinanzas";
+import * as reportesServiciosDetalleService from "../services/reportesServiciosDetalle";
+import * as reportesClientesDetalleService from "../services/reportesClientesDetalle";
+import * as reportesAgendaService from "../services/reportesAgenda";
+import * as reportesInventarioDetalleService from "../services/reportesInventarioDetalle";
+import * as reportesHallazgosService from "../services/reportesHallazgos";
+import * as hallazgosEstadoService from "../services/hallazgosEstado";
 import * as dashboardService from "../services/dashboard";
 import { buscarActualizaciones, instalarYReiniciar } from "../services/actualizaciones";
 import { usuarioActualId, obtenerUsuarioActual, actualizarNombreUsuario } from "../services/usuarios";
@@ -38,7 +46,9 @@ import {
   guardarRecetaInputSchema,
   bitacoraFiltroSchema,
   rangoFechasSchema,
+  resumenFiltroSchema,
   loteInputSchema,
+  establecerEstadoHallazgoInputSchema,
 } from "../../shared/schemas";
 
 let ventanaActual: BrowserWindow | null = null;
@@ -339,6 +349,32 @@ export function registrarIpc(): void {
   );
 
   // -- Reportes ---------------------------------------------------------------
+  ipcMain.handle("reportes:resumen", (_e, filtro) =>
+    reportesResumenService.reporteResumen(resumenFiltroSchema.parse(filtro)),
+  );
+  ipcMain.handle("reportes:finanzas", (_e, filtro) =>
+    reportesFinanzasService.reporteFinanzas(resumenFiltroSchema.parse(filtro)),
+  );
+  ipcMain.handle("reportes:carteraDetalle", () => reportesFinanzasService.carteraDetallePorCliente());
+  ipcMain.handle("reportes:serviciosDetalle", (_e, filtro) =>
+    reportesServiciosDetalleService.reporteServiciosDetalle(resumenFiltroSchema.parse(filtro)),
+  );
+  ipcMain.handle("reportes:clientesDetalle", (_e, filtro) =>
+    reportesClientesDetalleService.reporteClientesDetalle(resumenFiltroSchema.parse(filtro)),
+  );
+  ipcMain.handle("reportes:agenda", (_e, filtro) =>
+    reportesAgendaService.reporteAgenda(resumenFiltroSchema.parse(filtro)),
+  );
+  ipcMain.handle("reportes:inventarioDetalle", (_e, filtro) =>
+    reportesInventarioDetalleService.reporteInventarioDetalle(resumenFiltroSchema.parse(filtro)),
+  );
+  ipcMain.handle("reportes:hallazgos", (_e, filtro) =>
+    reportesHallazgosService.reporteHallazgos(resumenFiltroSchema.parse(filtro)),
+  );
+  ipcMain.handle("reportes:establecerEstadoHallazgo", (_e, input) => {
+    const { hallazgoId, fechaDesde, fechaHasta, estado } = establecerEstadoHallazgoInputSchema.parse(input);
+    hallazgosEstadoService.establecerEstadoHallazgo(hallazgoId, fechaDesde, fechaHasta, estado, usuarioActualId() ?? undefined);
+  });
   ipcMain.handle("reportes:cobranza", (_e, rango) =>
     reportesService.reporteCobranza(rangoFechasSchema.parse(rango)),
   );

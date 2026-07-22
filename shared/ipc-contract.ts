@@ -13,8 +13,10 @@ import type {
   CierreCitaInput,
   GuardarRecetaInput,
   RangoFechas,
+  ResumenFiltro,
   BitacoraFiltro,
   LoteInput,
+  EstablecerEstadoHallazgoInput,
 } from "./schemas";
 import type {
   Proveedor,
@@ -42,6 +44,14 @@ import type {
   ReporteClientes,
   ResumenDashboard,
   ResumenClienteCitas,
+  ResumenReporte,
+  ReporteFinanzas,
+  CarteraClienteFila,
+  ReporteServiciosDetalle,
+  ReporteClientesDetalle,
+  ReporteAgenda,
+  ReporteInventarioDetalle,
+  Hallazgo,
   EstadoLicencia,
 } from "./types";
 
@@ -170,6 +180,15 @@ export interface IpcApi {
     restablecerFabrica(pin: string, eliminarArchivos: boolean): Promise<void>;
   };
   reportes: {
+    resumen(filtro: ResumenFiltro): Promise<ResumenReporte>;
+    finanzas(filtro: ResumenFiltro): Promise<ReporteFinanzas>;
+    carteraDetalle(): Promise<CarteraClienteFila[]>;
+    serviciosDetalle(filtro: ResumenFiltro): Promise<ReporteServiciosDetalle>;
+    clientesDetalle(filtro: ResumenFiltro): Promise<ReporteClientesDetalle>;
+    agenda(filtro: ResumenFiltro): Promise<ReporteAgenda>;
+    inventarioDetalle(filtro: ResumenFiltro): Promise<ReporteInventarioDetalle>;
+    hallazgos(filtro: ResumenFiltro): Promise<Hallazgo[]>;
+    establecerEstadoHallazgo(input: EstablecerEstadoHallazgoInput): Promise<void>;
     cobranza(rango: RangoFechas): Promise<ReporteCobranza>;
     inventario(rango: RangoFechas): Promise<ReporteInventario>;
     servicios(rango: RangoFechas): Promise<ReporteServicios>;
@@ -256,6 +275,15 @@ export type IpcChannel =
   | "respaldos:exportar"
   | "datos:borrarNegocio"
   | "datos:restablecerFabrica"
+  | "reportes:resumen"
+  | "reportes:finanzas"
+  | "reportes:carteraDetalle"
+  | "reportes:serviciosDetalle"
+  | "reportes:clientesDetalle"
+  | "reportes:agenda"
+  | "reportes:inventarioDetalle"
+  | "reportes:hallazgos"
+  | "reportes:establecerEstadoHallazgo"
   | "reportes:cobranza"
   | "reportes:inventario"
   | "reportes:servicios"

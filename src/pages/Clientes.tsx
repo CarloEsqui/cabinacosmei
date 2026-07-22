@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Pencil, FolderOpen, IdCard, Trash2, Power, PowerOff, Users } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -73,6 +73,14 @@ export function ClientesPage() {
   const [editando, setEditando] = useState<Cliente | null>(null);
   const [form, setForm] = useState<ClienteInput>(VACIO);
   const [expedienteId, setExpedienteId] = useState<string | null>(null);
+
+  // Permite llegar directo al expediente de una clienta desde otra página (ej. el drill-down de
+  // "en riesgo" / "inactivas" en Reportes) vía /clientes?expediente=<id>.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const id = searchParams.get("expediente");
+    if (id) setExpedienteId(id);
+  }, [searchParams]);
 
   const [busqueda, setBusqueda] = useState("");
   const [filtrosEstatus, setFiltrosEstatus] = useState<string[]>([]);
@@ -360,7 +368,10 @@ export function ClientesPage() {
       {expedienteId && (
         <ExpedienteModal
           clienteId={expedienteId}
-          onClose={() => setExpedienteId(null)}
+          onClose={() => {
+            setExpedienteId(null);
+            if (searchParams.get("expediente")) setSearchParams({});
+          }}
           onEditar={(c) => {
             setExpedienteId(null);
             abrirEditar(c);

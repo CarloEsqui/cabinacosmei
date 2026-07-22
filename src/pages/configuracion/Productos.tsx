@@ -9,6 +9,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { NumberInput } from "@/components/ui/number-input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { SortableHeader } from "@/components/ui/sortable-header";
 import { useToast } from "@/components/ui/toast";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -315,8 +316,7 @@ export function ProductosTab() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-500">Costo base</label>
-              <NumberInput
-                step="0.01"
+              <MoneyInput
                 placeholder="0.00"
                 value={form.costoBase}
                 onValueChange={(v) => setForm({ ...form, costoBase: v ?? 0 })}
@@ -324,8 +324,7 @@ export function ProductosTab() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-500">Precio de venta</label>
-              <NumberInput
-                step="0.01"
+              <MoneyInput
                 placeholder="0.00"
                 value={form.precioVenta}
                 onValueChange={(v) => setForm({ ...form, precioVenta: v ?? 0 })}
