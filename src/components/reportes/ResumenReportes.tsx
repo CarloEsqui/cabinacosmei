@@ -1,20 +1,28 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Sparkles } from "lucide-react";
+import { AlertCircle, AlertTriangle, Info, Sparkles, TrendingUp } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { KpiPrincipal } from "@/components/reportes/KpiPrincipal";
 import { KpiSecundario } from "@/components/reportes/KpiSecundario";
 import { GraficaTendencia } from "@/components/reportes/GraficaTendencia";
 import { CalidadDatosIndicador } from "@/components/reportes/CalidadDatosIndicador";
 import { HallazgoCard } from "@/components/reportes/HallazgoCard";
+import { CentroAtencionCTA } from "@/components/reportes/CentroAtencionCTA";
 import { CentroAtencionDrawer, useHallazgos } from "@/components/reportes/CentroAtencion";
 import { TopServiciosPorMargen, NuevasVsRecurrentes } from "@/components/reportes/DistribucionCompacta";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { generarNarrativa } from "@/lib/narrativaResumen";
 import type { ResumenFiltro } from "@shared/schemas";
 
 const KPI_PRINCIPAL_IDS = ["ventas", "margen_bruto", "clientes"];
 const KPI_SECUNDARIO_IDS = ["cobranza", "ticket", "cartera"];
+
+const ESTILO_OBSERVACION = {
+  positivo: { icono: TrendingUp, color: "text-success-500", borde: "border-success-500/30" },
+  atencion: { icono: AlertCircle, color: "text-warning-500", borde: "border-warning-500/30" },
+  informativo: { icono: Info, color: "text-jacaranda-500", borde: "border-jacaranda-400/30" },
+  critico: { icono: AlertTriangle, color: "text-danger-500", borde: "border-danger-500/30" },
+} as const;
 
 export function ResumenReportes({ filtro, onNavegarTab }: { filtro: ResumenFiltro; onNavegarTab: (tab: string) => void }) {
   const [centroAbierto, setCentroAbierto] = useState(false);
@@ -67,32 +75,49 @@ export function ResumenReportes({ filtro, onNavegarTab }: { filtro: ResumenFiltr
     ocupacionKpi,
   ].filter((k) => !!k);
 
+  // Señales del periodo como píldoras con color por tono, para leerse de un vistazo (no una lista
+  // plana de viñetas). Lo crítico NO se repite aquí: ya lo destaca el CTA del centro de atención.
+  const señales = narrativa?.observaciones ?? [];
+
   return (
     <div className="flex flex-col gap-6 p-8">
-      {/* Nivel 1 — comprender en 5 segundos: conclusión ejecutiva, no una cuadrícula de números. */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="max-w-2xl">
-          <p className="font-display text-xl text-ink-900">{narrativa?.titular}</p>
-          {narrativa && narrativa.observaciones.length > 0 && (
-            <ul className="mt-2 flex flex-col gap-0.5 text-sm text-ink-600">
-              {narrativa.observaciones.map((o, i) => (
-                <li key={i}>· {o}</li>
-              ))}
-            </ul>
-          )}
-          {narrativa?.advertencia && (
-            <p className="mt-2 flex items-center gap-1.5 text-sm text-danger-500">
-              <AlertTriangle size={14} /> {narrativa.advertencia.titulo}
-            </p>
-          )}
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          <CalidadDatosIndicador calidad={data.calidadDatos} />
-          {hallazgos.length > 0 && (
-            <Button size="sm" variant="secondary" onClick={() => setCentroAbierto(true)}>
-              Ver acciones <ArrowRight size={14} />
-            </Button>
-          )}
+      {/* Nivel 1 — Hero ejecutivo: conclusión del periodo + señales + acceso al centro de atención,
+          todo dentro de una superficie propia para que no floten sueltos sobre el fondo. */}
+      <div className="overflow-hidden rounded-2xl border border-beige-300 bg-gradient-to-br from-beige-50 via-beige-50 to-jacaranda-50/60 shadow-sm shadow-ink-900/[0.03]">
+        <div className="flex flex-col gap-6 p-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 max-w-2xl">
+            <div className="mb-2.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-jacaranda-600">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-jacaranda-500/12">
+                <Sparkles size={11} />
+              </span>
+              Resumen del periodo
+            </div>
+            <p className="text-2xl font-semibold leading-snug tracking-tight text-ink-900">{narrativa?.titular}</p>
+            {señales.length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {señales.map((o, i) => {
+                  const est = ESTILO_OBSERVACION[o.tono];
+                  const Icono = est.icono;
+                  return (
+                    <span
+                      key={i}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full border bg-beige-50/70 px-3 py-1 text-sm text-ink-700",
+                        est.borde,
+                      )}
+                    >
+                      <Icono size={13} className={cn("shrink-0", est.color)} />
+                      {o.texto}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <div className="flex shrink-0 flex-col items-stretch gap-2.5 lg:w-80 lg:items-end">
+            <CalidadDatosIndicador calidad={data.calidadDatos} />
+            <CentroAtencionCTA hallazgos={hallazgos} onClick={() => setCentroAbierto(true)} />
+          </div>
         </div>
       </div>
 
@@ -159,12 +184,6 @@ export function ResumenReportes({ filtro, onNavegarTab }: { filtro: ResumenFiltr
           </CardContent>
         </Card>
       </div>
-
-      {hallazgos.length === 0 && (
-        <p className="flex items-center gap-1.5 text-xs text-ink-400">
-          <Sparkles size={12} className="text-success-500" /> Sin hallazgos pendientes en este periodo.
-        </p>
-      )}
 
       <CentroAtencionDrawer
         open={centroAbierto}

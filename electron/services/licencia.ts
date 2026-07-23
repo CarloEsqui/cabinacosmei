@@ -14,8 +14,16 @@ MCowBQYDK2VwAyEAlk69IDaBErAmYzRWIlh0YABw6LTLgP8/kIbs4BpmhxA=
 -----END PUBLIC KEY-----
 `;
 
-const DIAS_AVISO_POR_VENCER = 7;
+// Con cuántos días de anticipación empieza el aviso "por vencer", según el plan: el mensual con 7
+// días basta; el anual conviene avisarlo con un mes de anticipación (el banner se mantiene visible
+// hasta el vencimiento, pasando por los hitos de 15 y 7 días conforme se acerca).
+const DIAS_AVISO_MENSUAL = 7;
+const DIAS_AVISO_ANUAL = 30;
 const DIAS_GRACIA = 3;
+
+function diasAvisoPorVencer(plan: "mensual" | "anual"): number {
+  return plan === "anual" ? DIAS_AVISO_ANUAL : DIAS_AVISO_MENSUAL;
+}
 
 let rutaArchivo: string | null = null;
 
@@ -98,7 +106,7 @@ function calcularEstado(payload: PayloadLicencia | null, ultimaFechaVista: strin
 
   let estado: EstadoLicencia["estado"];
   if (diasRestantes <= -DIAS_GRACIA) estado = "vencida";
-  else if (diasRestantes <= DIAS_AVISO_POR_VENCER) estado = "por_vencer";
+  else if (diasRestantes <= diasAvisoPorVencer(payload.plan)) estado = "por_vencer";
   else estado = "activa";
 
   return { ...base, estado, diasRestantes };
