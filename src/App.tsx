@@ -16,6 +16,7 @@ import { AgendaPage } from "@/pages/Agenda";
 import { CitasPage } from "@/pages/Citas";
 import { CortePage } from "@/pages/Corte";
 import { ReportesPage } from "@/pages/Reportes";
+import { MensajeSorpresa } from "@/components/MensajeSorpresa"; // TEMPORAL: quitar en la próxima actualización
 
 const queryClient = new QueryClient();
 
@@ -46,6 +47,7 @@ export default function App() {
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
           <ConfirmProvider>
+            <MensajeSorpresa /> {/* TEMPORAL: quitar en la próxima actualización */}
             <HashRouter>
               <Routes>
                 <Route element={<AppShell />}>
