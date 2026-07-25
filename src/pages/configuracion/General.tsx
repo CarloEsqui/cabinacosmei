@@ -390,6 +390,36 @@ export function GeneralTab() {
 
         <Card>
           <CardHeader>
+            <CardTitle>Mantenimientos</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div>
+              <label className="text-xs font-medium text-ink-500">
+                Días de anticipación del aviso de mantenimiento
+              </label>
+              <NumberInput
+                min={0}
+                value={config.diasAvisoMantenimiento}
+                onValueChange={(v) => setConfig({ ...config, diasAvisoMantenimiento: v && v >= 0 ? Math.round(v) : 0 })}
+              />
+              <p className="mt-1 text-xs text-ink-500">
+                Las clientas aparecen en "Mantenimientos pendientes" estos días ANTES de su fecha
+                sugerida, para dar tiempo de contactarlas y agendar. Con 0, solo aparecen cuando la
+                fecha ya llegó.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              disabled={guardando}
+              onClick={() => guardar({ diasAvisoMantenimiento: config.diasAvisoMantenimiento })}
+            >
+              <Save size={16} /> Guardar cambios
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Acerca de</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">

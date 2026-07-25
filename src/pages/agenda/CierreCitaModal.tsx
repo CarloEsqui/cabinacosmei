@@ -10,10 +10,19 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { formatFecha } from "@/lib/format";
+import type { Producto } from "@shared/types";
 
 interface FilaProducto {
   productoId: string;
-  cantidad: number;
+  // null = aún sin capturar: al elegir un producto en modo "contenido" el campo queda vacío a
+  // propósito, para que los ml/g se escriban conscientemente y no se confundan con "1 pieza".
+  cantidad: number | null;
+}
+
+function filasValidas(lista: FilaProducto[]): { productoId: string; cantidad: number }[] {
+  return lista
+    .filter((f) => f.productoId && f.cantidad !== null && f.cantidad > 0)
+    .map((f) => ({ productoId: f.productoId, cantidad: f.cantidad! }));
 }
 
 interface CierreCitaModalProps {
@@ -95,8 +104,8 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
       return window.api.serviciosRealizados.cerrarCita({
         servicioRealizadoId: servicio.id,
         precio: precioEfectivo,
-        productosConsumidos: consumidos.filter((f) => f.productoId && f.cantidad > 0),
-        productosVendidos: vendidos.filter((f) => f.productoId && f.cantidad > 0),
+        productosConsumidos: filasValidas(consumidos),
+        productosVendidos: filasValidas(vendidos),
         metodoPago,
         monto: montoEfectivo,
         estatusPago,
@@ -128,7 +137,7 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
   });
 
   function agregarFila(lista: FilaProducto[], setLista: (f: FilaProducto[]) => void) {
-    setLista([...lista, { productoId: "", cantidad: 1 }]);
+    setLista([...lista, { productoId: "", cantidad: null }]);
   }
   function actualizarFila(
     lista: FilaProducto[],
@@ -184,6 +193,7 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
           titulo="Productos consumidos (insumos)"
           filas={consumidos}
           productos={productos}
+          aplicarModoContenido
           onAgregar={() => agregarFila(consumidos, setConsumidos)}
           onActualizar={(i, c) => actualizarFila(consumidos, setConsumidos, i, c)}
           onQuitar={(i) => quitarFila(consumidos, setConsumidos, i)}
@@ -303,13 +313,16 @@ function ListaProductos({
   titulo,
   filas,
   productos,
+  aplicarModoContenido = false,
   onAgregar,
   onActualizar,
   onQuitar,
 }: {
   titulo: string;
   filas: FilaProducto[];
-  productos: { id: string; nombre: string }[];
+  productos: Producto[];
+  /** true en la lista de insumos: los productos en modo "contenido" se capturan en ml/g. */
+  aplicarModoContenido?: boolean;
   onAgregar: () => void;
   onActualizar: (index: number, cambios: Partial<FilaProducto>) => void;
   onQuitar: (index: number) => void;
@@ -324,31 +337,63 @@ function ListaProductos({
       </div>
       {filas.length === 0 && <p className="text-xs text-ink-500">Ninguno agregado.</p>}
       <div className="flex flex-col gap-2">
-        {filas.map((fila, i) => (
-          <div key={i} className="flex gap-2">
-            <Select
-              className="flex-1"
-              value={fila.productoId}
-              onChange={(e) => onActualizar(i, { productoId: e.target.value })}
-            >
-              <option value="">Selecciona un producto</option>
-              {productos.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nombre}
-                </option>
-              ))}
-            </Select>
-            <NumberInput
-              className="w-24"
-              placeholder="1"
-              value={fila.cantidad}
-              onValueChange={(v) => onActualizar(i, { cantidad: v ?? 1 })}
-            />
-            <Button type="button" variant="ghost" size="sm" onClick={() => onQuitar(i)}>
-              <Trash2 size={14} />
-            </Button>
-          </div>
-        ))}
+        {filas.map((fila, i) => {
+          const prod = productos.find((p) => p.id === fila.productoId);
+          // En la lista de insumos, un producto en modo "contenido" se captura en ml/g y descuenta
+          // la fracción de pieza (ej. 2 ml de una ampolleta de 10 ml). El resto se captura en piezas.
+          const porContenido =
+            aplicarModoContenido && prod?.modoConsumo === "contenido" && !!prod.contenidoCantidad;
+          const unidad = prod?.contenidoUnidad || "ml";
+          const pieza = (prod?.presentacion || "pieza").toLowerCase();
+          const equivalentePiezas =
+            porContenido && prod?.contenidoCantidad ? (fila.cantidad ?? 0) / prod.contenidoCantidad : 0;
+          return (
+            <div key={i} className="flex flex-col gap-1">
+              <div className="flex gap-2">
+                <Select
+                  className="flex-1"
+                  value={fila.productoId}
+                  onChange={(e) => {
+                    // Al cambiar de producto, la cantidad se reinicia según su modo: los de
+                    // "contenido" quedan vacíos (los ml/g se escriben a propósito, sin un "1"
+                    // ambiguo precargado); los de pieza arrancan en 1, que es lo habitual.
+                    const nuevo = productos.find((p) => p.id === e.target.value);
+                    const nuevoPorContenido =
+                      aplicarModoContenido && nuevo?.modoConsumo === "contenido" && !!nuevo.contenidoCantidad;
+                    onActualizar(i, { productoId: e.target.value, cantidad: nuevoPorContenido ? null : 1 });
+                  }}
+                >
+                  <option value="">Selecciona un producto</option>
+                  {productos.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nombre}
+                    </option>
+                  ))}
+                </Select>
+                {/* key por producto: NumberInput guarda su texto interno y solo se resincroniza
+                    al re-montarse, así el campo refleja el reinicio de cantidad al cambiar. */}
+                <NumberInput
+                  key={fila.productoId || "sin-producto"}
+                  className="w-28"
+                  allowNull
+                  placeholder={porContenido ? `${unidad} usados` : "piezas"}
+                  value={fila.cantidad}
+                  onValueChange={(v) => onActualizar(i, { cantidad: v })}
+                />
+                <Button type="button" variant="ghost" size="sm" onClick={() => onQuitar(i)}>
+                  <Trash2 size={14} />
+                </Button>
+              </div>
+              {porContenido && (
+                <p className="pl-1 text-xs text-ink-500">
+                  {fila.cantidad === null
+                    ? `Escribe los ${unidad} usados (cada ${pieza} trae ${prod!.contenidoCantidad} ${unidad})`
+                    : `${unidad} usados · ≈ ${equivalentePiezas.toFixed(2)} ${pieza}${equivalentePiezas === 1 ? "" : "s"}`}
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -37,7 +37,14 @@ export interface Producto {
   precioVenta: number | null;
   stockMinimoManual: number | null;
   ubicacion: string | null;
+  /** Nombre de la pieza en la que se cuenta el stock (Bote, Ampolleta, Frasco...). */
   presentacion: string | null;
+  /** Contenido de cada pieza (ej. 60). null si no se definió. */
+  contenidoCantidad: number | null;
+  /** Unidad del contenido: "ml" | "g" | "pzas" | texto libre. */
+  contenidoUnidad: string | null;
+  /** "pieza": consumir descuenta 1 pieza. "contenido": consumir se captura en ml/g y descuenta la fracción. */
+  modoConsumo: string;
   activo: boolean;
   observaciones: string | null;
 }
@@ -54,6 +61,10 @@ export interface Lote {
   id: string;
   productoId: string;
   productoNombre: string;
+  /** Presentación/contenido del producto dueño del lote, para formatear la existencia en piezas. */
+  presentacion: string | null;
+  contenidoCantidad: number | null;
+  contenidoUnidad: string | null;
   proveedorId: string | null;
   numeroLote: string | null;
   fechaCompra: string | null;
@@ -93,6 +104,8 @@ export interface MantenimientoPendiente {
   servicioNombre: string | null;
   fechaUltimoServicio: string;
   fechaSugerida: string;
+  /** Días entre hoy y la fecha sugerida: positivo = por vencer, 0 = hoy, negativo = ya venció. */
+  diasRestantes: number;
 }
 
 /** Resumen de citas/servicios/pagos de una clienta, usado por la búsqueda de clientes en Citas. */
@@ -220,42 +233,6 @@ export interface RespaldoRow {
   createdAt: number;
   /** true si lo generó la app automáticamente antes de un borrado/restauración riesgosos. */
   esAutomatico: boolean;
-}
-
-export interface ReporteCobranzaFila {
-  fecha: string;
-  metodoPago: string;
-  monto: number;
-}
-
-export interface ReporteCobranza {
-  filas: ReporteCobranzaFila[];
-  totalPorMetodo: DesgloseMetodo[];
-  total: number;
-}
-
-export interface ReporteInventario {
-  totalEntradas: number;
-  totalSalidas: number;
-  costoConsumo: number;
-  porTipoSalida: { tipo: string; cantidad: number }[];
-}
-
-export interface ReporteServicioFila {
-  servicioNombre: string;
-  cantidad: number;
-  total: number;
-}
-
-export interface ReporteServicios {
-  totalServicios: number;
-  ticketPromedio: number;
-  porServicio: ReporteServicioFila[];
-}
-
-export interface ReporteClientes {
-  nuevosClientes: number;
-  mantenimientosGenerados: number;
 }
 
 export interface ResumenDashboard {

@@ -3,7 +3,8 @@ import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { getDb } from "../db";
 import { citas, clientes, serviciosCatalogo, serviciosRealizados, pagos } from "../db/schema";
 import { registrarAccion } from "./bitacora";
-import { fechaLocalIso } from "../../shared/fechas";
+import { obtenerConfig } from "./config";
+import { fechaLocalIso, sumarDiasIso, diasEnRango } from "../../shared/fechas";
 import type { CitaInput, CitasFiltro } from "../../shared/schemas";
 import type { CitaRow, MantenimientoPendiente, ResumenClienteCitas } from "../../shared/types";
 
@@ -132,8 +133,26 @@ export async function actualizarCita(id: string, input: CitaInput, usuarioId?: s
   return db.select().from(citas).where(eq(citas.id, id)).get();
 }
 
+// Estados válidos de una cita (ver schema `citas.estado` y la UI de agenda). Cualquier otro valor
+// se rechaza en vez de escribirse a ciegas en la base.
+const ESTADOS_CITA_VALIDOS = [
+  "programada",
+  "confirmada",
+  "asistio",
+  "no_asistio",
+  "cancelada",
+  "reagendada",
+] as const;
+
 export async function cambiarEstadoCita(id: string, estado: string, usuarioId?: string) {
   const db = getDb();
+  if (!(ESTADOS_CITA_VALIDOS as readonly string[]).includes(estado)) {
+    throw new Error(
+      `Estado de cita no válido: "${estado}". Debe ser uno de: ${ESTADOS_CITA_VALIDOS.join(", ")}.`,
+    );
+  }
+  const existe = db.select({ id: citas.id }).from(citas).where(eq(citas.id, id)).get();
+  if (!existe) throw new Error("La cita no existe.");
   db.update(citas).set({ estado, updatedAt: new Date() }).where(eq(citas.id, id)).run();
   registrarAccion(db, {
     usuarioId,
@@ -152,6 +171,10 @@ export async function cambiarEstadoCita(id: string, estado: string, usuarioId?: 
 export async function listarMantenimientosNoProgramados(): Promise<MantenimientoPendiente[]> {
   const db = getDb();
   const hoy = fechaLocalIso();
+  // Aviso anticipado: la sugerencia aparece N días ANTES de su fecha (configurable), para que dé
+  // tiempo de contactar a la clienta y agendar — no cuando ya se llegó tarde.
+  const config = await obtenerConfig();
+  const limiteAviso = sumarDiasIso(hoy, config.diasAvisoMantenimiento);
 
   // Se toma el servicio cerrado MÁS RECIENTE de cada clienta (tenga o no sugerencia), y solo
   // después se decide si hay que avisar. Si primero se filtrara por "tiene sugerencia vencida"
@@ -189,7 +212,7 @@ export async function listarMantenimientosNoProgramados(): Promise<Mantenimiento
 
   const resultado: MantenimientoPendiente[] = [];
   for (const c of ultimoPorCliente.values()) {
-    if (!c.fechaSugerida || c.fechaSugerida > hoy) continue;
+    if (!c.fechaSugerida || c.fechaSugerida > limiteAviso) continue;
     if (clientesConCitaFutura.has(c.clienteId)) continue;
     resultado.push({
       servicioRealizadoId: c.servicioRealizadoId,
@@ -198,8 +221,11 @@ export async function listarMantenimientosNoProgramados(): Promise<Mantenimiento
       servicioNombre: c.servicioNombre,
       fechaUltimoServicio: c.fechaUltimoServicio,
       fechaSugerida: c.fechaSugerida,
+      diasRestantes: diasEnRango(hoy, c.fechaSugerida) - 1,
     });
   }
+  // Los más urgentes primero: vencidos hasta arriba, luego los que vencen más pronto.
+  resultado.sort((a, b) => a.diasRestantes - b.diasRestantes);
   return resultado;
 }
 

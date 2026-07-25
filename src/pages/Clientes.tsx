@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Pencil, FolderOpen, IdCard, Trash2, Power, PowerOff, Users } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
@@ -15,8 +15,8 @@ import { useToast } from "@/components/ui/toast";
 import { formatFecha } from "@/lib/format";
 import { mensajeDeError } from "@/lib/errores";
 import { useEliminarHibrido } from "@/hooks/use-eliminar-hibrido";
+import { ClienteFormModal } from "@/components/catalogos/ClienteFormModal";
 import type { Cliente } from "@shared/types";
-import type { ClienteInput } from "@shared/schemas";
 
 type OrdenKey = "nombreCompleto" | "fechaAlta";
 
@@ -48,18 +48,6 @@ function AlertaBadge({ alerta, clienteId }: { alerta: string; clienteId: string 
   );
 }
 
-const VACIO: ClienteInput = {
-  nombreCompleto: "",
-  telefono: "",
-  correo: "",
-  fechaNacimiento: "",
-  direccion: "",
-  contactoEmergencia: "",
-  activo: true,
-  notas: "",
-  observaciones: "",
-};
-
 export function ClientesPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -71,7 +59,6 @@ export function ClientesPage() {
 
   const [modalAbierto, setModalAbierto] = useState(false);
   const [editando, setEditando] = useState<Cliente | null>(null);
-  const [form, setForm] = useState<ClienteInput>(VACIO);
   const [expedienteId, setExpedienteId] = useState<string | null>(null);
 
   // Permite llegar directo al expediente de una clienta desde otra página (ej. el drill-down de
@@ -86,19 +73,6 @@ export function ClientesPage() {
   const [filtrosEstatus, setFiltrosEstatus] = useState<string[]>([]);
   const [orden, setOrden] = useState<OrdenKey>("nombreCompleto");
   const [direccion, setDireccion] = useState<"asc" | "desc">("asc");
-
-  const guardar = useMutation({
-    mutationFn: async () => {
-      if (editando) return window.api.clientes.actualizar(editando.id, form);
-      return window.api.clientes.crear(form);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["clientes"] });
-      setModalAbierto(false);
-      toast.success(editando ? "Clienta actualizada." : "Clienta creada.");
-    },
-    onError: (e) => toast.error(mensajeDeError(e)),
-  });
 
   function invalidar() {
     queryClient.invalidateQueries({ queryKey: ["clientes"] });
@@ -125,23 +99,11 @@ export function ClientesPage() {
 
   function abrirNuevo() {
     setEditando(null);
-    setForm(VACIO);
     setModalAbierto(true);
   }
 
   function abrirEditar(c: Cliente) {
     setEditando(c);
-    setForm({
-      nombreCompleto: c.nombreCompleto,
-      telefono: c.telefono ?? "",
-      correo: c.correo ?? "",
-      fechaNacimiento: c.fechaNacimiento ?? "",
-      direccion: c.direccion ?? "",
-      contactoEmergencia: c.contactoEmergencia ?? "",
-      activo: c.activo,
-      notas: c.notas ?? "",
-      observaciones: c.observaciones ?? "",
-    });
     setModalAbierto(true);
   }
 
@@ -293,77 +255,11 @@ export function ClientesPage() {
         </Card>
       </div>
 
-      <Modal
+      <ClienteFormModal
         open={modalAbierto}
         onClose={() => setModalAbierto(false)}
-        title={editando ? "Editar clienta" : "Nueva clienta"}
-      >
-        <form
-          key={editando?.id ?? "nuevo"}
-          className="flex flex-col gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            guardar.mutate();
-          }}
-        >
-          <Field label="Nombre completo *">
-            <Input
-              required
-              value={form.nombreCompleto}
-              onChange={(e) => setForm({ ...form, nombreCompleto: e.target.value })}
-            />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Teléfono">
-              <Input value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} />
-            </Field>
-            <Field label="Correo">
-              <Input
-                type="email"
-                value={form.correo}
-                onChange={(e) => setForm({ ...form, correo: e.target.value })}
-              />
-            </Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Fecha de nacimiento">
-              <Input
-                type="date"
-                value={form.fechaNacimiento}
-                onChange={(e) => setForm({ ...form, fechaNacimiento: e.target.value })}
-              />
-            </Field>
-            <Field label="Contacto de emergencia">
-              <Input
-                value={form.contactoEmergencia}
-                onChange={(e) => setForm({ ...form, contactoEmergencia: e.target.value })}
-              />
-            </Field>
-          </div>
-          <Field label="Dirección">
-            <Input value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} />
-          </Field>
-          <Field label="Notas">
-            <Input value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} />
-          </Field>
-          <label className="flex items-center gap-2 text-sm text-ink-700">
-            <input
-              type="checkbox"
-              checked={form.activo}
-              onChange={(e) => setForm({ ...form, activo: e.target.checked })}
-            />
-            Activo
-          </label>
-          {!editando && (
-            <p className="text-xs text-ink-500">
-              Al guardar se creará automáticamente la carpeta local de esta clienta.
-            </p>
-          )}
-          <Button type="submit" disabled={guardar.isPending} className="mt-2">
-            Guardar
-          </Button>
-        </form>
-      </Modal>
+        cliente={editando}
+      />
 
       {expedienteId && (
         <ExpedienteModal
@@ -378,15 +274,6 @@ export function ClientesPage() {
           }}
         />
       )}
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="mb-1 block text-xs font-medium text-ink-500">{label}</label>
-      {children}
     </div>
   );
 }

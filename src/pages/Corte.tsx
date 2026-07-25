@@ -5,11 +5,14 @@ import { PageHeader } from "@/components/PageHeader";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { useToast } from "@/components/ui/toast";
 import { formatFechaHora, formatFecha, formatMoneda } from "@/lib/format";
+import { mensajeDeError } from "@/lib/errores";
 import { inicioDeSemanaIso, inicioDeMesIso } from "@shared/fechas";
 
 export function CortePage() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [confirmando, setConfirmando] = useState(false);
 
   const { data: resumen } = useQuery({
@@ -42,6 +45,7 @@ export function CortePage() {
       queryClient.invalidateQueries({ queryKey: ["corteResumenMes"] });
       setConfirmando(false);
     },
+    onError: (e) => toast.error(mensajeDeError(e)),
   });
 
   return (

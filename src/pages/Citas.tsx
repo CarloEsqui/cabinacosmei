@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
@@ -9,12 +10,18 @@ import { MantenimientosTab } from "@/pages/agenda/Mantenimientos";
 import { NuevaCitaModal } from "@/pages/agenda/NuevaCitaModal";
 import { CierreCitaModal } from "@/pages/agenda/CierreCitaModal";
 
-const TABS = [
-  { value: "todas", label: "Todas las citas" },
-  { value: "mantenimientos", label: "Mantenimientos pendientes" },
-];
-
 export function CitasPage() {
+  // Mismo query (y queryKey) que usa la pestaña de Mantenimientos: el globito y la lista se
+  // mantienen sincronizados solos cuando se agenda o descarta un mantenimiento.
+  const { data: mantenimientos = [] } = useQuery({
+    queryKey: ["mantenimientosNoProgramados"],
+    queryFn: () => window.api.citas.mantenimientosNoProgramados(),
+  });
+  const tabs = [
+    { value: "todas", label: "Todas las citas" },
+    { value: "mantenimientos", label: "Mantenimientos pendientes", badge: mantenimientos.length },
+  ];
+
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState(() => (searchParams.get("vista") === "mantenimientos" ? "mantenimientos" : "todas"));
   const [nuevaCitaAbierta, setNuevaCitaAbierta] = useState(false);
@@ -43,7 +50,7 @@ export function CitasPage() {
           </Button>
         }
       />
-      <Tabs tabs={TABS} value={tab} onChange={setTab} />
+      <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
       {tab === "todas" && <ListaTab onCerrarCita={setCitaEnCierre} />}
       {tab === "mantenimientos" && (

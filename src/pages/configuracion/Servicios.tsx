@@ -359,35 +359,43 @@ function RecetaEditor({
       </div>
       <p className="mb-2 text-xs text-ink-500">
         Se precargan automáticamente en "Productos consumidos" al cerrar una cita de este servicio.
+        La cantidad se captura en la unidad del producto: piezas, o ml/g si el producto se descuenta
+        por contenido.
         {!persistido && " Se guardarán junto con el servicio."}
       </p>
       {activas.length === 0 && <p className="text-xs text-ink-500">Ningún insumo definido.</p>}
       <div className="flex flex-col gap-2">
-        {activas.map((fila, i) => (
-          <div key={i} className="flex gap-2">
-            <Select
-              className="flex-1"
-              value={fila.productoId}
-              onChange={(e) => actualizar(i, { productoId: e.target.value })}
-            >
-              <option value="">Selecciona un producto</option>
-              {productos.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nombre}
-                </option>
-              ))}
-            </Select>
-            <NumberInput
-              className="w-24"
-              placeholder="1"
-              value={fila.cantidadSugerida}
-              onValueChange={(v) => actualizar(i, { cantidadSugerida: v ?? 1 })}
-            />
-            <Button type="button" variant="ghost" size="sm" onClick={() => quitar(i)}>
-              <Trash2 size={14} />
-            </Button>
-          </div>
-        ))}
+        {activas.map((fila, i) => {
+          const prod = productos.find((p) => p.id === fila.productoId);
+          const porContenido = prod?.modoConsumo === "contenido";
+          const unidad = porContenido ? prod?.contenidoUnidad || "ml" : "piezas";
+          return (
+            <div key={i} className="flex items-center gap-2">
+              <Select
+                className="flex-1"
+                value={fila.productoId}
+                onChange={(e) => actualizar(i, { productoId: e.target.value })}
+              >
+                <option value="">Selecciona un producto</option>
+                {productos.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre}
+                  </option>
+                ))}
+              </Select>
+              <NumberInput
+                className="w-24"
+                placeholder="1"
+                value={fila.cantidadSugerida}
+                onValueChange={(v) => actualizar(i, { cantidadSugerida: v ?? 1 })}
+              />
+              <span className="w-12 text-xs text-ink-500">{unidad}</span>
+              <Button type="button" variant="ghost" size="sm" onClick={() => quitar(i)}>
+                <Trash2 size={14} />
+              </Button>
+            </div>
+          );
+        })}
       </div>
       {persistido && filas && (
         <Button type="button" size="sm" className="mt-3" disabled={guardar.isPending} onClick={() => guardar.mutate()}>

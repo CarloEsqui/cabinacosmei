@@ -29,6 +29,10 @@ export async function crearPin(pin: string): Promise<void> {
     throw new Error("El PIN debe tener entre 4 y 8 dígitos.");
   }
   const db = getDb();
+  const existente = db.select().from(configuracion).where(eq(configuracion.clave, PIN_CONFIG_KEY)).get();
+  if (existente) {
+    throw new Error("Ya existe un PIN configurado.");
+  }
   const salt = randomBytes(16);
   const hash = hashPin(pin, salt);
   const valor = serialize(salt, hash);

@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Badge } from "@/components/ui/badge";
+import { BotonExportarCsv } from "@/components/BotonExportarCsv";
 import { formatFecha } from "@/lib/format";
 import type { MovimientosFiltro } from "@shared/schemas";
 
@@ -71,6 +72,9 @@ export function MovimientosTab() {
             placeholder="Todos"
             className="min-w-[160px]"
           />
+        </div>
+        <div className="ml-auto flex items-end">
+          <BotonExportarCsv tipo="movimientos" filtro={filtro} label="Exportar" variant="secondary" />
         </div>
       </div>
 

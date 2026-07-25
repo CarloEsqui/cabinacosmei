@@ -9,8 +9,18 @@ interface ModalProps {
   children: ReactNode;
 }
 
+// Pila global de modales abiertos. Permite que modales apilados (ej. Nueva entrada → Nuevo
+// producto → Nueva categoría) coexistan sin que una sola tecla Escape los cierre todos: solo el
+// de más arriba (el último en la pila) reacciona al Escape.
+const pilaModales: symbol[] = [];
+
 export function Modal({ open, onClose, title, children }: ModalProps) {
   const contenidoRef = useRef<HTMLDivElement>(null);
+  // Guardamos el onClose más reciente en un ref para que el listener de Escape no dependa de él
+  // (se recrea en cada tecleo del padre); así el efecto solo corre al abrir/cerrar y no re-suscribe
+  // ni roba el foco en cada tecla.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   // Separado del listener de Escape a propósito: si dependiera de `onClose` (que se recrea en
   // cada render del padre, p. ej. por cada tecla escrita en el form) volvería a robar el foco al
@@ -25,12 +35,24 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
 
   useEffect(() => {
     if (!open) return;
+    // Este modal se registra en la cima de la pila mientras está abierto.
+    const idModal = Symbol("modal");
+    pilaModales.push(idModal);
+
     function alPresionarTecla(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      // Solo el modal de la cima responde al Escape, para no cerrar toda la cadena de una vez.
+      if (e.key === "Escape" && pilaModales[pilaModales.length - 1] === idModal) {
+        e.stopPropagation();
+        onCloseRef.current();
+      }
     }
     window.addEventListener("keydown", alPresionarTecla);
-    return () => window.removeEventListener("keydown", alPresionarTecla);
-  }, [open, onClose]);
+    return () => {
+      window.removeEventListener("keydown", alPresionarTecla);
+      const i = pilaModales.indexOf(idModal);
+      if (i >= 0) pilaModales.splice(i, 1);
+    };
+  }, [open]);
 
   return (
     <AnimatePresence>

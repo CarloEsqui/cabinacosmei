@@ -20,7 +20,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AnimatedNumber } from "@/components/ui/animated-number";
-import { formatFecha, formatMoneda } from "@/lib/format";
+import { formatFecha, formatMoneda, formatearStock } from "@/lib/format";
 import { fechaLocalIso, sumarDiasIso } from "@shared/fechas";
 
 const HOY = fechaLocalIso();
@@ -118,7 +118,12 @@ export function DashboardPage() {
       hint: "Productos por debajo del umbral",
       valor: stockBajoLista.length,
       to: "/inventario?tab=resumen&semaforo=critico,bajo",
-      items: stockBajoLista.slice(0, 4).map((p) => `${p.nombre} · ${p.stockTotal} disponibles`),
+      items: stockBajoLista
+        .slice(0, 4)
+        .map(
+          (p) =>
+            `${p.nombre} · ${formatearStock(p.stockTotal, p.presentacion, p.contenidoCantidad, p.contenidoUnidad)}`,
+        ),
     },
     {
       icon: Timer,

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarPlus, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
@@ -44,7 +45,8 @@ export function MantenimientosTab({ onAgendar }: MantenimientosTabProps) {
   return (
     <div className="p-8">
       <p className="mb-4 text-sm text-ink-500">
-        Clientas cuyo último servicio ya sugiere una nueva visita y que no tienen ninguna cita futura agendada.
+        Clientas cuya próxima visita sugerida ya venció o está por vencer, y que no tienen ninguna cita
+        futura agendada. La anticipación del aviso se ajusta en Configuración → General.
       </p>
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -53,6 +55,7 @@ export function MantenimientosTab({ onAgendar }: MantenimientosTabProps) {
               <th className="px-4 py-2">Clienta</th>
               <th className="px-4 py-2">Último servicio</th>
               <th className="px-4 py-2">Fecha sugerida</th>
+              <th className="px-4 py-2">Estado</th>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>
@@ -63,7 +66,16 @@ export function MantenimientosTab({ onAgendar }: MantenimientosTabProps) {
                 <td className="px-4 py-2 text-ink-700">
                   {m.servicioNombre ?? "—"} · {formatFecha(m.fechaUltimoServicio)}
                 </td>
-                <td className="px-4 py-2 text-warning-500">{formatFecha(m.fechaSugerida)}</td>
+                <td className="px-4 py-2 text-ink-700">{formatFecha(m.fechaSugerida)}</td>
+                <td className="px-4 py-2">
+                  <Badge variant={m.diasRestantes < 0 ? "danger" : "warning"}>
+                    {m.diasRestantes < 0
+                      ? `Venció hace ${-m.diasRestantes} ${-m.diasRestantes === 1 ? "día" : "días"}`
+                      : m.diasRestantes === 0
+                        ? "Vence hoy"
+                        : `Vence en ${m.diasRestantes} ${m.diasRestantes === 1 ? "día" : "días"}`}
+                  </Badge>
+                </td>
                 <td className="px-4 py-2 text-right">
                   <div className="flex justify-end gap-1">
                     <Button size="sm" onClick={() => onAgendar(m.clienteId)}>
@@ -78,7 +90,7 @@ export function MantenimientosTab({ onAgendar }: MantenimientosTabProps) {
             ))}
             {mantenimientos.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-ink-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-ink-500">
                   No hay mantenimientos pendientes por programar.
                 </td>
               </tr>

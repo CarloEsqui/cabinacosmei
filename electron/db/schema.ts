@@ -96,6 +96,8 @@ export const productos = sqliteTable("productos", {
   tipoProductoId: text("tipo_producto_id").references(() => tiposProducto.id, {
     onDelete: "restrict",
   }),
+  // Legado: unidad de medida como texto libre. Ya no se usa en la UI (reemplazado por el modelo
+  // de presentación/contenido de abajo), pero se conserva la columna para no perder datos viejos.
   unidadMedida: text("unidad_medida"),
   proveedorPrincipalId: text("proveedor_principal_id").references(() => proveedores.id, {
     onDelete: "set null",
@@ -104,7 +106,16 @@ export const productos = sqliteTable("productos", {
   precioVenta: real("precio_venta").default(0),
   stockMinimoManual: real("stock_minimo_manual"),
   ubicacion: text("ubicacion"),
+  // Nombre de la pieza en la que se cuenta el stock (Bote, Ampolleta, Frasco, Tubo, Pieza...).
   presentacion: text("presentacion"),
+  // Contenido de cada pieza (ej. 60) y su unidad (ml | g | pzas | texto). Opcionales.
+  contenidoCantidad: real("contenido_cantidad"),
+  contenidoUnidad: text("contenido_unidad"),
+  // Cómo se descuenta al consumirse en un servicio:
+  //  - "pieza": se descuenta 1 pieza completa (ej. mascarilla desechable).
+  //  - "contenido": se captura en ml/g y se descuenta la fracción (usar 5 ml de un bote de 60 ml
+  //    descuenta 5/60 de pieza). Vender SIEMPRE descuenta piezas enteras, sin importar este modo.
+  modoConsumo: text("modo_consumo").notNull().default("pieza"),
   activo: integer("activo", { mode: "boolean" }).notNull().default(true),
   observaciones: text("observaciones"),
   createdAt: createdAt(),

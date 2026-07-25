@@ -17,7 +17,7 @@ import * as corteService from "../services/corte";
 import * as bitacoraService from "../services/bitacora";
 import * as respaldosService from "../services/respaldos";
 import * as reinicioService from "../services/reinicio";
-import * as reportesService from "../services/reportes";
+import * as exportarCsvService from "../services/exportarCsv";
 import * as reportesResumenService from "../services/reportesResumen";
 import * as reportesFinanzasService from "../services/reportesFinanzas";
 import * as reportesServiciosDetalleService from "../services/reportesServiciosDetalle";
@@ -45,10 +45,10 @@ import {
   cierreCitaInputSchema,
   guardarRecetaInputSchema,
   bitacoraFiltroSchema,
-  rangoFechasSchema,
   resumenFiltroSchema,
   loteInputSchema,
   establecerEstadoHallazgoInputSchema,
+  exportCsvTipoSchema,
 } from "../../shared/schemas";
 
 let ventanaActual: BrowserWindow | null = null;
@@ -98,7 +98,7 @@ export function registrarIpc(): void {
       folders.asegurarEstructuraRaiz(cambios.carpetaRaiz);
     }
     if (cambios.escalaTexto !== undefined) {
-      mainWindow().webContents.setZoomFactor(cambios.escalaTexto);
+      mainWindow().webContents.setZoomFactor(siguiente.escalaTexto);
     }
     return siguiente;
   });
@@ -375,23 +375,16 @@ export function registrarIpc(): void {
     const { hallazgoId, fechaDesde, fechaHasta, estado } = establecerEstadoHallazgoInputSchema.parse(input);
     hallazgosEstadoService.establecerEstadoHallazgo(hallazgoId, fechaDesde, fechaHasta, estado, usuarioActualId() ?? undefined);
   });
-  ipcMain.handle("reportes:cobranza", (_e, rango) =>
-    reportesService.reporteCobranza(rangoFechasSchema.parse(rango)),
-  );
-  ipcMain.handle("reportes:inventario", (_e, rango) =>
-    reportesService.reporteInventario(rangoFechasSchema.parse(rango)),
-  );
-  ipcMain.handle("reportes:servicios", (_e, rango) =>
-    reportesService.reporteServicios(rangoFechasSchema.parse(rango)),
-  );
-  ipcMain.handle("reportes:clientes", (_e, rango) =>
-    reportesService.reporteClientes(rangoFechasSchema.parse(rango)),
-  );
-  ipcMain.handle("reportes:exportarCsv", async (_e, tipo: reportesService.TipoReporte, rango) => {
-    const rangoValido = rangoFechasSchema.parse(rango);
-    const { nombreArchivo, contenido } = await reportesService.construirCsv(tipo, rangoValido);
+  ipcMain.handle("reportes:exportarCsv", async (_e, tipoRaw, filtroRaw) => {
+    const tipo = exportCsvTipoSchema.parse(tipoRaw);
+    // "movimientos" usa el filtro de inventario; el resto, el filtro de reportes con rango de fechas.
+    const filtro =
+      tipo === "movimientos"
+        ? movimientosFiltroSchema.parse(filtroRaw ?? {})
+        : resumenFiltroSchema.parse(filtroRaw);
+    const { nombreArchivo, contenido } = await exportarCsvService.construirCsvExport(tipo, filtro);
     const resultado = await dialog.showSaveDialog(mainWindow(), {
-      title: "Exportar reporte",
+      title: "Exportar CSV",
       defaultPath: nombreArchivo,
       filters: [{ name: "CSV", extensions: ["csv"] }],
     });

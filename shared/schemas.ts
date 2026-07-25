@@ -23,20 +23,31 @@ export const tipoProductoInputSchema = z.object({
 });
 export type TipoProductoInput = z.infer<typeof tipoProductoInputSchema>;
 
-export const productoInputSchema = z.object({
-  nombre: z.string().min(1, "El nombre es obligatorio"),
-  linea: z.string().optional(),
-  tipoProductoId: z.string().nullable().optional(),
-  unidadMedida: z.string().optional(),
-  proveedorPrincipalId: z.string().nullable().optional(),
-  costoBase: z.number().nonnegative().default(0),
-  precioVenta: z.number().nonnegative().default(0),
-  stockMinimoManual: z.number().nonnegative().nullable().optional(),
-  ubicacion: z.string().optional(),
-  presentacion: z.string().optional(),
-  activo: z.boolean().default(true),
-  observaciones: z.string().optional(),
-});
+export const productoInputSchema = z
+  .object({
+    nombre: z.string().min(1, "El nombre es obligatorio"),
+    linea: z.string().optional(),
+    tipoProductoId: z.string().nullable().optional(),
+    unidadMedida: z.string().optional(),
+    proveedorPrincipalId: z.string().nullable().optional(),
+    costoBase: z.number().nonnegative().default(0),
+    precioVenta: z.number().nonnegative().default(0),
+    stockMinimoManual: z.number().nonnegative().nullable().optional(),
+    ubicacion: z.string().optional(),
+    // Nombre de la pieza (Bote, Ampolleta, Frasco...). El stock SIEMPRE se cuenta en piezas.
+    presentacion: z.string().optional(),
+    // Contenido de cada pieza (ej. 60 ml). Debe ser > 0 si se usa el modo "contenido".
+    contenidoCantidad: z.number().positive().nullable().optional(),
+    contenidoUnidad: z.string().nullable().optional(),
+    // "pieza": consumir descuenta 1 pieza. "contenido": consumir se captura en ml/g y descuenta la fracción.
+    modoConsumo: z.enum(["pieza", "contenido"]).default("pieza"),
+    activo: z.boolean().default(true),
+    observaciones: z.string().optional(),
+  })
+  .refine((d) => d.modoConsumo !== "contenido" || (d.contenidoCantidad != null && d.contenidoCantidad > 0), {
+    message: "Para descontar por contenido necesitas definir el contenido de la pieza (ej. 60 ml).",
+    path: ["contenidoCantidad"],
+  });
 export type ProductoInput = z.infer<typeof productoInputSchema>;
 
 export const entradaInputSchema = z.object({
@@ -170,6 +181,18 @@ export const resumenFiltroSchema = z.object({
   comparacion: z.enum(["ninguna", "anterior", "mes_anterior", "anio_anterior"]).default("anterior"),
 });
 export type ResumenFiltro = z.infer<typeof resumenFiltroSchema>;
+
+/** Tipos de exportación a CSV disponibles (un archivo por tipo). */
+export const exportCsvTipoSchema = z.enum([
+  "finanzas",
+  "servicios",
+  "clientes",
+  "agenda",
+  "inventario_reporte",
+  "inventario_stock",
+  "movimientos",
+]);
+export type ExportCsvTipo = z.infer<typeof exportCsvTipoSchema>;
 
 export const establecerEstadoHallazgoInputSchema = z.object({
   hallazgoId: z.string().min(1),

@@ -2,7 +2,9 @@ import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RotateCcw, Sparkles } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
+import { useToast } from "@/components/ui/toast";
 import { HallazgoCard, grupoDeTono } from "@/components/reportes/HallazgoCard";
+import { mensajeDeError } from "@/lib/errores";
 import type { ResumenFiltro } from "@shared/schemas";
 import type { EstadoHallazgo, Hallazgo } from "@shared/types";
 
@@ -23,6 +25,7 @@ export function useHallazgos(filtro: ResumenFiltro) {
 
 function useEstablecerEstado(filtro: ResumenFiltro) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (input: { hallazgoId: string; estado: EstadoHallazgo }) =>
       window.api.reportes.establecerEstadoHallazgo({
@@ -32,6 +35,7 @@ function useEstablecerEstado(filtro: ResumenFiltro) {
         estado: input.estado,
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reporteHallazgos", filtro] }),
+    onError: (e) => toast.error(mensajeDeError(e)),
   });
 }
 

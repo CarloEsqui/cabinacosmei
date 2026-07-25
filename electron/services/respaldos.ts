@@ -17,6 +17,10 @@ import type { RespaldoRow } from "../../shared/types";
 const PREFIJO_AUTO = "cabina_auto_";
 const PREFIJO_MANUAL = "cabina_respaldo_";
 
+// Cuántos respaldos AUTOMÁTICOS se conservan; los más viejos se borran solos. Los respaldos
+// MANUALES nunca se podan (se hicieron a propósito). Cambia este número si quieres guardar más.
+const MAX_RESPALDOS_AUTO = 3;
+
 function carpetaRespaldos(carpetaRaiz: string): string {
   const dir = path.join(carpetaRaiz, "Respaldos");
   fs.mkdirSync(dir, { recursive: true });
@@ -100,7 +104,34 @@ export async function crearRespaldo(usuarioId?: string, motivoAuto?: string): Pr
     detalle: nombre,
   });
 
+  podarRespaldosAutomaticos();
+
   return mapear(db.select().from(respaldosLog).where(eq(respaldosLog.id, id)).get()!);
+}
+
+/**
+ * Conserva solo los MAX_RESPALDOS_AUTO respaldos automáticos más recientes y borra los más viejos
+ * (el archivo .zip y su registro en la base). Los respaldos manuales se ignoran por completo: se
+ * quedan hasta que la usuaria los borre a mano. Si un archivo no se puede borrar (p. ej. está
+ * abierto), se deja su registro para reintentar en la próxima limpieza.
+ */
+function podarRespaldosAutomaticos(): void {
+  const db = getDb();
+  const automaticos = db
+    .select()
+    .from(respaldosLog)
+    .orderBy(desc(respaldosLog.createdAt))
+    .all()
+    .filter((r) => path.basename(r.rutaArchivo).startsWith(PREFIJO_AUTO));
+
+  for (const viejo of automaticos.slice(MAX_RESPALDOS_AUTO)) {
+    try {
+      if (fs.existsSync(viejo.rutaArchivo)) fs.unlinkSync(viejo.rutaArchivo);
+      db.delete(respaldosLog).where(eq(respaldosLog.id, viejo.id)).run();
+    } catch (error) {
+      console.error("No se pudo borrar un respaldo viejo:", viejo.rutaArchivo, error);
+    }
+  }
 }
 
 export async function listarRespaldos(): Promise<RespaldoRow[]> {
@@ -229,6 +260,10 @@ export async function asegurarRespaldoAutomaticoDiario(): Promise<void> {
   const db = getDb();
   const hoy = fechaLocalIso();
   const ultimo = db.select().from(respaldosLog).orderBy(desc(respaldosLog.createdAt)).limit(1).get();
-  if (ultimo && fechaLocalIso(ultimo.createdAt) === hoy) return;
-  await crearRespaldo(undefined, "diario");
+  if (!ultimo || fechaLocalIso(ultimo.createdAt) !== hoy) {
+    await crearRespaldo(undefined, "diario"); // crearRespaldo ya poda los viejos al terminar
+    return;
+  }
+  // Aunque hoy ya haya respaldo, limpiamos por si quedaron acumulados de antes de esta mejora.
+  podarRespaldosAutomaticos();
 }

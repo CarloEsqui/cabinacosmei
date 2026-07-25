@@ -1,17 +1,28 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Pencil, Trash2, Power, PowerOff, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
+import { SortableHeader } from "@/components/ui/sortable-header";
 import { useToast } from "@/components/ui/toast";
 import { mensajeDeError } from "@/lib/errores";
 import { useEliminarHibrido } from "@/hooks/use-eliminar-hibrido";
 import type { TipoProducto } from "@shared/types";
 import type { TipoProductoInput } from "@shared/schemas";
+
+type OrdenKey = "nombre";
+type Caracteristica = "requiereCaducidad" | "seConsumeEnServicio" | "seVende";
+
+const OPCIONES_CARACTERISTICAS: { value: Caracteristica; label: string }[] = [
+  { value: "requiereCaducidad", label: "Requiere caducidad" },
+  { value: "seConsumeEnServicio", label: "Se consume en servicio" },
+  { value: "seVende", label: "Se vende" },
+];
 
 const VACIO: TipoProductoInput = {
   nombreTipo: "",
@@ -88,6 +99,35 @@ export function CatalogosTab() {
     setModalAbierto(true);
   }
 
+  const [busqueda, setBusqueda] = useState("");
+  const [filtrosEstatus, setFiltrosEstatus] = useState<string[]>([]);
+  const [filtrosCaracteristicas, setFiltrosCaracteristicas] = useState<string[]>([]);
+  const [orden, setOrden] = useState<OrdenKey>("nombre");
+  const [direccion, setDireccion] = useState<"asc" | "desc">("asc");
+
+  function alternarOrden(key: OrdenKey) {
+    if (orden === key) {
+      setDireccion(direccion === "asc" ? "desc" : "asc");
+    } else {
+      setOrden(key);
+      setDireccion("asc");
+    }
+  }
+
+  const filtrados = useMemo(() => {
+    let lista = tipos.filter((t) => {
+      if (busqueda && !t.nombreTipo.toLowerCase().includes(busqueda.toLowerCase())) return false;
+      if (filtrosEstatus.length > 0 && !filtrosEstatus.includes(t.activo ? "activo" : "inactivo")) return false;
+      if (filtrosCaracteristicas.length > 0 && !filtrosCaracteristicas.every((c) => t[c as Caracteristica])) return false;
+      return true;
+    });
+    lista = [...lista].sort((a, b) => {
+      const cmp = a.nombreTipo.localeCompare(b.nombreTipo);
+      return direccion === "asc" ? cmp : -cmp;
+    });
+    return lista;
+  }, [tipos, busqueda, filtrosEstatus, filtrosCaracteristicas, direccion]);
+
   return (
     <div className="p-8">
       <div className="mb-4 flex items-center justify-between">
@@ -97,11 +137,37 @@ export function CatalogosTab() {
         </Button>
       </div>
 
+      <div className="mb-4 flex flex-wrap gap-3">
+        <Input
+          placeholder="Buscar categoría..."
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          className="max-w-xs"
+        />
+        <MultiSelect
+          options={[
+            { value: "activo", label: "Activo" },
+            { value: "inactivo", label: "Inactivo" },
+          ]}
+          selected={filtrosEstatus}
+          onChange={setFiltrosEstatus}
+          placeholder="Todos los estatus"
+          className="max-w-[160px]"
+        />
+        <MultiSelect
+          options={OPCIONES_CARACTERISTICAS}
+          selected={filtrosCaracteristicas}
+          onChange={setFiltrosCaracteristicas}
+          placeholder="Todas las características"
+          className="max-w-[220px]"
+        />
+      </div>
+
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
             <tr>
-              <th className="px-4 py-2">Nombre</th>
+              <SortableHeader label="Nombre" sortKey="nombre" activo={orden} direccion={direccion} onSort={alternarOrden} />
               <th className="px-4 py-2">Caducidad</th>
               <th className="px-4 py-2">Consume en servicio</th>
               <th className="px-4 py-2">Se vende</th>
@@ -109,8 +175,11 @@ export function CatalogosTab() {
               <th className="px-4 py-2"></th>
             </tr>
           </thead>
-          <tbody>
-            {tipos.map((t) => (
+          <tbody
+            key={`${filtrosEstatus.join()}|${filtrosCaracteristicas.join()}|${orden}|${direccion}`}
+            className="aparecer-suave"
+          >
+            {filtrados.map((t) => (
               <tr key={t.id} className="border-t border-beige-200">
                 <td className="px-4 py-2 font-medium text-ink-900">{t.nombreTipo}</td>
                 <td className="px-4 py-2">{t.requiereCaducidad ? "Sí" : "No"}</td>
@@ -139,10 +208,14 @@ export function CatalogosTab() {
                 </td>
               </tr>
             ))}
-            {tipos.length === 0 && (
+            {filtrados.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-6">
-                  <EmptyState icon={Tag} mensaje="Aún no hay categorías." submensaje="Crea una con el botón de arriba." />
+                  <EmptyState
+                    icon={Tag}
+                    mensaje={tipos.length === 0 ? "Aún no hay categorías." : "Ninguna categoría coincide con los filtros."}
+                    submensaje={tipos.length === 0 ? "Crea una con el botón de arriba." : undefined}
+                  />
                 </td>
               </tr>
             )}

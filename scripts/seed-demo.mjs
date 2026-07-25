@@ -79,11 +79,14 @@ const CATALOGO = [
   { id: "demo-sc-3", nombre: "Microdermoabrasión", cat: "Facial", dur: 50, precio: 750, period: 30, consume: true },
   { id: "demo-sc-4", nombre: "Depilación láser", cat: "Corporal", dur: 30, precio: 500, period: 21, consume: false },
 ];
+// presentacion = nombre de la pieza; contenido/unidad = qué trae cada pieza; modo = cómo se
+// descuenta al consumir en servicio ("contenido" pide ml/g y descuenta la fracción; "pieza"
+// descuenta la pieza completa). Vender siempre descuenta piezas enteras, sin importar el modo.
 const PRODUCTOS = [
-  { id: "demo-prod-1", sku: "SKU-D001", nombre: "Ácido hialurónico (vial)", tipo: "demo-tipo-1", prov: "demo-prov-1", costo: 120, venta: 0 },
-  { id: "demo-prod-2", sku: "SKU-D002", nombre: "Solución peeling glicólico", tipo: "demo-tipo-1", prov: "demo-prov-1", costo: 200, venta: 0 },
-  { id: "demo-prod-3", sku: "SKU-D003", nombre: "Crema post-sol", tipo: "demo-tipo-2", prov: "demo-prov-2", costo: 80, venta: 180 },
-  { id: "demo-prod-4", sku: "SKU-D004", nombre: "Gasas estériles (paquete)", tipo: "demo-tipo-1", prov: "demo-prov-1", costo: 15, venta: 0 },
+  { id: "demo-prod-1", sku: "SKU-D001", nombre: "Ácido hialurónico (ampolleta)", tipo: "demo-tipo-1", prov: "demo-prov-1", costo: 120, venta: 0, presentacion: "Ampolleta", contenido: 10, unidad: "ml", modo: "contenido" },
+  { id: "demo-prod-2", sku: "SKU-D002", nombre: "Solución peeling glicólico", tipo: "demo-tipo-1", prov: "demo-prov-1", costo: 200, venta: 0, presentacion: "Frasco", contenido: 250, unidad: "ml", modo: "contenido" },
+  { id: "demo-prod-3", sku: "SKU-D003", nombre: "Crema post-sol", tipo: "demo-tipo-2", prov: "demo-prov-2", costo: 80, venta: 180, presentacion: "Bote", contenido: 200, unidad: "ml", modo: "pieza" },
+  { id: "demo-prod-4", sku: "SKU-D004", nombre: "Gasas estériles (paquete)", tipo: "demo-tipo-1", prov: "demo-prov-1", costo: 15, venta: 0, presentacion: "Paquete", contenido: null, unidad: null, modo: "pieza" },
 ];
 const LOTES = [
   { id: "demo-lote-1", prod: "demo-prod-1", num: "L-D001", inicial: 20, costo: 120, cad: iso(75) },
@@ -163,7 +166,7 @@ insert("tipos_producto", { id: "demo-tipo-2", nombre_tipo: "Producto de reventa"
 for (const s of CATALOGO) insert("servicios_catalogo", { id: s.id, nombre: s.nombre, categoria_servicio: s.cat, duracion_estimada_min: s.dur, precio_sugerido: s.precio, periodicidad_mantenimiento_dias: s.period, activo: true, consume_inventario: s.consume, created_at: epoch(-200), updated_at: epoch(-200) });
 
 // Productos
-for (const p of PRODUCTOS) insert("productos", { id: p.id, sku: p.sku, nombre: p.nombre, tipo_producto_id: p.tipo, proveedor_principal_id: p.prov, unidad_medida: "pieza", costo_base: p.costo, precio_venta: p.venta, stock_minimo_manual: 3, activo: true, created_at: epoch(-200), updated_at: epoch(-200) });
+for (const p of PRODUCTOS) insert("productos", { id: p.id, sku: p.sku, nombre: p.nombre, tipo_producto_id: p.tipo, proveedor_principal_id: p.prov, unidad_medida: "pieza", presentacion: p.presentacion, contenido_cantidad: p.contenido, contenido_unidad: p.unidad, modo_consumo: p.modo, costo_base: p.costo, precio_venta: p.venta, stock_minimo_manual: 3, activo: true, created_at: epoch(-200), updated_at: epoch(-200) });
 
 // Recetas (insumos sugeridos)
 insert("servicios_catalogo_productos", { id: "demo-scp-1", servicio_catalogo_id: "demo-sc-1", producto_id: "demo-prod-1", cantidad_sugerida: 1 });

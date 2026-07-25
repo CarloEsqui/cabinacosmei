@@ -10,17 +10,21 @@ export function LicenciaBanner() {
     refetchInterval: 60 * 60 * 1000,
   });
 
-  if (!estado || estado.estado !== "por_vencer") return null;
+  // "vencida" también se muestra: dentro del periodo de gracia el acceso sigue, así que este es
+  // justo el momento en que más urge avisar que el bloqueo está por caer (antes se ocultaba aquí).
+  if (!estado || (estado.estado !== "por_vencer" && estado.estado !== "vencida")) return null;
 
   const dias = estado.diasRestantes ?? 0;
-  const mensaje =
-    dias >= 0
+  const vencida = estado.estado === "vencida";
+  const mensaje = vencida
+    ? "Tu licencia venció y el acceso se bloqueará en cualquier momento. Renueva ahora para no interrumpir tu trabajo."
+    : dias >= 0
       ? `Tu licencia vence en ${dias} ${dias === 1 ? "día" : "días"}.`
       : `Tu licencia venció hace ${-dias} ${-dias === 1 ? "día" : "días"}. Renueva antes de que se bloquee el acceso.`;
 
-  // La última semana (≤7 días) o ya dentro del periodo de gracia se marca en rojo: es cuando de
-  // verdad urge renovar. Antes de eso (p. ej. el aviso del mes en el plan anual) va en ámbar.
-  const urgente = dias <= 7;
+  // Vencida, o dentro de la última semana (≤7 días), se marca en rojo: es cuando de verdad urge
+  // renovar. Antes de eso (p. ej. el aviso del mes en el plan anual) va en ámbar.
+  const urgente = vencida || dias <= 7;
   const Icono = urgente ? AlertTriangle : CalendarClock;
 
   return (

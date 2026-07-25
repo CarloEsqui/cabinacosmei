@@ -233,6 +233,46 @@
   border-color: var(--color-jacaranda-400);
 }
 
+/* Vistas semana/día — rediseño (la mensual no se toca):
+   Altura de slot FIJA con scroll interno, en vez de estirar las horas para llenar la pantalla
+   (patrón Google/Notion Calendar). Cada media hora mide 2.6rem → 1 hora ≈ 83px. */
+.fc .fc-timegrid-slot {
+  height: 2.6rem;
+}
+
+/* El chip custom (ChipEvento) es quien pinta el evento; se le quita el cromo default para que
+   no aparezca el bloque sólido debajo. Solo aplica a timegrid: la vista mensual conserva el suyo. */
+.fc .fc-timegrid-event {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: 0 1px 2px rgb(43 34 26 / 0.08);
+  border-radius: 0.5rem;
+}
+.fc .fc-timegrid-event .fc-event-main {
+  padding: 0;
+}
+/* Un pelito de aire entre eventos empalmados para que se distingan (espaciador de 2px). */
+.fc .fc-timegrid-event-harness {
+  padding-right: 2px;
+}
+
+/* Horas fuera del horario de atención (businessHours, según Configuración > Horario de
+   atención) sombreadas. A propósito es el MISMO tratamiento que los días no laborales: ambos
+   significan "tiempo en el que no se atiende" (mismo patrón que Google Calendar). */
+.fc .fc-non-business {
+  background: rgb(43 34 26 / 0.045);
+}
+
+/* Encabezados de día custom (EncabezadoDia): sin el fondo/uppercase del default. */
+.fc .fc-timegrid .fc-col-header-cell {
+  background: transparent;
+}
+
+/* "+N más" del mes en tinta de marca. */
+.fc .fc-daygrid-more-link {
+  @apply text-xs font-medium text-jacaranda-700;
+}
+
 .fc .fc-timegrid-event {
   @apply rounded-lg border-none shadow-sm;
 }

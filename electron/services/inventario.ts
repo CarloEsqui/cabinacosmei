@@ -42,6 +42,16 @@ interface DbConSelect {
   select: ReturnType<typeof getDb>["select"];
 }
 
+// Igual que arriba pero con las operaciones de escritura que necesitan las salidas de inventario
+// (leer lotes, descontar stock, insertar salidas/movimientos). Permite que `registrarSalida` opere
+// tanto sobre `db` (abriendo su propia transacción) como sobre el `tx` de una transacción externa
+// —p. ej. el cierre de cita— sin abrir una transacción anidada (better-sqlite3 no las soporta).
+interface DbOTx {
+  select: ReturnType<typeof getDb>["select"];
+  insert: ReturnType<typeof getDb>["insert"];
+  update: ReturnType<typeof getDb>["update"];
+}
+
 function siguienteCorrelativo(valores: (string | null)[], prefijo: string): string {
   let maxN = 0;
   for (const v of valores) {
@@ -121,28 +131,56 @@ export async function resumenInventario(): Promise<ProductoConStock[]> {
 export async function lotesPorProducto(productoId: string): Promise<Lote[]> {
   const db = getDb();
   const filas = db
-    .select({ lote: lotes, productoNombre: productos.nombre })
+    .select({
+      lote: lotes,
+      productoNombre: productos.nombre,
+      presentacion: productos.presentacion,
+      contenidoCantidad: productos.contenidoCantidad,
+      contenidoUnidad: productos.contenidoUnidad,
+    })
     .from(lotes)
     .innerJoin(productos, eq(lotes.productoId, productos.id))
     .where(eq(lotes.productoId, productoId))
     .orderBy(asc(lotes.fechaCaducidad))
     .all();
-  return filas.map((f) => ({ ...f.lote, productoNombre: f.productoNombre }));
+  return filas.map((f) => ({
+    ...f.lote,
+    productoNombre: f.productoNombre,
+    presentacion: f.presentacion,
+    contenidoCantidad: f.contenidoCantidad,
+    contenidoUnidad: f.contenidoUnidad,
+  }));
 }
 
 function obtenerLotePorId(id: string): Lote | undefined {
   const db = getDb();
   const fila = db
-    .select({ lote: lotes, productoNombre: productos.nombre })
+    .select({
+      lote: lotes,
+      productoNombre: productos.nombre,
+      presentacion: productos.presentacion,
+      contenidoCantidad: productos.contenidoCantidad,
+      contenidoUnidad: productos.contenidoUnidad,
+    })
     .from(lotes)
     .innerJoin(productos, eq(lotes.productoId, productos.id))
     .where(eq(lotes.id, id))
     .get();
-  return fila ? { ...fila.lote, productoNombre: fila.productoNombre } : undefined;
+  return fila
+    ? {
+        ...fila.lote,
+        productoNombre: fila.productoNombre,
+        presentacion: fila.presentacion,
+        contenidoCantidad: fila.contenidoCantidad,
+        contenidoUnidad: fila.contenidoUnidad,
+      }
+    : undefined;
 }
 
 export async function actualizarLote(id: string, input: LoteInput, usuarioId?: string): Promise<Lote | undefined> {
   const db = getDb();
+  const existe = db.select({ id: lotes.id }).from(lotes).where(eq(lotes.id, id)).get();
+  if (!existe) throw new Error("El lote no existe.");
   db.update(lotes)
     .set({
       numeroLote: input.numeroLote || null,
@@ -164,6 +202,8 @@ export async function cambiarEstadoLote(
   usuarioId?: string,
 ): Promise<Lote | undefined> {
   const db = getDb();
+  const existe = db.select({ id: lotes.id }).from(lotes).where(eq(lotes.id, id)).get();
+  if (!existe) throw new Error("El lote no existe.");
   db.update(lotes).set({ estado, updatedAt: new Date() }).where(eq(lotes.id, id)).run();
   registrarAccion(db, {
     usuarioId,
@@ -192,7 +232,13 @@ export async function lotesProximosACaducar(): Promise<Lote[]> {
   const limiteIso = fechaLocalIso(limite);
 
   const filas = db
-    .select({ lote: lotes, productoNombre: productos.nombre })
+    .select({
+      lote: lotes,
+      productoNombre: productos.nombre,
+      presentacion: productos.presentacion,
+      contenidoCantidad: productos.contenidoCantidad,
+      contenidoUnidad: productos.contenidoUnidad,
+    })
     .from(lotes)
     .innerJoin(productos, eq(lotes.productoId, productos.id))
     .where(
@@ -208,14 +254,26 @@ export async function lotesProximosACaducar(): Promise<Lote[]> {
     )
     .orderBy(asc(lotes.fechaCaducidad))
     .all();
-  return filas.map((f) => ({ ...f.lote, productoNombre: f.productoNombre }));
+  return filas.map((f) => ({
+    ...f.lote,
+    productoNombre: f.productoNombre,
+    presentacion: f.presentacion,
+    contenidoCantidad: f.contenidoCantidad,
+    contenidoUnidad: f.contenidoUnidad,
+  }));
 }
 
 export async function lotesCaducados(): Promise<Lote[]> {
   const db = getDb();
   const hoy = fechaLocalIso();
   const filas = db
-    .select({ lote: lotes, productoNombre: productos.nombre })
+    .select({
+      lote: lotes,
+      productoNombre: productos.nombre,
+      presentacion: productos.presentacion,
+      contenidoCantidad: productos.contenidoCantidad,
+      contenidoUnidad: productos.contenidoUnidad,
+    })
     .from(lotes)
     .innerJoin(productos, eq(lotes.productoId, productos.id))
     .where(
@@ -227,7 +285,13 @@ export async function lotesCaducados(): Promise<Lote[]> {
     )
     .orderBy(asc(lotes.fechaCaducidad))
     .all();
-  return filas.map((f) => ({ ...f.lote, productoNombre: f.productoNombre }));
+  return filas.map((f) => ({
+    ...f.lote,
+    productoNombre: f.productoNombre,
+    presentacion: f.presentacion,
+    contenidoCantidad: f.contenidoCantidad,
+    contenidoUnidad: f.contenidoUnidad,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +308,11 @@ export async function registrarEntrada(input: EntradaInput, usuarioId?: string) 
     if (loteId) {
       const lote = tx.select().from(lotes).where(eq(lotes.id, loteId)).get();
       if (!lote) throw new Error("El lote especificado no existe.");
+      // El lote debe ser del mismo producto de la entrada: sumar stock a un lote de otro producto
+      // corrompería el inventario (contaría piezas de A como si fueran de B).
+      if (lote.productoId !== input.productoId) {
+        throw new Error("El lote seleccionado no pertenece a este producto.");
+      }
       tx.update(lotes)
         .set({
           cantidadDisponible: lote.cantidadDisponible + input.cantidad,
@@ -370,123 +439,135 @@ export function verificarStockSuficiente(items: { productoId: string; cantidad: 
   return faltantes;
 }
 
+/**
+ * Cuerpo real de una salida de inventario, operando sobre `db` o el `tx` de una transacción externa.
+ * NO abre transacción propia: es responsabilidad del llamador (el wrapper `registrarSalida` para las
+ * salidas sueltas, o `cerrarCita` para meter todas las salidas del cierre en una sola transacción).
+ * `criterioSalidaLotes` y `hoy` se reciben ya calculados porque `obtenerConfig()` es async y las
+ * transacciones de better-sqlite3 son síncronas: nada async puede correr dentro de una.
+ */
+export function registrarSalidaEnTx(
+  tx: DbOTx,
+  input: SalidaInput,
+  criterioSalidaLotes: string,
+  hoy: string,
+  usuarioId?: string,
+) {
+  const fecha = input.fecha;
+  let candidatos: Array<typeof lotes.$inferSelect>;
+
+  if (input.loteId) {
+    const lote = tx.select().from(lotes).where(eq(lotes.id, input.loteId)).get();
+    if (!lote) throw new Error("El lote especificado no existe.");
+    if (lote.estado === "bloqueado") throw new Error("Este lote está bloqueado y no puede usarse.");
+    if (lote.fechaCaducidad && lote.fechaCaducidad < hoy) {
+      throw new Error("Este lote está caducado y no puede usarse.");
+    }
+    candidatos = [lote];
+  } else {
+    const orden = criterioSalidaLotes === "FEFO" ? asc(lotes.fechaCaducidad) : asc(lotes.fechaEntrada);
+    candidatos = tx
+      .select()
+      .from(lotes)
+      .where(
+        and(
+          eq(lotes.productoId, input.productoId),
+          eq(lotes.estado, "activo"),
+          sql`${lotes.cantidadDisponible} > 0`,
+          sql`(${lotes.fechaCaducidad} IS NULL OR ${lotes.fechaCaducidad} >= ${hoy})`,
+        ),
+      )
+      .orderBy(orden)
+      .all();
+  }
+
+  const disponibleTotal = candidatos.reduce((acc, l) => acc + l.cantidadDisponible, 0);
+  if (disponibleTotal < input.cantidad) {
+    const prod = tx
+      .select({ nombre: productos.nombre })
+      .from(productos)
+      .where(eq(productos.id, input.productoId))
+      .get();
+    throw new Error(
+      `Stock insuficiente de ${prod?.nombre ?? "este producto"}: disponible ${disponibleTotal}, se necesitan ${input.cantidad}.`,
+    );
+  }
+
+  let restante = input.cantidad;
+  const salidasCreadas: string[] = [];
+  const folio = input.folio || generarFolioSalida(tx);
+
+  for (const lote of candidatos) {
+    if (restante <= 0) break;
+    const tomar = Math.min(restante, lote.cantidadDisponible);
+    const nuevaDisponible = lote.cantidadDisponible - tomar;
+
+    tx.update(lotes)
+      .set({
+        cantidadDisponible: nuevaDisponible,
+        estado: nuevaDisponible <= 0 ? "agotado" : lote.estado,
+        updatedAt: new Date(),
+      })
+      .where(eq(lotes.id, lote.id))
+      .run();
+
+    const salidaId = randomUUID();
+    tx.insert(salidasInventario)
+      .values({
+        id: salidaId,
+        fecha,
+        folio,
+        productoId: input.productoId,
+        loteId: lote.id,
+        tipoSalida: input.tipoSalida,
+        cantidad: tomar,
+        costoUnitario: lote.costoUnitarioLote ?? 0,
+        valor: tomar * (lote.costoUnitarioLote ?? 0),
+        clienteId: input.clienteId || null,
+        servicioRealizadoId: input.servicioRealizadoId || null,
+        usuarioId: usuarioId || null,
+        observaciones: input.observaciones || null,
+      })
+      .run();
+
+    tx.insert(movimientos)
+      .values({
+        id: randomUUID(),
+        fecha,
+        tipo: input.tipoSalida,
+        productoId: input.productoId,
+        loteId: lote.id,
+        cantidad: tomar,
+        referenciaTipo: "salida_inventario",
+        referenciaId: salidaId,
+        clienteId: input.clienteId || null,
+        usuarioId: usuarioId || null,
+        observaciones: input.observaciones || null,
+      })
+      .run();
+
+    salidasCreadas.push(salidaId);
+    restante -= tomar;
+  }
+
+  registrarAccion(tx, {
+    usuarioId,
+    accion: `salida_${input.tipoSalida}`,
+    entidadTipo: "producto",
+    entidadId: input.productoId,
+    detalle: `-${input.cantidad}`,
+  });
+
+  return tx.select().from(salidasInventario).where(inArray(salidasInventario.id, salidasCreadas)).all();
+}
+
 export async function registrarSalida(input: SalidaInput, usuarioId?: string) {
   const db = getDb();
   const config = await obtenerConfig();
   const hoy = fechaLocalIso();
-  const fecha = input.fecha;
-
-  return db.transaction((tx) => {
-    let candidatos: Array<typeof lotes.$inferSelect>;
-
-    if (input.loteId) {
-      const lote = tx.select().from(lotes).where(eq(lotes.id, input.loteId)).get();
-      if (!lote) throw new Error("El lote especificado no existe.");
-      if (lote.estado === "bloqueado") throw new Error("Este lote está bloqueado y no puede usarse.");
-      if (lote.fechaCaducidad && lote.fechaCaducidad < hoy) {
-        throw new Error("Este lote está caducado y no puede usarse.");
-      }
-      candidatos = [lote];
-    } else {
-      const orden = config.criterioSalidaLotes === "FEFO" ? asc(lotes.fechaCaducidad) : asc(lotes.fechaEntrada);
-      candidatos = tx
-        .select()
-        .from(lotes)
-        .where(
-          and(
-            eq(lotes.productoId, input.productoId),
-            eq(lotes.estado, "activo"),
-            sql`${lotes.cantidadDisponible} > 0`,
-            sql`(${lotes.fechaCaducidad} IS NULL OR ${lotes.fechaCaducidad} >= ${hoy})`,
-          ),
-        )
-        .orderBy(orden)
-        .all();
-    }
-
-    const disponibleTotal = candidatos.reduce((acc, l) => acc + l.cantidadDisponible, 0);
-    if (disponibleTotal < input.cantidad) {
-      const prod = tx
-        .select({ nombre: productos.nombre })
-        .from(productos)
-        .where(eq(productos.id, input.productoId))
-        .get();
-      throw new Error(
-        `Stock insuficiente de ${prod?.nombre ?? "este producto"}: disponible ${disponibleTotal}, se necesitan ${input.cantidad}.`,
-      );
-    }
-
-    let restante = input.cantidad;
-    const salidasCreadas: string[] = [];
-    const folio = input.folio || generarFolioSalida(tx);
-
-    for (const lote of candidatos) {
-      if (restante <= 0) break;
-      const tomar = Math.min(restante, lote.cantidadDisponible);
-      const nuevaDisponible = lote.cantidadDisponible - tomar;
-
-      tx.update(lotes)
-        .set({
-          cantidadDisponible: nuevaDisponible,
-          estado: nuevaDisponible <= 0 ? "agotado" : lote.estado,
-          updatedAt: new Date(),
-        })
-        .where(eq(lotes.id, lote.id))
-        .run();
-
-      const salidaId = randomUUID();
-      tx.insert(salidasInventario)
-        .values({
-          id: salidaId,
-          fecha,
-          folio,
-          productoId: input.productoId,
-          loteId: lote.id,
-          tipoSalida: input.tipoSalida,
-          cantidad: tomar,
-          costoUnitario: lote.costoUnitarioLote ?? 0,
-          valor: tomar * (lote.costoUnitarioLote ?? 0),
-          clienteId: input.clienteId || null,
-          servicioRealizadoId: input.servicioRealizadoId || null,
-          usuarioId: usuarioId || null,
-          observaciones: input.observaciones || null,
-        })
-        .run();
-
-      tx.insert(movimientos)
-        .values({
-          id: randomUUID(),
-          fecha,
-          tipo: input.tipoSalida,
-          productoId: input.productoId,
-          loteId: lote.id,
-          cantidad: tomar,
-          referenciaTipo: "salida_inventario",
-          referenciaId: salidaId,
-          clienteId: input.clienteId || null,
-          usuarioId: usuarioId || null,
-          observaciones: input.observaciones || null,
-        })
-        .run();
-
-      salidasCreadas.push(salidaId);
-      restante -= tomar;
-    }
-
-    registrarAccion(tx, {
-      usuarioId,
-      accion: `salida_${input.tipoSalida}`,
-      entidadTipo: "producto",
-      entidadId: input.productoId,
-      detalle: `-${input.cantidad}`,
-    });
-
-    return tx
-      .select()
-      .from(salidasInventario)
-      .where(sql`${salidasInventario.id} IN ${salidasCreadas}`)
-      .all();
-  });
+  // Los llamadores sueltos (SalidaForm vía IPC) siguen teniendo su salida atómica: el wrapper abre
+  // su propia transacción y delega el cuerpo en la función que opera sobre el `tx`.
+  return db.transaction((tx) => registrarSalidaEnTx(tx, input, config.criterioSalidaLotes, hoy, usuarioId));
 }
 
 // ---------------------------------------------------------------------------

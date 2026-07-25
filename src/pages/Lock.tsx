@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Lock as LockIcon, Sparkles } from "lucide-react";
+import { AlertTriangle, Lock as LockIcon, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,6 +11,7 @@ interface LockScreenProps {
 
 export function LockScreen({ onUnlock }: LockScreenProps) {
   const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState(false);
   const [tienePin, setTienePin] = useState(false);
   const [nombre, setNombre] = useState("");
   const [pin, setPin] = useState("");
@@ -18,12 +19,24 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const [procesando, setProcesando] = useState(false);
 
-  useEffect(() => {
-    window.api.auth.tienePin().then((valor) => {
-      setTienePin(valor);
-      setCargando(false);
-    });
+  const cargarTienePin = useCallback(() => {
+    setCargando(true);
+    setErrorCarga(false);
+    window.api.auth
+      .tienePin()
+      .then((valor) => {
+        setTienePin(valor);
+        setCargando(false);
+      })
+      .catch(() => {
+        setErrorCarga(true);
+        setCargando(false);
+      });
   }, []);
+
+  useEffect(() => {
+    cargarTienePin();
+  }, [cargarTienePin]);
 
   async function handleCrearPin(e: React.FormEvent) {
     e.preventDefault();
@@ -72,6 +85,23 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
 
   if (cargando) {
     return <div className="flex h-full items-center justify-center bg-beige-100" />;
+  }
+
+  if (errorCarga) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 bg-beige-100 p-8 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-danger-500/10 text-danger-500">
+          <AlertTriangle size={28} />
+        </div>
+        <div>
+          <h1 className="font-display text-xl font-semibold text-ink-900">No se pudo verificar el acceso</h1>
+          <p className="mt-1 max-w-sm text-sm text-ink-500">
+            Cierra y vuelve a abrir la app. Si el problema sigue, contacta a soporte.
+          </p>
+        </div>
+        <Button onClick={cargarTienePin}>Reintentar</Button>
+      </div>
+    );
   }
 
   return (

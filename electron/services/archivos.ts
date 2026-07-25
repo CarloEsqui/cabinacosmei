@@ -4,7 +4,8 @@ import path from "node:path";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { archivos } from "../db/schema";
-import { sanitizarNombre } from "./folders";
+import { sanitizarNombre, rutaDentroDe } from "./folders";
+import { obtenerConfig } from "./config";
 
 /** Anti-colisión para archivos: agrega sufijo antes de la extensión (a.jpg -> a_2.jpg). */
 function rutaArchivoSinColision(rutaBase: string): string {
@@ -30,6 +31,11 @@ interface GuardarArchivoInput {
 }
 
 export async function guardarArchivoDesdeRuta(input: GuardarArchivoInput) {
+  const config = await obtenerConfig();
+  if (!rutaDentroDe(input.carpetaDestino, config.carpetaRaiz)) {
+    throw new Error("La carpeta de destino está fuera de la carpeta del negocio.");
+  }
+
   const db = getDb();
   const nombreOriginal = path.basename(input.rutaOrigen);
   const ext = path.extname(nombreOriginal);

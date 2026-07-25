@@ -12,11 +12,11 @@ import type {
   CitasFiltro,
   CierreCitaInput,
   GuardarRecetaInput,
-  RangoFechas,
   ResumenFiltro,
   BitacoraFiltro,
   LoteInput,
   EstablecerEstadoHallazgoInput,
+  ExportCsvTipo,
 } from "./schemas";
 import type {
   Proveedor,
@@ -38,10 +38,6 @@ import type {
   RecetaItem,
   BitacoraRow,
   RespaldoRow,
-  ReporteCobranza,
-  ReporteInventario,
-  ReporteServicios,
-  ReporteClientes,
   ResumenDashboard,
   ResumenClienteCitas,
   ResumenReporte,
@@ -189,11 +185,11 @@ export interface IpcApi {
     inventarioDetalle(filtro: ResumenFiltro): Promise<ReporteInventarioDetalle>;
     hallazgos(filtro: ResumenFiltro): Promise<Hallazgo[]>;
     establecerEstadoHallazgo(input: EstablecerEstadoHallazgoInput): Promise<void>;
-    cobranza(rango: RangoFechas): Promise<ReporteCobranza>;
-    inventario(rango: RangoFechas): Promise<ReporteInventario>;
-    servicios(rango: RangoFechas): Promise<ReporteServicios>;
-    clientes(rango: RangoFechas): Promise<ReporteClientes>;
-    exportarCsv(tipo: "cobranza" | "inventario" | "servicios", rango: RangoFechas): Promise<boolean>;
+    /**
+     * Exporta a un archivo CSV el detalle del tipo indicado. Para "movimientos" el filtro es un
+     * `MovimientosFiltro`; para el resto es un `ResumenFiltro`. Devuelve false si se canceló el diálogo.
+     */
+    exportarCsv(tipo: ExportCsvTipo, filtro: ResumenFiltro | MovimientosFiltro): Promise<boolean>;
   };
 }
 
@@ -284,8 +280,4 @@ export type IpcChannel =
   | "reportes:inventarioDetalle"
   | "reportes:hallazgos"
   | "reportes:establecerEstadoHallazgo"
-  | "reportes:cobranza"
-  | "reportes:inventario"
-  | "reportes:servicios"
-  | "reportes:clientes"
   | "reportes:exportarCsv";

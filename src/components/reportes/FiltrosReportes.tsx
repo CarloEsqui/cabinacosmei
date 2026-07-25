@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import { Popover } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
@@ -13,6 +14,8 @@ interface FiltrosReportesProps {
   comparacion: ModoComparacion;
   onRango: (rango: RangoFechas) => void;
   onComparacion: (modo: ModoComparacion) => void;
+  /** Acciones opcionales alineadas a la derecha de la barra (ej. exportar CSV). */
+  acciones?: ReactNode;
 }
 
 function calcularPreset(id: string): RangoFechas {
@@ -83,7 +86,7 @@ function nombrePeriodoActivo(rango: RangoFechas): string {
  * texto, y todos los controles (presets, fechas exactas, comparación) viven en un popover — ya no
  * hay una hilera fija de nueve botones ocupando toda la franja superior (INSTRUCCIONES §4.1, §H).
  */
-export function FiltrosReportes({ rango, comparacion, onRango, onComparacion }: FiltrosReportesProps) {
+export function FiltrosReportes({ rango, comparacion, onRango, onComparacion, acciones }: FiltrosReportesProps) {
   const comparacionActiva = COMPARACIONES.find((c) => c.value === comparacion)!;
 
   return (
@@ -189,9 +192,12 @@ export function FiltrosReportes({ rango, comparacion, onRango, onComparacion }: 
         )}
       </Popover>
 
-      <span className="ml-auto flex items-center gap-1 text-xs text-ink-400">
-        <SlidersHorizontal size={12} /> Filtros
-      </span>
+      <div className="ml-auto flex items-center gap-3">
+        {acciones}
+        <span className="flex items-center gap-1 text-xs text-ink-400">
+          <SlidersHorizontal size={12} /> Filtros
+        </span>
+      </div>
     </div>
   );
 }

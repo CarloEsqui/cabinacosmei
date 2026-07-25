@@ -4,13 +4,36 @@ import { getDb } from "../db";
 import { serviciosRealizados, citas, clientes, serviciosCatalogo, productos, salidasInventario, pagos } from "../db/schema";
 import { crearCarpetaServicio } from "./folders";
 import { tieneComprobante } from "./archivos";
-import { registrarSalida, verificarStockSuficiente } from "./inventario";
+import { registrarSalidaEnTx, verificarStockSuficiente } from "./inventario";
+import { obtenerConfig } from "./config";
 import { registrarPago } from "./pagos";
 import { verificarPin } from "./auth";
 import { registrarAccion } from "./bitacora";
-import { sumarDiasIso } from "../../shared/fechas";
+import { sumarDiasIso, fechaLocalIso } from "../../shared/fechas";
 import type { CierreCitaInput } from "../../shared/schemas";
 import type { ServicioRealizado, DetalleServicioRealizado } from "../../shared/types";
+
+/**
+ * Convierte la cantidad capturada de un insumo consumido a PIEZAS (la unidad en la que vive el
+ * stock), según el modo de consumo del producto:
+ *  - modo "pieza": la cantidad ya viene en piezas, se devuelve igual.
+ *  - modo "contenido": la cantidad viene en ml/g; se divide entre el contenido de la pieza para
+ *    obtener la fracción de pieza a descontar (usar 5 ml de un bote de 60 ml = 5/60 de pieza).
+ * Valida que un producto en modo "contenido" tenga un contenido > 0 configurado.
+ */
+function aPiezas(db: ReturnType<typeof getDb>, productoId: string, cantidad: number): number {
+  const prod = db.select().from(productos).where(eq(productos.id, productoId)).get();
+  if (prod?.modoConsumo === "contenido") {
+    const contenido = prod.contenidoCantidad;
+    if (!contenido || contenido <= 0) {
+      throw new Error(
+        `El producto "${prod.nombre}" se descuenta por contenido pero no tiene un contenido válido definido. Corrige su presentación en Configuración > Productos.`,
+      );
+    }
+    return cantidad / contenido;
+  }
+  return cantidad;
+}
 
 function generarCodigoServicio(): string {
   const db = getDb();
@@ -137,10 +160,18 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
   // cálculo de "próxima cita sugerida" queden consistentes con cuándo ocurrió el servicio.
   const fecha = servicio.fecha;
 
-  // Pre-chequeo de stock ANTES de tocar nada: como cada salida se confirma por separado, sin esta
-  // validación un faltante a media lista dejaría unos insumos ya descontados y la cita sin cerrar.
-  // Aquí se avisa todo junto (nombrando los productos) y no se modifica el inventario.
-  const aDescontar = [...input.productosConsumidos, ...input.productosVendidos];
+  // El stock SIEMPRE se cuenta en piezas. Para un insumo en modo "contenido" el renderer manda la
+  // cantidad en ml/g, así que aquí la convertimos a fracción de pieza (cantidad / contenido de la
+  // pieza) antes de tocar nada. Los productos modo "pieza" y las ventas van tal cual (en piezas).
+  const consumidosEnPiezas = input.productosConsumidos.map((p) => ({
+    productoId: p.productoId,
+    cantidad: aPiezas(db, p.productoId, p.cantidad),
+  }));
+
+  // Pre-chequeo de stock ANTES de abrir la transacción: da un mensaje claro nombrando todos los
+  // faltantes de una vez. Aun así el descuento real vive dentro de la transacción de cierre, así
+  // que un fallo posterior (o una carrera contra otra salida) revierte todo sin dejar estado sucio.
+  const aDescontar = [...consumidosEnPiezas, ...input.productosVendidos];
   const faltantes = verificarStockSuficiente(aDescontar);
   if (faltantes.length > 0) {
     const detalle = faltantes
@@ -148,34 +179,6 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
       .join("; ");
     throw new Error(
       `No hay stock suficiente para cerrar la cita: ${detalle}. Ajusta las cantidades o registra una entrada de inventario primero.`,
-    );
-  }
-
-  // Cada salida ya es atómica por sí misma (inventario.registrarSalida abre su propia transacción).
-  for (const p of input.productosConsumidos) {
-    await registrarSalida(
-      {
-        fecha,
-        productoId: p.productoId,
-        tipoSalida: "consumo_servicio",
-        cantidad: p.cantidad,
-        clienteId: servicio.clienteId,
-        servicioRealizadoId: servicio.id,
-      },
-      usuarioId,
-    );
-  }
-  for (const p of input.productosVendidos) {
-    await registrarSalida(
-      {
-        fecha,
-        productoId: p.productoId,
-        tipoSalida: "venta",
-        cantidad: p.cantidad,
-        clienteId: servicio.clienteId,
-        servicioRealizadoId: servicio.id,
-      },
-      usuarioId,
     );
   }
 
@@ -190,7 +193,51 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
     proximaCitaSugerida = sumarDiasIso(fecha, servicioCat.periodicidadMantenimientoDias);
   }
 
+  // Config y fecha de hoy para elegir lotes en las salidas: se calculan FUERA de la transacción
+  // porque obtenerConfig() es async y las transacciones de better-sqlite3 son síncronas (nada async
+  // puede correr dentro de una).
+  const config = await obtenerConfig();
+  const hoy = fechaLocalIso();
+
+  // TODO el cierre en UNA sola transacción: si algo falla a mitad (una salida, registrarPago o
+  // cualquier update), better-sqlite3 revierte la transacción completa y el stock NO queda
+  // descontado. Antes cada salida abría su propia transacción y el pago iba en otra separada, así
+  // que un fallo tras descontar dejaba stock descontado + cita abierta → doble descuento al
+  // reintentar. Nada async aquí dentro.
   db.transaction((tx) => {
+    for (const p of consumidosEnPiezas) {
+      registrarSalidaEnTx(
+        tx,
+        {
+          fecha,
+          productoId: p.productoId,
+          tipoSalida: "consumo_servicio",
+          cantidad: p.cantidad,
+          clienteId: servicio.clienteId,
+          servicioRealizadoId: servicio.id,
+        },
+        config.criterioSalidaLotes,
+        hoy,
+        usuarioId,
+      );
+    }
+    for (const p of input.productosVendidos) {
+      registrarSalidaEnTx(
+        tx,
+        {
+          fecha,
+          productoId: p.productoId,
+          tipoSalida: "venta",
+          cantidad: p.cantidad,
+          clienteId: servicio.clienteId,
+          servicioRealizadoId: servicio.id,
+        },
+        config.criterioSalidaLotes,
+        hoy,
+        usuarioId,
+      );
+    }
+
     if (input.monto > 0 && input.metodoPago) {
       registrarPago(tx, {
         clienteId: servicio.clienteId,

@@ -8,8 +8,9 @@ import { ServiciosReportes } from "@/components/reportes/ServiciosReportes";
 import { ClientesReportes } from "@/components/reportes/ClientesReportes";
 import { AgendaReportes } from "@/components/reportes/AgendaReportes";
 import { InventarioReportes } from "@/components/reportes/InventarioReportes";
+import { BotonExportarCsv } from "@/components/BotonExportarCsv";
 import { fechaLocalIso, inicioDeMesIso } from "@shared/fechas";
-import type { RangoFechas, ResumenFiltro } from "@shared/schemas";
+import type { ExportCsvTipo, RangoFechas, ResumenFiltro } from "@shared/schemas";
 
 const TABS = [
   { value: "resumen", label: "Resumen" },
@@ -19,6 +20,17 @@ const TABS = [
   { value: "agenda", label: "Agenda" },
   { value: "inventario", label: "Inventario" },
 ];
+
+// Pestaña → tipo de export. "resumen" es narrativo (sin export propio): se exporta el detalle
+// financiero como opción por defecto útil.
+const EXPORT_POR_TAB: Record<string, ExportCsvTipo> = {
+  resumen: "finanzas",
+  finanzas: "finanzas",
+  servicios: "servicios",
+  clientes: "clientes",
+  agenda: "agenda",
+  inventario: "inventario_reporte",
+};
 
 export function ReportesPage() {
   const [tab, setTab] = useState("resumen");
@@ -32,7 +44,13 @@ export function ReportesPage() {
       <PageHeader title="Reportes" subtitle="Inteligencia del negocio: ventas, margen, clientas e inventario" />
       <Tabs tabs={TABS} value={tab} onChange={setTab} />
 
-      <FiltrosReportes rango={rango} comparacion={comparacion} onRango={setRango} onComparacion={setComparacion} />
+      <FiltrosReportes
+        rango={rango}
+        comparacion={comparacion}
+        onRango={setRango}
+        onComparacion={setComparacion}
+        acciones={<BotonExportarCsv tipo={EXPORT_POR_TAB[tab]} filtro={filtroResumen} size="sm" />}
+      />
 
       {tab === "resumen" && <ResumenReportes filtro={filtroResumen} onNavegarTab={setTab} />}
       {tab === "finanzas" && <FinanzasReportes filtro={filtroResumen} onNavegarTab={setTab} />}

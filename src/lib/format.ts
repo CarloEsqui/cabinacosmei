@@ -37,6 +37,39 @@ export function getFirstName(fullName: string): string {
   return fullName.trim().split(/\s+/)[0];
 }
 
+/** Pluraliza el nombre de una pieza de forma simple: 1 → singular, otro → +s ("bote"→"botes"). */
+function pluralizarPieza(pieza: string, cantidad: number): string {
+  if (Math.abs(cantidad) === 1) return pieza;
+  if (/[sxz]$/i.test(pieza)) return pieza; // ya termina en plural (ej. "pzas")
+  return `${pieza}s`;
+}
+
+/**
+ * Formatea una existencia (que SIEMPRE se cuenta en piezas) de forma amigable para la usuaria:
+ *  - Entero exacto: "3 botes".
+ *  - Con fracción: "~1.9 botes" (el "~" avisa que es aproximado).
+ *  - Si el producto tiene contenido definido, agrega el total entre paréntesis: "~1.9 botes (115 ml)".
+ *  - Sin presentación definida cae a piezas genéricas: "2 pzas".
+ */
+export function formatearStock(
+  stockPiezas: number | null | undefined,
+  presentacion: string | null | undefined,
+  contenidoCantidad: number | null | undefined,
+  contenidoUnidad: string | null | undefined,
+): string {
+  const n = stockPiezas ?? 0;
+  const pieza = (presentacion?.trim() || "pza").toLowerCase();
+  const esEntero = Math.abs(n - Math.round(n)) < 0.05;
+  const cantidadTexto = esEntero ? String(Math.round(n)) : `~${n.toFixed(1)}`;
+  const plural = pluralizarPieza(pieza, esEntero ? Math.round(n) : n);
+  let texto = `${cantidadTexto} ${plural}`;
+  if (contenidoCantidad && contenidoCantidad > 0 && contenidoUnidad) {
+    const total = Math.round(n * contenidoCantidad);
+    texto += ` (${total} ${contenidoUnidad})`;
+  }
+  return texto;
+}
+
 /** Formatea el valor de un KPI según su tipo. */
 export function formatKpi(valor: number | null, formato: "moneda" | "porcentaje" | "numero" | "dias" | "horas"): string {
   if (valor === null || Number.isNaN(valor)) return "—";

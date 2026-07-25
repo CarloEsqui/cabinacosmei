@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/ui/toast";
 import { formatFecha, formatMoneda } from "@/lib/format";
+import { mensajeDeError } from "@/lib/errores";
 import { cn } from "@/lib/utils";
 import type { CitasFiltro } from "@shared/schemas";
 import type { Cliente, CitaRow } from "@shared/types";
@@ -46,6 +48,7 @@ interface ListaTabProps {
 
 export function ListaTab({ onCerrarCita }: ListaTabProps) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [searchParams] = useSearchParams();
   const [filtro, setFiltro] = useState<CitasFiltro>(() => ({
     fechaDesde: searchParams.get("desde") ?? undefined,
@@ -105,6 +108,7 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
   const cancelar = useMutation({
     mutationFn: (id: string) => window.api.citas.cambiarEstado(id, "cancelada"),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["citas"] }),
+    onError: (e) => toast.error(mensajeDeError(e)),
   });
 
   const ordenadas = useMemo(() => {

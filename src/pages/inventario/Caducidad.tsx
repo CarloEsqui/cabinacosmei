@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
-import { formatFecha } from "@/lib/format";
+import { formatFecha, formatearStock } from "@/lib/format";
 import type { Lote } from "@shared/types";
 
 type Orden = "fechaCaducidad" | "cantidadDisponible";
@@ -60,7 +60,10 @@ export function CaducidadTab() {
               </div>
               <div className="text-right">
                 <p className="text-warning-500">{formatFecha(l.fechaCaducidad)}</p>
-                <p className="text-xs text-ink-500">{l.cantidadDisponible} disponibles</p>
+                <p className="text-xs text-ink-500">
+                  {formatearStock(l.cantidadDisponible, l.presentacion, l.contenidoCantidad, l.contenidoUnidad)}{" "}
+                  disponibles
+                </p>
               </div>
             </div>
           ))}
@@ -92,7 +95,10 @@ export function CaducidadTab() {
               </div>
               <div className="text-right">
                 <p className="text-danger-500">{formatFecha(l.fechaCaducidad)}</p>
-                <p className="text-xs text-ink-500">{l.cantidadDisponible} disponibles — bloqueado</p>
+                <p className="text-xs text-ink-500">
+                  {formatearStock(l.cantidadDisponible, l.presentacion, l.contenidoCantidad, l.contenidoUnidad)}{" "}
+                  disponibles — bloqueado
+                </p>
               </div>
             </div>
           ))}

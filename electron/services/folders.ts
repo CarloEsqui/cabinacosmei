@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { shell } from "electron";
+import { obtenerConfig } from "./config";
 
 /** Subcarpetas que contienen datos del negocio: viven todas dentro de "Datos/", hermana (no
  * dentro) de "Respaldos/", para que un borrado de "Datos/" nunca pueda alcanzar los respaldos
@@ -103,7 +104,67 @@ export function vaciarCarpetasDeDatos(carpetaRaiz: string): void {
   asegurarEstructuraRaiz(carpetaRaiz);
 }
 
+/**
+ * Resuelve symlinks en la porción de `ruta` que ya existe en disco, aunque el último componente
+ * todavía no exista (ej. una carpeta de destino que se va a crear). Así se puede comparar contra
+ * una raíz de confianza sin que un symlink intermedio permita "escapar" de ella.
+ */
+function resolverRealParcial(ruta: string): string {
+  let actual = path.resolve(ruta);
+  let sufijo = "";
+  while (!fs.existsSync(actual)) {
+    const padre = path.dirname(actual);
+    if (padre === actual) break; // llegó a la raíz del sistema de archivos sin encontrar nada
+    sufijo = sufijo ? path.join(path.basename(actual), sufijo) : path.basename(actual);
+    actual = padre;
+  }
+  const real = fs.realpathSync(actual);
+  return sufijo ? path.join(real, sufijo) : real;
+}
+
+/**
+ * True si `ruta` cae dentro de (o es exactamente) `raiz`, resolviendo symlinks en ambos lados
+ * para que un enlace simbólico no permita salir del límite. Se usa para validar rutas que llegan
+ * del renderer (potencialmente comprometido) antes de abrirlas o escribir en ellas.
+ */
+export function rutaDentroDe(ruta: string, raiz: string): boolean {
+  if (!ruta || !raiz) return false;
+  try {
+    const raizReal = fs.realpathSync(raiz);
+    const rutaReal = resolverRealParcial(ruta);
+    const relativo = path.relative(raizReal, rutaReal);
+    return relativo === "" || (!relativo.startsWith("..") && !path.isAbsolute(relativo));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Abre una carpeta con el explorador de archivos del sistema. `rutaAbsoluta` viene del renderer
+ * (sandboxeado, pero se trata como no confiable), así que se valida que caiga dentro de la
+ * carpeta raíz del negocio o de la carpeta de respaldos actual antes de pasarla a
+ * `shell.openPath` — de lo contrario un renderer comprometido podría abrir/lanzar cualquier
+ * archivo o programa del sistema.
+ */
 export async function abrirCarpeta(rutaAbsoluta: string): Promise<void> {
+  const config = await obtenerConfig();
+  const carpetaRespaldos = path.join(config.carpetaRaiz, NOMBRE_CARPETA_RESPALDOS);
+  const permitido =
+    rutaDentroDe(rutaAbsoluta, config.carpetaRaiz) || rutaDentroDe(rutaAbsoluta, carpetaRespaldos);
+  if (!permitido) {
+    throw new Error("Esa carpeta está fuera de la carpeta del negocio y no se puede abrir.");
+  }
+
+  let destino: string;
+  try {
+    destino = fs.realpathSync(rutaAbsoluta);
+  } catch {
+    throw new Error("La carpeta no existe.");
+  }
+  if (!fs.statSync(destino).isDirectory()) {
+    throw new Error("La ruta indicada no es una carpeta.");
+  }
+
   const error = await shell.openPath(rutaAbsoluta);
   if (error) {
     throw new Error(`No se pudo abrir la carpeta: ${error}`);

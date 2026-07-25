@@ -149,11 +149,7 @@ const api: IpcApi = {
     inventarioDetalle: (filtro) => ipcRenderer.invoke("reportes:inventarioDetalle", filtro),
     hallazgos: (filtro) => ipcRenderer.invoke("reportes:hallazgos", filtro),
     establecerEstadoHallazgo: (input) => ipcRenderer.invoke("reportes:establecerEstadoHallazgo", input),
-    cobranza: (rango) => ipcRenderer.invoke("reportes:cobranza", rango),
-    inventario: (rango) => ipcRenderer.invoke("reportes:inventario", rango),
-    servicios: (rango) => ipcRenderer.invoke("reportes:servicios", rango),
-    clientes: (rango) => ipcRenderer.invoke("reportes:clientes", rango),
-    exportarCsv: (tipo, rango) => ipcRenderer.invoke("reportes:exportarCsv", tipo, rango),
+    exportarCsv: (tipo, filtro) => ipcRenderer.invoke("reportes:exportarCsv", tipo, filtro),
   },
 };
 

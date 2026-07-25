@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ChevronDown, ChevronUp, Pencil, Lock, Unlock, Trash2, Boxes } from "lucide-react";
+import { ChevronDown, ChevronUp, Pencil, Lock, Unlock, Trash2, Boxes, PackagePlus, PackageMinus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge, semaforoVariant } from "@/components/ui/badge";
@@ -15,7 +15,11 @@ import { SortableHeader } from "@/components/ui/sortable-header";
 import { useToast } from "@/components/ui/toast";
 import { mensajeDeError } from "@/lib/errores";
 import { useEliminarHibrido } from "@/hooks/use-eliminar-hibrido";
-import { formatFecha } from "@/lib/format";
+import { formatFecha, formatearStock } from "@/lib/format";
+import { EntradaForm } from "@/components/inventario/EntradaForm";
+import { SalidaForm } from "@/components/inventario/SalidaForm";
+import { BotonExportarCsv } from "@/components/BotonExportarCsv";
+import { fechaLocalIso } from "@shared/fechas";
 import type { Lote } from "@shared/types";
 import type { LoteInput } from "@shared/schemas";
 
@@ -37,6 +41,8 @@ export function ResumenTab() {
   );
   const [orden, setOrden] = useState<OrdenKey>("nombre");
   const [direccion, setDireccion] = useState<"asc" | "desc">("asc");
+  const [modalEntrada, setModalEntrada] = useState(false);
+  const [modalSalida, setModalSalida] = useState(false);
 
   // Si se llega desde un enlace (ej. la tarjeta "Stock bajo" del Dashboard, que puede traer
   // varios estados a la vez: "critico,bajo") mientras esta pestaña ya estaba montada, el filtro
@@ -122,6 +128,20 @@ export function ResumenTab() {
           placeholder="Todos los estados"
           className="max-w-[160px]"
         />
+        <div className="ml-auto flex gap-2">
+          <BotonExportarCsv
+            tipo="inventario_stock"
+            filtro={{ fechaDesde: fechaLocalIso(), fechaHasta: fechaLocalIso(), comparacion: "ninguna" }}
+            label="Exportar"
+            variant="secondary"
+          />
+          <Button onClick={() => setModalEntrada(true)}>
+            <PackagePlus size={16} /> Nueva entrada
+          </Button>
+          <Button variant="secondary" onClick={() => setModalSalida(true)}>
+            <PackageMinus size={16} /> Nueva salida
+          </Button>
+        </div>
       </div>
 
       <Card className="overflow-x-auto">
@@ -162,6 +182,13 @@ export function ResumenTab() {
           </tbody>
         </table>
       </Card>
+
+      <Modal open={modalEntrada} onClose={() => setModalEntrada(false)} title="Nueva entrada">
+        <EntradaForm onRegistrado={() => setModalEntrada(false)} />
+      </Modal>
+      <Modal open={modalSalida} onClose={() => setModalSalida(false)} title="Nueva salida">
+        <SalidaForm onRegistrado={() => setModalSalida(false)} />
+      </Modal>
     </div>
   );
 }
@@ -179,7 +206,9 @@ function ProductoFila({
     stockTotal: number;
     loteMasProximoACaducar: string | null;
     semaforo: "critico" | "bajo" | "adecuado";
-    unidadMedida: string | null;
+    presentacion: string | null;
+    contenidoCantidad: number | null;
+    contenidoUnidad: string | null;
   };
   expandido: boolean;
   onToggle: () => void;
@@ -231,7 +260,12 @@ function ProductoFila({
         <td className="px-4 py-2 text-ink-700">{producto.tipoProductoNombre || "—"}</td>
         <td className="px-4 py-2 text-ink-700">{producto.proveedorNombre || "—"}</td>
         <td className="px-4 py-2 text-ink-700">
-          {producto.stockTotal} {producto.unidadMedida || ""}
+          {formatearStock(
+            producto.stockTotal,
+            producto.presentacion,
+            producto.contenidoCantidad,
+            producto.contenidoUnidad,
+          )}
         </td>
         <td className="px-4 py-2 text-ink-700">{formatFecha(producto.loteMasProximoACaducar)}</td>
         <td className="px-4 py-2">
@@ -262,7 +296,9 @@ function ProductoFila({
                     <tr key={l.id} className="border-t border-beige-200">
                       <td className="px-2 py-1">{l.numeroLote || l.id.slice(0, 8)}</td>
                       <td className="px-2 py-1">{formatFecha(l.fechaCaducidad)}</td>
-                      <td className="px-2 py-1">{l.cantidadDisponible}</td>
+                      <td className="px-2 py-1">
+                        {formatearStock(l.cantidadDisponible, l.presentacion, l.contenidoCantidad, l.contenidoUnidad)}
+                      </td>
                       <td className="px-2 py-1 capitalize">{l.estado}</td>
                       <td className="px-2 py-1 text-right">
                         <div className="flex justify-end gap-1">
