@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Plus, Pencil, FolderOpen, IdCard, Trash2, Power, PowerOff, Users } from "lucide-react";
+import { Plus, Pencil, FolderOpen, IdCard, Trash2, Power, PowerOff, Users, UserCheck, Wallet, SearchX } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -11,11 +11,14 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { SortableHeader } from "@/components/ui/sortable-header";
+import { StatChip } from "@/components/ui/stat-chip";
+import { IlustracionDocumento } from "@/components/ui/ilustraciones";
 import { useToast } from "@/components/ui/toast";
 import { formatFecha } from "@/lib/format";
 import { mensajeDeError } from "@/lib/errores";
 import { useEliminarHibrido } from "@/hooks/use-eliminar-hibrido";
 import { ClienteFormModal } from "@/components/catalogos/ClienteFormModal";
+import { ManchaOrganica, PetalosAlVuelo } from "@/components/ui/decoracion";
 import type { Cliente } from "@shared/types";
 
 type OrdenKey = "nombreCompleto" | "fechaAlta";
@@ -138,8 +141,30 @@ export function ClientesPage() {
     return lista;
   }, [clientes, busqueda, filtrosEstatus, orden, direccion]);
 
+  // Franja de stats (§4): se calculan del array ya cargado por el useQuery de arriba, cero
+  // queries nuevas.
+  const totalClientas = clientes.length;
+  const activas = clientes.filter((c) => c.activo).length;
+  const conPagoPendiente = clientes.filter((c) => c.alertas.includes("Pago pendiente")).length;
+
+  const hayFiltrosActivos = busqueda.trim().length > 0 || filtrosEstatus.length > 0;
+
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
+    <div className="relative isolate flex h-full flex-col overflow-y-auto">
+      {/* Decoración de sección (§10): lavado suave en la esquina inferior derecha + pétalos
+          derivando por la inferior izquierda. `-z-10` + `isolate` las manda al fondo del
+          apilamiento: las cards opacas las recortan solas y jamás pisan la tabla. */}
+      <ManchaOrganica
+        className="pointer-events-none absolute bottom-0 right-0 -z-10 hidden select-none lg:block"
+        variante={2}
+        width={320}
+        opacity={0.34}
+      />
+      <PetalosAlVuelo
+        className="pointer-events-none absolute bottom-6 left-6 -z-10 hidden select-none xl:block"
+        width={220}
+        opacity={0.45}
+      />
       <PageHeader
         title="Clientes"
         subtitle="Expediente, historial y carpetas automáticas"
@@ -151,6 +176,17 @@ export function ClientesPage() {
       />
 
       <div className="p-8">
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <StatChip icon={Users} valor={totalClientas} label="Total clientas" />
+          <StatChip icon={UserCheck} valor={activas} label="Activas" />
+          <StatChip
+            icon={Wallet}
+            valor={conPagoPendiente}
+            label="Con pago pendiente"
+            tono={conPagoPendiente > 0 ? "warning" : "neutral"}
+          />
+        </div>
+
         <div className="mb-4 flex flex-wrap gap-3">
           <Input
             placeholder="Buscar por nombre, código o teléfono..."
@@ -171,42 +207,44 @@ export function ClientesPage() {
         </div>
 
         <Card className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
+          <table className="tabla-bellora">
+            <thead>
               <tr>
-                <th className="px-4 py-2">Código</th>
+                <th>Código</th>
                 <SortableHeader
                   label="Nombre"
                   sortKey="nombreCompleto"
                   activo={orden}
                   direccion={direccion}
                   onSort={alternarOrden}
+                  className="px-4 py-2.5"
                 />
-                <th className="px-4 py-2">Teléfono</th>
+                <th>Teléfono</th>
                 <SortableHeader
                   label="Fecha de alta"
                   sortKey="fechaAlta"
                   activo={orden}
                   direccion={direccion}
                   onSort={alternarOrden}
+                  className="px-4 py-2.5"
                 />
-                <th className="px-4 py-2">Estatus</th>
-                <th className="px-4 py-2"></th>
+                <th>Estatus</th>
+                <th></th>
               </tr>
             </thead>
             <tbody key={`${filtrosEstatus.join()}|${orden}|${direccion}`} className="aparecer-suave">
               {filtrados.map((c) => (
-                <tr key={c.id} className="border-t border-beige-200">
-                  <td className="px-4 py-2 text-ink-500">{c.codigoCliente}</td>
+                <tr key={c.id}>
+                  <td className="text-ink-500">{c.codigoCliente}</td>
                   <td
-                    className="cursor-pointer px-4 py-2 font-medium text-ink-900 hover:text-jacaranda-700"
+                    className="cursor-pointer font-medium text-ink-900 hover:text-jacaranda-700"
                     onClick={() => setExpedienteId(c.id)}
                   >
                     {c.nombreCompleto}
                   </td>
-                  <td className="px-4 py-2 text-ink-700">{c.telefono || "—"}</td>
-                  <td className="px-4 py-2 text-ink-700">{formatFecha(c.fechaAlta)}</td>
-                  <td className="px-4 py-2">
+                  <td>{c.telefono || "—"}</td>
+                  <td>{formatFecha(c.fechaAlta)}</td>
+                  <td>
                     <div className="flex flex-wrap gap-1">
                       <Badge variant={c.activo ? "success" : "neutral"}>
                         {c.activo ? "Activo" : "Inactivo"}
@@ -216,24 +254,43 @@ export function ClientesPage() {
                       ))}
                     </div>
                   </td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="text-right">
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => setExpedienteId(c.id)} title="Expediente">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-ink-400"
+                        onClick={() => setExpedienteId(c.id)}
+                        title="Expediente"
+                      >
                         <IdCard size={14} />
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => abrirEditar(c)} title="Editar">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-ink-400"
+                        onClick={() => abrirEditar(c)}
+                        title="Editar"
+                      >
                         <Pencil size={14} />
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
+                        className="text-ink-400"
                         onClick={() => alternarActivo(c)}
                         title={c.activo ? "Desactivar" : "Activar"}
                       >
                         {c.activo ? <PowerOff size={14} /> : <Power size={14} />}
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => eliminar(c)} title="Eliminar">
-                        <Trash2 size={14} className="text-danger-500" />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-ink-400 hover:text-danger-500"
+                        onClick={() => eliminar(c)}
+                        title="Eliminar"
+                      >
+                        <Trash2 size={14} />
                       </Button>
                     </div>
                   </td>
@@ -242,16 +299,29 @@ export function ClientesPage() {
               {filtrados.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-4 py-6">
-                    <EmptyState
-                      icon={Users}
-                      mensaje={clientes.length === 0 ? "Aún no hay clientas registradas." : "Ninguna clienta coincide con los filtros."}
-                      submensaje={clientes.length === 0 ? "Registra tu primera clienta con el botón de arriba." : undefined}
-                    />
+                    {hayFiltrosActivos ? (
+                      <EmptyState
+                        icon={SearchX}
+                        mensaje="Ninguna clienta coincide con los filtros."
+                        submensaje="Ajusta la búsqueda o el estatus para ver más resultados."
+                      />
+                    ) : (
+                      <EmptyState
+                        ilustracion={IlustracionDocumento}
+                        mensaje="Aún no hay clientas registradas."
+                        submensaje="Registra tu primera clienta con el botón de arriba."
+                      />
+                    )}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+          {clientes.length > 0 && (
+            <div className="border-t border-beige-200 px-4 py-2.5 text-xs text-ink-500">
+              Mostrando {filtrados.length} de {clientes.length} {clientes.length === 1 ? "clienta" : "clientas"}
+            </div>
+          )}
         </Card>
       </div>
 

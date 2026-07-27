@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ShieldAlert } from "lucide-react";
+import { ShieldAlert, CalendarRange } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { IlustracionDocumento } from "@/components/ui/ilustraciones";
 import { formatFechaHoraMs } from "@/lib/format";
 import type { BitacoraFiltro } from "@shared/schemas";
 
@@ -21,46 +22,50 @@ export function BitacoraTab() {
     queryFn: () => window.api.bitacora.listar(filtro),
   });
 
+  const hayFiltroFecha = !!(filtro.fechaDesde || filtro.fechaHasta);
+
   return (
     <div className="p-8">
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-ink-500">Desde</label>
-          <Input
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex h-10 items-center gap-2 rounded-xl border border-beige-300 bg-beige-50 px-3">
+          <CalendarRange size={14} className="shrink-0 text-ink-400" />
+          <input
             type="date"
+            aria-label="Desde"
+            className="h-full border-0 bg-transparent p-0 text-sm text-ink-900 focus:outline-none focus:ring-0"
             value={filtro.fechaDesde ?? ""}
             onChange={(e) => setFiltro({ ...filtro, fechaDesde: e.target.value || undefined })}
           />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-ink-500">Hasta</label>
-          <Input
+          <span className="text-ink-400">–</span>
+          <input
             type="date"
+            aria-label="Hasta"
+            className="h-full border-0 bg-transparent p-0 text-sm text-ink-900 focus:outline-none focus:ring-0"
             value={filtro.fechaHasta ?? ""}
             onChange={(e) => setFiltro({ ...filtro, fechaHasta: e.target.value || undefined })}
           />
         </div>
-        <p className="text-xs text-ink-500">
+        <p className="text-xs text-ink-400">
           Registro de quién hizo qué y cuándo: citas, clientas, productos, inventario, cortes y respaldos.
         </p>
       </div>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
+        <table className="tabla-bellora">
+          <thead>
             <tr>
-              <th className="px-4 py-2">Fecha</th>
-              <th className="px-4 py-2">Usuario</th>
-              <th className="px-4 py-2">Acción</th>
-              <th className="px-4 py-2">Detalle</th>
+              <th>Fecha</th>
+              <th>Usuario</th>
+              <th>Acción</th>
+              <th>Detalle</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody key={`${filtro.fechaDesde ?? ""}|${filtro.fechaHasta ?? ""}`} className="aparecer-suave">
             {eventos.map((e) => (
-              <tr key={e.id} className="border-t border-beige-200">
-                <td className="whitespace-nowrap px-4 py-2 text-ink-700">{formatFechaHoraMs(e.createdAt)}</td>
-                <td className="px-4 py-2 text-ink-700">{e.usuarioNombre ?? "—"}</td>
-                <td className="px-4 py-2">
+              <tr key={e.id}>
+                <td className="whitespace-nowrap">{formatFechaHoraMs(e.createdAt)}</td>
+                <td>{e.usuarioNombre ?? "—"}</td>
+                <td>
                   {ACCIONES_SENSIBLES.has(e.accion) ? (
                     <Badge variant="warning" className="gap-1">
                       <ShieldAlert size={12} /> {etiquetaAccion(e.accion)}
@@ -69,18 +74,27 @@ export function BitacoraTab() {
                     <Badge variant="neutral">{etiquetaAccion(e.accion)}</Badge>
                   )}
                 </td>
-                <td className="px-4 py-2 text-ink-700">{e.detalle ?? "—"}</td>
+                <td>{e.detalle ?? "—"}</td>
               </tr>
             ))}
             {eventos.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-ink-500">
-                  Aún no hay eventos registrados.
+                <td colSpan={4} className="px-4 py-8">
+                  <EmptyState
+                    ilustracion={IlustracionDocumento}
+                    mensaje={hayFiltroFecha ? "Ningún evento en este rango de fechas." : "Aún no hay eventos registrados."}
+                    submensaje={hayFiltroFecha ? undefined : "Aquí aparecerán las acciones importantes que hagas en la app."}
+                  />
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        {eventos.length > 0 && (
+          <div className="border-t border-beige-200 px-4 py-2.5 text-xs text-ink-500">
+            Mostrando {eventos.length} {eventos.length === 1 ? "evento" : "eventos"}
+          </div>
+        )}
       </Card>
     </div>
   );

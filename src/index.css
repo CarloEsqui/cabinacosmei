@@ -21,15 +21,22 @@
   --color-ink-900: #241f1b;
   --color-ink-700: #3d352d;
   --color-ink-500: #6b6055;
+  /* ink-400: usado por convención (§2/§6 de docs/DISENO_BELLORA.md) para íconos de fila en reposo
+     — más sutil que ink-500, sin llegar al bajo contraste de ink-300. Faltaba en la escala y las
+     ~77 clases `text-ink-400` ya existentes en el código quedaban sin regla real (heredaban el
+     color del ancestro). Se añade aquí, interpolado entre ink-300 e ink-500, sin tocar ningún tono
+     existente. */
+  --color-ink-400: #83786b;
   --color-ink-300: #9a8f81;
 
   --color-success-500: #6f9767;
   --color-warning-500: #c98a3a;
   --color-danger-500: #b8543f;
 
-  /* Combinación tipográfica de marca: Cormorant Garamond para títulos/elementos de marca,
-     Manrope para toda la interfaz funcional (textos, formularios, tablas, botones). */
-  --font-display: "Cormorant Garamond", Georgia, serif;
+  /* Combinación tipográfica de marca: Playfair Display para títulos/elementos de marca
+     (serif editorial de alto contraste, con bold de verdad), Manrope para toda la interfaz
+     funcional (textos, formularios, tablas, botones). */
+  --font-display: "Playfair Display Variable", Georgia, serif;
   --font-ui: "Manrope", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -56,8 +63,10 @@
     font-family: var(--font-display);
     font-size: 34px;
     line-height: 1.1;
-    font-weight: 600;
-    letter-spacing: -0.02em;
+    /* Playfair sí tiene bold de verdad: 700 da la presencia de titular que a Cormorant le faltaba. */
+    font-weight: 700;
+    /* Abierto en dos pasos a petición (original -0.02em): Playfair respira mejor con aire. */
+    letter-spacing: 0.01em;
   }
 
   h2,
@@ -66,7 +75,7 @@
     font-size: 24px;
     line-height: 1.2;
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: 0;
   }
 
   h3,
@@ -129,6 +138,36 @@
   }
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-jacaranda-200;
+  }
+}
+
+/* -----------------------------------------------------------------------
+   Tabla Bellora — estándar único de tablas §2, como utilidades de capa para
+   que cualquier sección lo aplique sin repetir clases. Opt-in: se activa con
+   `.tabla-bellora` en el <table>. No altera tablas que no la usen.
+   ----------------------------------------------------------------------- */
+@layer components {
+  .tabla-bellora {
+    @apply w-full text-sm;
+  }
+  .tabla-bellora thead {
+    @apply bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500;
+  }
+  .tabla-bellora th {
+    @apply px-4 py-2.5;
+  }
+  .tabla-bellora tbody tr {
+    @apply border-t border-beige-200 transition-colors;
+  }
+  .tabla-bellora tbody tr:hover {
+    @apply bg-beige-100/60;
+  }
+  .tabla-bellora td {
+    @apply px-4 py-3 align-middle text-ink-700;
+  }
+  /* Columna numérica/dinero: alineada a la derecha con cifras tabulares. */
+  .tabla-bellora .num {
+    @apply text-right tabular-nums;
   }
 }
 

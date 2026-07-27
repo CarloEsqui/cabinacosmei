@@ -140,7 +140,7 @@ export function ClienteFormModal({
             Al guardar se creará automáticamente la carpeta local de esta clienta.
           </p>
         )}
-        <Button type="submit" disabled={guardar.isPending} className="mt-2">
+        <Button type="submit" disabled={guardar.isPending} className="mt-2 w-full">
           Guardar
         </Button>
       </form>

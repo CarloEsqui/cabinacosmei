@@ -4,6 +4,7 @@ import { AlertTriangle, Lock as LockIcon, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
+import { ManchaOrganica, PetalosAlVuelo, RamitaEnFlor } from "@/components/ui/decoracion";
 
 interface LockScreenProps {
   onUnlock: () => void;
@@ -105,7 +106,33 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
   }
 
   return (
-    <div className="flex h-full items-center justify-center bg-beige-100">
+    <div className="relative isolate flex h-full items-center justify-center overflow-hidden bg-beige-100">
+      {/* Primera impresión de la app (§10): dos manchas de lavado en esquinas opuestas + una
+          ramita en flor abajo a la izquierda. Todo anclado a esquinas y sangrando fuera del
+          viewport, así que ningún tamaño de ventana lo descompone. */}
+      <ManchaOrganica
+        className="pointer-events-none absolute -left-40 -top-44 select-none"
+        variante={1}
+        width={540}
+        opacity={0.55}
+        color="var(--color-jacaranda-50)"
+      />
+      <ManchaOrganica
+        className="pointer-events-none absolute -bottom-32 -right-24 select-none"
+        variante={2}
+        width={460}
+        opacity={0.45}
+      />
+      <RamitaEnFlor
+        className="pointer-events-none absolute bottom-8 left-10 hidden select-none md:block"
+        width={230}
+        opacity={0.45}
+      />
+      <PetalosAlVuelo
+        className="pointer-events-none absolute right-12 top-10 hidden select-none md:block"
+        width={210}
+        opacity={0.4}
+      />
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}

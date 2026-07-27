@@ -75,7 +75,7 @@ export function NuevoProveedorModal({
         <p className="text-xs text-ink-400">
           Puedes completar el resto de los datos luego en Configuración &gt; Proveedores.
         </p>
-        <Button type="submit" disabled={guardar.isPending} className="mt-2">
+        <Button type="submit" disabled={guardar.isPending} className="mt-2 w-full">
           Guardar proveedor
         </Button>
       </form>

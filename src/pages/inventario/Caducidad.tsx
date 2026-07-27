@@ -1,8 +1,11 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Clock, CalendarX } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
+import { EmptyState } from "@/components/ui/empty-state";
+import { IlustracionPaquete } from "@/components/ui/ilustraciones";
 import { formatFecha, formatearStock } from "@/lib/format";
 import type { Lote } from "@shared/types";
 
@@ -37,7 +40,7 @@ export function CaducidadTab() {
     <div className="grid grid-cols-1 gap-4 p-8 lg:grid-cols-2">
       <Card>
         <CardHeader>
-          <CardTitle>Próximos a caducar</CardTitle>
+          <CardTitle icon={Clock}>Próximos a caducar</CardTitle>
           <div className="flex items-center gap-2">
             <Select
               value={ordenProximos}
@@ -51,15 +54,24 @@ export function CaducidadTab() {
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
-          {proximosOrdenados.length === 0 && <p className="text-sm text-ink-500">Nada próximo a caducar.</p>}
+          {proximosOrdenados.length === 0 && (
+            <EmptyState
+              ilustracion={IlustracionPaquete}
+              mensaje="Nada por caducar."
+              submensaje="Ningún lote entra todavía en la ventana de alerta. Buen manejo de inventario."
+            />
+          )}
           {proximosOrdenados.map((l) => (
-            <div key={l.id} className="flex items-center justify-between rounded-xl bg-beige-100 px-3 py-2 text-sm">
+            <div
+              key={l.id}
+              className="flex items-center justify-between rounded-xl border border-beige-200/70 bg-beige-100 px-3 py-2 text-sm transition-colors hover:bg-beige-200/60"
+            >
               <div>
                 <p className="font-medium text-ink-900">{l.productoNombre}</p>
                 <p className="text-xs text-ink-500">Lote {l.numeroLote || l.id.slice(0, 8)}</p>
               </div>
               <div className="text-right">
-                <p className="text-warning-500">{formatFecha(l.fechaCaducidad)}</p>
+                <p className="tabular-nums text-warning-500">{formatFecha(l.fechaCaducidad)}</p>
                 <p className="text-xs text-ink-500">
                   {formatearStock(l.cantidadDisponible, l.presentacion, l.contenidoCantidad, l.contenidoUnidad)}{" "}
                   disponibles
@@ -72,7 +84,7 @@ export function CaducidadTab() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Caducados</CardTitle>
+          <CardTitle icon={CalendarX}>Caducados</CardTitle>
           <div className="flex items-center gap-2">
             <Select
               value={ordenCaducados}
@@ -86,15 +98,24 @@ export function CaducidadTab() {
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
-          {caducadosOrdenados.length === 0 && <p className="text-sm text-ink-500">No hay lotes caducados.</p>}
+          {caducadosOrdenados.length === 0 && (
+            <EmptyState
+              ilustracion={IlustracionPaquete}
+              mensaje="No hay lotes caducados."
+              submensaje="Tu inventario está al día."
+            />
+          )}
           {caducadosOrdenados.map((l) => (
-            <div key={l.id} className="flex items-center justify-between rounded-xl bg-beige-100 px-3 py-2 text-sm">
+            <div
+              key={l.id}
+              className="flex items-center justify-between rounded-xl border border-beige-200/70 bg-beige-100 px-3 py-2 text-sm transition-colors hover:bg-beige-200/60"
+            >
               <div>
                 <p className="font-medium text-ink-900">{l.productoNombre}</p>
                 <p className="text-xs text-ink-500">Lote {l.numeroLote || l.id.slice(0, 8)}</p>
               </div>
               <div className="text-right">
-                <p className="text-danger-500">{formatFecha(l.fechaCaducidad)}</p>
+                <p className="tabular-nums text-danger-500">{formatFecha(l.fechaCaducidad)}</p>
                 <p className="text-xs text-ink-500">
                   {formatearStock(l.cantidadDisponible, l.presentacion, l.contenidoCantidad, l.contenidoUnidad)}{" "}
                   disponibles — bloqueado

@@ -5,6 +5,8 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { IlustracionDocumento } from "@/components/ui/ilustraciones";
 import { useToast } from "@/components/ui/toast";
 import { mensajeDeError } from "@/lib/errores";
 import { formatFechaHoraMs } from "@/lib/format";
@@ -71,9 +73,7 @@ export function RespaldosTab() {
     <div className="flex flex-col gap-4 p-8">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <DatabaseBackup size={18} className="text-jacaranda-500" /> Respaldos completos
-          </CardTitle>
+          <CardTitle icon={DatabaseBackup}>Respaldos completos</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-sm text-ink-500">
@@ -136,40 +136,41 @@ export function RespaldosTab() {
       </Card>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
+        <table className="tabla-bellora">
+          <thead>
             <tr>
-              <th className="px-4 py-2">Fecha</th>
-              <th className="px-4 py-2">Archivo</th>
-              <th className="px-4 py-2">Tamaño</th>
-              <th className="px-4 py-2">Tipo</th>
-              <th className="px-4 py-2"></th>
+              <th>Fecha</th>
+              <th>Archivo</th>
+              <th className="num">Tamaño</th>
+              <th>Tipo</th>
+              <th></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="aparecer-suave">
             {respaldos.map((r) => (
-              <tr key={r.id} className="border-t border-beige-200">
-                <td className="whitespace-nowrap px-4 py-2 text-ink-700">{formatFechaHoraMs(r.createdAt)}</td>
-                <td className="px-4 py-2 text-ink-700">{r.nombreArchivo}</td>
-                <td className="px-4 py-2 text-ink-700">{formatearTamanio(r.tamanioBytes)}</td>
-                <td className="px-4 py-2">
+              <tr key={r.id}>
+                <td className="whitespace-nowrap">{formatFechaHoraMs(r.createdAt)}</td>
+                <td>{r.nombreArchivo}</td>
+                <td className="num">{formatearTamanio(r.tamanioBytes)}</td>
+                <td>
                   <Badge variant={r.esAutomatico ? "warning" : "neutral"}>
                     {r.esAutomatico ? "Automático" : "Manual"}
                   </Badge>
                 </td>
-                <td className="px-4 py-2 text-right">
+                <td className="text-right">
                   <div className="flex justify-end gap-1">
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="group"
                       disabled={exportar.isPending}
                       onClick={() => exportar.mutate(r.id)}
                       title="Exportar copia"
                     >
-                      <Download size={14} />
+                      <Download size={14} className="text-ink-400 transition-colors group-hover:text-ink-900" />
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setRestaurando(r.id)} title="Restaurar">
-                      <RotateCcw size={14} />
+                    <Button variant="ghost" size="sm" className="group" onClick={() => setRestaurando(r.id)} title="Restaurar">
+                      <RotateCcw size={14} className="text-ink-400 transition-colors group-hover:text-warning-500" />
                     </Button>
                   </div>
                 </td>
@@ -177,13 +178,22 @@ export function RespaldosTab() {
             ))}
             {respaldos.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-ink-500">
-                  Aún no se ha creado ningún respaldo.
+                <td colSpan={5} className="px-4 py-8">
+                  <EmptyState
+                    ilustracion={IlustracionDocumento}
+                    mensaje="Aún no se ha creado ningún respaldo."
+                    submensaje="La app crea uno automáticamente todos los días mientras esté abierta."
+                  />
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        {respaldos.length > 0 && (
+          <div className="border-t border-beige-200 px-4 py-2.5 text-xs text-ink-500">
+            Mostrando {respaldos.length} {respaldos.length === 1 ? "respaldo" : "respaldos"}
+          </div>
+        )}
       </Card>
 
       {restaurando && (
@@ -263,9 +273,9 @@ function ZonaDePeligro() {
   return (
     <Card className="border-danger-500/40">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-danger-500">
-          <AlertTriangle size={18} /> Zona de peligro
-        </CardTitle>
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-danger-500">
+          <AlertTriangle size={16} className="shrink-0" /> Zona de peligro
+        </h3>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <p className="text-sm text-ink-500">

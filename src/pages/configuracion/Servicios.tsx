@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, Power, PowerOff, Sparkles } from "lucide-react";
+import { Plus, Pencil, Trash2, Power, PowerOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { IlustracionDocumento } from "@/components/ui/ilustraciones";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -132,44 +133,49 @@ export function ServiciosTab() {
       </div>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
+        <table className="tabla-bellora">
+          <thead>
             <tr>
-              <th className="px-4 py-2">Nombre</th>
-              <th className="px-4 py-2">Categoría</th>
-              <th className="px-4 py-2">Precio sugerido</th>
-              <th className="px-4 py-2">Mantenimiento</th>
-              <th className="px-4 py-2">Estatus</th>
-              <th className="px-4 py-2"></th>
+              <th>Nombre</th>
+              <th>Categoría</th>
+              <th className="num">Precio sugerido</th>
+              <th>Mantenimiento</th>
+              <th>Estatus</th>
+              <th></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="aparecer-suave">
             {servicios.map((s) => (
-              <tr key={s.id} className="border-t border-beige-200">
-                <td className="px-4 py-2 font-medium text-ink-900">{s.nombre}</td>
-                <td className="px-4 py-2 text-ink-700">{s.categoriaServicio || "—"}</td>
-                <td className="px-4 py-2 tabular-nums text-ink-700">{formatMoneda(s.precioSugerido)}</td>
-                <td className="px-4 py-2 text-ink-700">
+              <tr key={s.id}>
+                <td className="font-medium text-ink-900">{s.nombre}</td>
+                <td>{s.categoriaServicio || "—"}</td>
+                <td className="num">{formatMoneda(s.precioSugerido)}</td>
+                <td>
                   {s.periodicidadMantenimientoDias ? `cada ${s.periodicidadMantenimientoDias} días` : "—"}
                 </td>
-                <td className="px-4 py-2">
+                <td>
                   <Badge variant={s.activo ? "success" : "neutral"}>{s.activo ? "Activo" : "Inactivo"}</Badge>
                 </td>
-                <td className="px-4 py-2 text-right">
+                <td className="text-right">
                   <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => abrirEditar(s)} title="Editar">
-                      <Pencil size={14} />
+                    <Button variant="ghost" size="sm" className="group" onClick={() => abrirEditar(s)} title="Editar">
+                      <Pencil size={14} className="text-ink-400 transition-colors group-hover:text-ink-900" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="group"
                       onClick={() => alternarActivo(s)}
                       title={s.activo ? "Desactivar" : "Activar"}
                     >
-                      {s.activo ? <PowerOff size={14} /> : <Power size={14} />}
+                      {s.activo ? (
+                        <PowerOff size={14} className="text-ink-400 transition-colors group-hover:text-warning-500" />
+                      ) : (
+                        <Power size={14} className="text-ink-400 transition-colors group-hover:text-success-500" />
+                      )}
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => eliminar(s)} title="Eliminar">
-                      <Trash2 size={14} className="text-danger-500" />
+                    <Button variant="ghost" size="sm" className="group" onClick={() => eliminar(s)} title="Eliminar">
+                      <Trash2 size={14} className="text-ink-400 transition-colors group-hover:text-danger-500" />
                     </Button>
                   </div>
                 </td>
@@ -177,13 +183,22 @@ export function ServiciosTab() {
             ))}
             {servicios.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6">
-                  <EmptyState icon={Sparkles} mensaje="Aún no hay servicios en el catálogo." submensaje="Agrega tu primer servicio con el botón de arriba." />
+                <td colSpan={6} className="px-4 py-8">
+                  <EmptyState
+                    ilustracion={IlustracionDocumento}
+                    mensaje="Aún no hay servicios en el catálogo."
+                    submensaje="Agrega tu primer servicio con el botón de arriba."
+                  />
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        {servicios.length > 0 && (
+          <div className="border-t border-beige-200 px-4 py-2.5 text-xs text-ink-500">
+            Mostrando {servicios.length} {servicios.length === 1 ? "servicio" : "servicios"}
+          </div>
+        )}
       </Card>
 
       <Modal
@@ -352,7 +367,7 @@ function RecetaEditor({
   return (
     <div className="mt-5 border-t border-beige-300 pt-4">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-jacaranda-700">Plantilla de insumos (por defecto)</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-500">Plantilla de insumos (por defecto)</h3>
         <Button type="button" variant="ghost" size="sm" onClick={agregar}>
           <Plus size={14} /> Agregar
         </Button>
@@ -390,8 +405,8 @@ function RecetaEditor({
                 onValueChange={(v) => actualizar(i, { cantidadSugerida: v ?? 1 })}
               />
               <span className="w-12 text-xs text-ink-500">{unidad}</span>
-              <Button type="button" variant="ghost" size="sm" onClick={() => quitar(i)}>
-                <Trash2 size={14} />
+              <Button type="button" variant="ghost" size="sm" className="group" onClick={() => quitar(i)} title="Quitar">
+                <Trash2 size={14} className="text-ink-400 transition-colors group-hover:text-danger-500" />
               </Button>
             </div>
           );

@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, Power, PowerOff, Truck } from "lucide-react";
+import { Plus, Pencil, Trash2, Power, PowerOff, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { IlustracionDocumento } from "@/components/ui/ilustraciones";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -142,14 +143,7 @@ export function ProveedoresTab() {
 
   return (
     <div className="p-8">
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-ink-500">{proveedores.length} proveedores registrados</p>
-        <Button size="sm" onClick={abrirNuevo}>
-          <Plus size={16} /> Nuevo proveedor
-        </Button>
-      </div>
-
-      <div className="mb-4 flex flex-wrap gap-3">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <Input
           placeholder="Buscar proveedor o contacto..."
           value={busqueda}
@@ -166,11 +160,14 @@ export function ProveedoresTab() {
           placeholder="Todos los estatus"
           className="max-w-[160px]"
         />
+        <Button size="sm" className="ml-auto" onClick={abrirNuevo}>
+          <Plus size={16} /> Nuevo proveedor
+        </Button>
       </div>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
+        <table className="tabla-bellora">
+          <thead>
             <tr>
               <SortableHeader
                 label="Nombre comercial"
@@ -179,40 +176,45 @@ export function ProveedoresTab() {
                 direccion={direccion}
                 onSort={alternarOrden}
               />
-              <th className="px-4 py-2">Contacto</th>
-              <th className="px-4 py-2">Teléfono</th>
-              <th className="px-4 py-2">Categoría</th>
-              <th className="px-4 py-2">Estatus</th>
-              <th className="px-4 py-2"></th>
+              <th>Contacto</th>
+              <th>Teléfono</th>
+              <th>Categoría</th>
+              <th>Estatus</th>
+              <th></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody key={`${filtrosEstatus.join()}|${orden}|${direccion}`} className="aparecer-suave">
             {filtrados.map((p) => (
-              <tr key={p.id} className="border-t border-beige-200">
-                <td className="px-4 py-2 font-medium text-ink-900">{p.nombreComercial}</td>
-                <td className="px-4 py-2 text-ink-700">{p.contacto || "—"}</td>
-                <td className="px-4 py-2 text-ink-700">{p.telefono || "—"}</td>
-                <td className="px-4 py-2 text-ink-700">{p.categoria || "—"}</td>
-                <td className="px-4 py-2">
+              <tr key={p.id}>
+                <td className="font-medium text-ink-900">{p.nombreComercial}</td>
+                <td>{p.contacto || "—"}</td>
+                <td>{p.telefono || "—"}</td>
+                <td>{p.categoria || "—"}</td>
+                <td>
                   <Badge variant={p.activo ? "success" : "neutral"}>
                     {p.activo ? "Activo" : "Inactivo"}
                   </Badge>
                 </td>
-                <td className="px-4 py-2 text-right">
+                <td className="text-right">
                   <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => abrirEditar(p)} title="Editar">
-                      <Pencil size={14} />
+                    <Button variant="ghost" size="sm" className="group" onClick={() => abrirEditar(p)} title="Editar">
+                      <Pencil size={14} className="text-ink-400 transition-colors group-hover:text-ink-900" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="group"
                       onClick={() => alternarActivo(p)}
                       title={p.activo ? "Desactivar" : "Activar"}
                     >
-                      {p.activo ? <PowerOff size={14} /> : <Power size={14} />}
+                      {p.activo ? (
+                        <PowerOff size={14} className="text-ink-400 transition-colors group-hover:text-warning-500" />
+                      ) : (
+                        <Power size={14} className="text-ink-400 transition-colors group-hover:text-success-500" />
+                      )}
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => eliminar(p)} title="Eliminar">
-                      <Trash2 size={14} className="text-danger-500" />
+                    <Button variant="ghost" size="sm" className="group" onClick={() => eliminar(p)} title="Eliminar">
+                      <Trash2 size={14} className="text-ink-400 transition-colors group-hover:text-danger-500" />
                     </Button>
                   </div>
                 </td>
@@ -220,17 +222,26 @@ export function ProveedoresTab() {
             ))}
             {filtrados.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6">
-                  <EmptyState
-                    icon={Truck}
-                    mensaje={proveedores.length === 0 ? "Aún no hay proveedores registrados." : "Ningún proveedor coincide con los filtros."}
-                    submensaje={proveedores.length === 0 ? "Agrega tu primer proveedor con el botón de arriba." : undefined}
-                  />
+                <td colSpan={6} className="px-4 py-8">
+                  {proveedores.length === 0 ? (
+                    <EmptyState
+                      ilustracion={IlustracionDocumento}
+                      mensaje="Aún no hay proveedores registrados."
+                      submensaje="Agrega tu primer proveedor con el botón de arriba."
+                    />
+                  ) : (
+                    <EmptyState icon={Search} mensaje="Ningún proveedor coincide con los filtros." />
+                  )}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        {filtrados.length > 0 && (
+          <div className="border-t border-beige-200 px-4 py-2.5 text-xs text-ink-500">
+            Mostrando {filtrados.length} de {proveedores.length} proveedores
+          </div>
+        )}
       </Card>
 
       <Modal

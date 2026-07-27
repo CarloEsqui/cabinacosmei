@@ -9,6 +9,7 @@ import { ListaTab } from "@/pages/agenda/Lista";
 import { MantenimientosTab } from "@/pages/agenda/Mantenimientos";
 import { NuevaCitaModal } from "@/pages/agenda/NuevaCitaModal";
 import { CierreCitaModal } from "@/pages/agenda/CierreCitaModal";
+import { RamitaEnFlor } from "@/components/ui/decoracion";
 
 export function CitasPage() {
   // Mismo query (y queryKey) que usa la pestaña de Mantenimientos: el globito y la lista se
@@ -40,7 +41,14 @@ export function CitasPage() {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
+    <div className="relative isolate flex h-full flex-col overflow-y-auto">
+      {/* Decoración de sección (§10): ramita en flor discreta al pie. Va en la página y no en cada
+          pestaña, para que no se duplique al cambiar de tab. */}
+      <RamitaEnFlor
+        className="pointer-events-none absolute bottom-2 left-8 -z-10 hidden select-none lg:block"
+        width={200}
+        opacity={0.42}
+      />
       <PageHeader
         title="Citas"
         subtitle="Gestión completa: crear, reagendar, cancelar y cerrar"

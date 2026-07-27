@@ -87,7 +87,7 @@ export function NuevaCategoriaModal({
           />
           Se vende al cliente
         </label>
-        <Button type="submit" disabled={guardar.isPending} className="mt-2">
+        <Button type="submit" disabled={guardar.isPending} className="mt-2 w-full">
           Guardar categoría
         </Button>
       </form>

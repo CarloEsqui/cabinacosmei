@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, Power, PowerOff, Tag } from "lucide-react";
+import { Plus, Pencil, Trash2, Power, PowerOff, Check, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { IlustracionDocumento } from "@/components/ui/ilustraciones";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -130,14 +131,7 @@ export function CatalogosTab() {
 
   return (
     <div className="p-8">
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-ink-500">Categorías de producto (sueros, cremas, equipos...)</p>
-        <Button size="sm" onClick={abrirNuevo}>
-          <Plus size={16} /> Nueva categoría
-        </Button>
-      </div>
-
-      <div className="mb-4 flex flex-wrap gap-3">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <Input
           placeholder="Buscar categoría..."
           value={busqueda}
@@ -161,18 +155,21 @@ export function CatalogosTab() {
           placeholder="Todas las características"
           className="max-w-[220px]"
         />
+        <Button size="sm" className="ml-auto" onClick={abrirNuevo}>
+          <Plus size={16} /> Nueva categoría
+        </Button>
       </div>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
+        <table className="tabla-bellora">
+          <thead>
             <tr>
               <SortableHeader label="Nombre" sortKey="nombre" activo={orden} direccion={direccion} onSort={alternarOrden} />
-              <th className="px-4 py-2">Caducidad</th>
-              <th className="px-4 py-2">Consume en servicio</th>
-              <th className="px-4 py-2">Se vende</th>
-              <th className="px-4 py-2">Estatus</th>
-              <th className="px-4 py-2"></th>
+              <th className="text-center">Caducidad</th>
+              <th className="text-center">Consume en servicio</th>
+              <th className="text-center">Se vende</th>
+              <th>Estatus</th>
+              <th></th>
             </tr>
           </thead>
           <tbody
@@ -180,29 +177,34 @@ export function CatalogosTab() {
             className="aparecer-suave"
           >
             {filtrados.map((t) => (
-              <tr key={t.id} className="border-t border-beige-200">
-                <td className="px-4 py-2 font-medium text-ink-900">{t.nombreTipo}</td>
-                <td className="px-4 py-2">{t.requiereCaducidad ? "Sí" : "No"}</td>
-                <td className="px-4 py-2">{t.seConsumeEnServicio ? "Sí" : "No"}</td>
-                <td className="px-4 py-2">{t.seVende ? "Sí" : "No"}</td>
-                <td className="px-4 py-2">
+              <tr key={t.id}>
+                <td className="font-medium text-ink-900">{t.nombreTipo}</td>
+                <td><Booleano valor={t.requiereCaducidad} /></td>
+                <td><Booleano valor={t.seConsumeEnServicio} /></td>
+                <td><Booleano valor={t.seVende} /></td>
+                <td>
                   <Badge variant={t.activo ? "success" : "neutral"}>{t.activo ? "Activo" : "Inactivo"}</Badge>
                 </td>
-                <td className="px-4 py-2 text-right">
+                <td className="text-right">
                   <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => abrirEditar(t)} title="Editar">
-                      <Pencil size={14} />
+                    <Button variant="ghost" size="sm" className="group" onClick={() => abrirEditar(t)} title="Editar">
+                      <Pencil size={14} className="text-ink-400 transition-colors group-hover:text-ink-900" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="group"
                       onClick={() => alternarActivo(t)}
                       title={t.activo ? "Desactivar" : "Activar"}
                     >
-                      {t.activo ? <PowerOff size={14} /> : <Power size={14} />}
+                      {t.activo ? (
+                        <PowerOff size={14} className="text-ink-400 transition-colors group-hover:text-warning-500" />
+                      ) : (
+                        <Power size={14} className="text-ink-400 transition-colors group-hover:text-success-500" />
+                      )}
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => eliminar(t)} title="Eliminar">
-                      <Trash2 size={14} className="text-danger-500" />
+                    <Button variant="ghost" size="sm" className="group" onClick={() => eliminar(t)} title="Eliminar">
+                      <Trash2 size={14} className="text-ink-400 transition-colors group-hover:text-danger-500" />
                     </Button>
                   </div>
                 </td>
@@ -210,17 +212,26 @@ export function CatalogosTab() {
             ))}
             {filtrados.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6">
-                  <EmptyState
-                    icon={Tag}
-                    mensaje={tipos.length === 0 ? "Aún no hay categorías." : "Ninguna categoría coincide con los filtros."}
-                    submensaje={tipos.length === 0 ? "Crea una con el botón de arriba." : undefined}
-                  />
+                <td colSpan={6} className="px-4 py-8">
+                  {tipos.length === 0 ? (
+                    <EmptyState
+                      ilustracion={IlustracionDocumento}
+                      mensaje="Aún no hay categorías."
+                      submensaje="Crea una con el botón de arriba."
+                    />
+                  ) : (
+                    <EmptyState icon={Search} mensaje="Ninguna categoría coincide con los filtros." />
+                  )}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        {filtrados.length > 0 && (
+          <div className="border-t border-beige-200 px-4 py-2.5 text-xs text-ink-500">
+            Mostrando {filtrados.length} de {tipos.length} categorías
+          </div>
+        )}
       </Card>
 
       <Modal
@@ -280,6 +291,15 @@ export function CatalogosTab() {
           </Button>
         </form>
       </Modal>
+    </div>
+  );
+}
+
+/** Celda de columna booleana §2: icono en vez de "Sí/No" en texto plano. */
+function Booleano({ valor }: { valor: boolean }) {
+  return (
+    <div className="flex justify-center">
+      {valor ? <Check size={16} className="text-success-500" /> : <span className="text-ink-300">—</span>}
     </div>
   );
 }

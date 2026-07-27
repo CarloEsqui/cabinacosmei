@@ -209,7 +209,7 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
         />
 
         <div>
-          <h3 className="mb-2 text-sm font-semibold text-jacaranda-700">Pago</h3>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Pago</h3>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-500">
@@ -253,7 +253,7 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
         </div>
 
         <div className="rounded-xl border border-beige-300 p-3">
-          <h3 className="mb-2 text-sm font-semibold text-jacaranda-700">Comprobante de pago</h3>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Comprobante de pago</h3>
           {servicio.tieneComprobante ? (
             <div className="flex items-center justify-between">
               <Badge variant="success">Comprobante subido</Badge>
@@ -330,7 +330,7 @@ function ListaProductos({
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-jacaranda-700">{titulo}</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-500">{titulo}</h3>
         <Button type="button" variant="ghost" size="sm" onClick={onAgregar}>
           <Plus size={14} /> Agregar
         </Button>
@@ -380,7 +380,14 @@ function ListaProductos({
                   value={fila.cantidad}
                   onValueChange={(v) => onActualizar(i, { cantidad: v })}
                 />
-                <Button type="button" variant="ghost" size="sm" onClick={() => onQuitar(i)}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-ink-400 hover:text-danger-500"
+                  onClick={() => onQuitar(i)}
+                  title="Quitar"
+                >
                   <Trash2 size={14} />
                 </Button>
               </div>

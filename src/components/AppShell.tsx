@@ -118,10 +118,13 @@ export function AppShell() {
         </div>
       </aside>
 
-      <main className="shell-main flex flex-col overflow-hidden">
+      <main className="shell-main relative flex flex-col overflow-hidden">
+        {/* Sin decoración global (§10): una sola planta repetida en todas las pantallas se lee
+            como calcomanía. Cada página elige su pieza del sistema de `ui/decoracion` y la ancla
+            a su propia esquina. */}
         <ActualizacionBanner />
         <LicenciaBanner />
-        <div className="flex-1 overflow-y-auto">
+        <div className="relative flex-1 overflow-y-auto">
           <Outlet />
         </div>
       </main>

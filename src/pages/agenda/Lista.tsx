@@ -2,12 +2,14 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Lock, XCircle, Search, X, ChevronDown, ChevronUp } from "lucide-react";
+import { Lock, XCircle, Search, X, ChevronDown, ChevronUp, SearchX } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { IlustracionCalendario } from "@/components/ui/ilustraciones";
 import { useToast } from "@/components/ui/toast";
 import { formatFecha, formatMoneda } from "@/lib/format";
 import { mensajeDeError } from "@/lib/errores";
@@ -120,52 +122,43 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
     return lista;
   }, [citas, filtrosPago]);
 
+  // Distingue "aún no hay citas" (vacío real) de "ninguna coincide" (vacío por filtros) para el
+  // EmptyState §2 — sin disparar queries nuevas, solo mirando los filtros ya en estado.
+  const hayFiltrosActivos = !!(
+    filtro.fechaDesde ||
+    filtro.fechaHasta ||
+    (filtro.estados && filtro.estados.length > 0) ||
+    filtrosPago.length > 0 ||
+    clienteSeleccionado
+  );
+
   return (
     <div className="p-8">
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-ink-500">Desde</label>
-          <Input
-            type="date"
-            value={filtro.fechaDesde ?? ""}
-            onChange={(e) => setFiltro({ ...filtro, fechaDesde: e.target.value || undefined })}
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-ink-500">Hasta</label>
-          <Input
-            type="date"
-            value={filtro.fechaHasta ?? ""}
-            onChange={(e) => setFiltro({ ...filtro, fechaHasta: e.target.value || undefined })}
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-ink-500">Estado</label>
-          <MultiSelect
-            options={Object.entries(ESTADO_LABEL).map(([valor, label]) => ({ value: valor, label }))}
-            selected={filtro.estados ?? []}
-            onChange={(estados) => setFiltro({ ...filtro, estados: estados.length > 0 ? estados : undefined })}
-            placeholder="Todos"
-            className="min-w-[160px]"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-ink-500">Pago</label>
-          <MultiSelect
-            options={[
-              { value: "pendiente", label: "Pago pendiente" },
-              { value: "pagado", label: "Pagado" },
-            ]}
-            selected={filtrosPago}
-            onChange={setFiltrosPago}
-            placeholder="Todos"
-            className="min-w-[150px]"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-ink-500">Clienta</label>
-          <BuscadorCliente seleccionado={clienteSeleccionado} onSeleccionar={seleccionarCliente} />
-        </div>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <BuscadorCliente seleccionado={clienteSeleccionado} onSeleccionar={seleccionarCliente} />
+        <MultiSelect
+          options={Object.entries(ESTADO_LABEL).map(([valor, label]) => ({ value: valor, label }))}
+          selected={filtro.estados ?? []}
+          onChange={(estados) => setFiltro({ ...filtro, estados: estados.length > 0 ? estados : undefined })}
+          placeholder="Todos los estados"
+          className="min-w-[170px]"
+        />
+        <MultiSelect
+          options={[
+            { value: "pendiente", label: "Pago pendiente" },
+            { value: "pagado", label: "Pagado" },
+          ]}
+          selected={filtrosPago}
+          onChange={setFiltrosPago}
+          placeholder="Todos los pagos"
+          className="min-w-[160px]"
+        />
+        <RangoFechas
+          desde={filtro.fechaDesde}
+          hasta={filtro.fechaHasta}
+          onDesde={(v) => setFiltro({ ...filtro, fechaDesde: v })}
+          onHasta={(v) => setFiltro({ ...filtro, fechaHasta: v })}
+        />
       </div>
 
       {clienteSeleccionado && (
@@ -184,20 +177,23 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
       )}
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
+        <table className="tabla-bellora">
+          <thead>
             <tr>
-              <th className="px-4 py-2"></th>
-              <th className="px-4 py-2">Fecha</th>
-              <th className="px-4 py-2">Hora</th>
-              <th className="px-4 py-2">Clienta</th>
-              <th className="px-4 py-2">Servicio</th>
-              <th className="px-4 py-2">Estado</th>
-              <th className="px-4 py-2">Pago</th>
-              <th className="px-4 py-2"></th>
+              <th></th>
+              <th>Fecha</th>
+              <th className="num">Hora</th>
+              <th>Clienta</th>
+              <th>Servicio</th>
+              <th>Estado</th>
+              <th>Pago</th>
+              <th></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody
+            key={`${filtro.fechaDesde}|${filtro.fechaHasta}|${(filtro.estados ?? []).join()}|${filtrosPago.join()}|${clienteSeleccionado?.id ?? ""}`}
+            className="aparecer-suave"
+          >
             {ordenadas.map((c) => {
               const activa = c.estado === "programada" || c.estado === "confirmada";
               const pago = estatusPagoCita(c);
@@ -205,35 +201,37 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
               return (
                 <Fragment key={c.id}>
                   <tr
-                    className={cn("border-t border-beige-200", expandible && "cursor-pointer hover:bg-beige-100")}
+                    className={cn(expandible && "cursor-pointer")}
                     onClick={() => expandible && setExpandido(expandido === c.id ? null : c.id)}
                   >
-                    <td className="px-4 py-2 text-ink-500">
+                    <td className="text-ink-500">
                       {expandible && (expandido === c.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
                     </td>
-                    <td className="px-4 py-2 text-ink-700">{formatFecha(c.fecha)}</td>
-                    <td className="px-4 py-2 text-ink-700">{c.hora}</td>
-                    <td className="px-4 py-2 font-medium text-ink-900">{c.clienteNombre}</td>
-                    <td className="px-4 py-2 text-ink-700">{c.servicioNombre || "—"}</td>
-                    <td className="px-4 py-2">
+                    <td>{formatFecha(c.fecha)}</td>
+                    <td className="num">{c.hora}</td>
+                    <td className="font-medium text-ink-900">{c.clienteNombre}</td>
+                    <td>{c.servicioNombre || "—"}</td>
+                    <td>
                       <Badge variant={badgeVariant(c.estado)}>{ESTADO_LABEL[c.estado] ?? c.estado}</Badge>
                     </td>
-                    <td className="px-4 py-2">
+                    <td>
                       {pago !== "no_aplica" && (
                         <Badge variant={pago === "pendiente" ? "danger" : "success"}>{PAGO_LABEL[pago]}</Badge>
                       )}
                     </td>
-                    <td className="px-4 py-2 text-right">
+                    <td className="text-right">
                       {activa && (
                         <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                          <Button size="sm" onClick={() => onCerrarCita(c.id)}>
+                          <Button variant="secondary" size="sm" onClick={() => onCerrarCita(c.id)}>
                             <Lock size={14} /> Cerrar
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="text-ink-400 hover:text-danger-500"
                             onClick={() => cancelar.mutate(c.id)}
                             disabled={cancelar.isPending}
+                            title="Cancelar cita"
                           >
                             <XCircle size={14} />
                           </Button>
@@ -242,7 +240,7 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
                     </td>
                   </tr>
                   {expandible && expandido === c.id && (
-                    <tr className="border-t border-beige-200 bg-beige-100">
+                    <tr className="bg-beige-100">
                       <td colSpan={8} className="px-4 py-3">
                         <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: "easeOut" }}>
                           <DetalleCita servicioRealizadoId={c.servicioRealizadoId!} />
@@ -255,13 +253,30 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
             })}
             {ordenadas.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-ink-500">
-                  No hay citas que coincidan.
+                <td colSpan={8} className="px-4 py-6">
+                  {hayFiltrosActivos ? (
+                    <EmptyState
+                      icon={SearchX}
+                      mensaje="Ninguna cita coincide con los filtros."
+                      submensaje="Ajusta las fechas, el estado, el pago o la clienta para ver más resultados."
+                    />
+                  ) : (
+                    <EmptyState
+                      ilustracion={IlustracionCalendario}
+                      mensaje="Aún no hay citas registradas."
+                      submensaje="Agenda tu primera cita con el botón “Nueva cita” de arriba."
+                    />
+                  )}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        {citas.length > 0 && (
+          <div className="border-t border-beige-200 px-4 py-2.5 text-xs text-ink-500">
+            Mostrando {ordenadas.length} de {citas.length} {citas.length === 1 ? "cita" : "citas"}
+          </div>
+        )}
       </Card>
     </div>
   );
@@ -386,7 +401,7 @@ function BuscadorCliente({
             setTexto(e.target.value);
             setAbierto(true);
           }}
-          className="min-w-[220px] pl-8"
+          className="max-w-xs min-w-[220px] pl-8"
         />
       </div>
       {abierto && coincidencias.length > 0 && (
@@ -408,6 +423,42 @@ function BuscadorCliente({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Rango Desde–Hasta agrupado en un solo control visual (§1): dos inputs de fecha nativos unidos
+ * por un guion, dentro de un contenedor con borde común — en vez de dos <Input> sueltos con label.
+ */
+function RangoFechas({
+  desde,
+  hasta,
+  onDesde,
+  onHasta,
+}: {
+  desde?: string;
+  hasta?: string;
+  onDesde: (valor?: string) => void;
+  onHasta: (valor?: string) => void;
+}) {
+  return (
+    <div className="flex h-10 items-center gap-1.5 rounded-xl border border-beige-300 bg-beige-50 px-3">
+      <input
+        type="date"
+        value={desde ?? ""}
+        onChange={(e) => onDesde(e.target.value || undefined)}
+        aria-label="Desde"
+        className="w-[118px] border-0 bg-transparent p-0 text-sm text-ink-900 focus:outline-none focus:ring-0"
+      />
+      <span className="text-ink-400">–</span>
+      <input
+        type="date"
+        value={hasta ?? ""}
+        onChange={(e) => onHasta(e.target.value || undefined)}
+        aria-label="Hasta"
+        className="w-[118px] border-0 bg-transparent p-0 text-sm text-ink-900 focus:outline-none focus:ring-0"
+      />
     </div>
   );
 }

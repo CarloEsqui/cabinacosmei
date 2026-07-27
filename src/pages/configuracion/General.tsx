@@ -1,5 +1,21 @@
 import { useEffect, useState } from "react";
-import { FolderOpen, FolderCog, Save, Sparkles, RefreshCw, User, ALargeSmall, KeyRound, Copy, CalendarClock } from "lucide-react";
+import {
+  FolderOpen,
+  FolderCog,
+  Save,
+  Sparkles,
+  RefreshCw,
+  User,
+  ALargeSmall,
+  KeyRound,
+  Copy,
+  CalendarClock,
+  Boxes,
+  Wallet,
+  Lock,
+  Wrench,
+  Info,
+} from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -105,13 +121,11 @@ export function GeneralTab() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <User size={16} className="text-jacaranda-500" /> Tu perfil
-            </CardTitle>
+            <CardTitle icon={User}>Tu perfil</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div>
-              <label className="text-xs font-medium text-ink-500">¿Cómo te gustaría que te llamemos?</label>
+              <label className="mb-1 block text-xs font-medium text-ink-500">¿Cómo te gustaría que te llamemos?</label>
               <Input maxLength={40} placeholder="Ej. Daniela" value={nombre} onChange={(e) => setNombre(e.target.value)} />
               <p className="mt-1 text-xs text-ink-500">
                 Usaremos este nombre para personalizar tu experiencia dentro de la aplicación.
@@ -119,6 +133,7 @@ export function GeneralTab() {
             </div>
             <Button
               size="sm"
+              className="self-end"
               disabled={guardandoNombre || nombre.trim().length < 2}
               onClick={guardarNombre}
             >
@@ -129,16 +144,38 @@ export function GeneralTab() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ALargeSmall size={16} className="text-jacaranda-500" /> Tamaño de letra
-            </CardTitle>
+            <CardTitle icon={FolderCog}>Carpeta local</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <p className="break-all text-sm text-ink-700">{config.carpetaRaiz}</p>
+            <p className="text-xs text-ink-500">
+              Aquí se guardan tus fotos, comprobantes y expedientes, junto con la base de datos del negocio.
+            </p>
+            <div className="flex gap-2">
+              <Button variant="secondary" size="sm" onClick={elegirCarpeta}>
+                <FolderCog size={16} /> Cambiar carpeta
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => window.api.carpetas.abrirCarpeta(config.carpetaRaiz)}
+              >
+                <FolderOpen size={16} /> Abrir carpeta
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle icon={ALargeSmall}>Tamaño de letra</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <p className="text-xs text-ink-500">
               Ajusta el tamaño del texto, los íconos y los espacios de toda la aplicación. El cambio se
               aplica de inmediato.
             </p>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {ESCALAS_TEXTO.map((opcion) => (
                 <Button
                   key={opcion.valor}
@@ -157,95 +194,53 @@ export function GeneralTab() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Carpeta local</CardTitle>
+            <CardTitle icon={Info}>Acerca de</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <p className="break-all text-sm text-ink-700">{config.carpetaRaiz}</p>
-            <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={elegirCarpeta}>
-                <FolderCog size={16} /> Cambiar carpeta
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => window.api.carpetas.abrirCarpeta(config.carpetaRaiz)}
-              >
-                <FolderOpen size={16} /> Abrir carpeta
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Inventario</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <div>
-              <label className="text-xs font-medium text-ink-500">Umbral crítico de stock</label>
-              <NumberInput
-                value={config.umbralStockCritico}
-                onValueChange={(v) => setConfig({ ...config, umbralStockCritico: v ?? 0 })}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-ink-500">Umbral bajo de stock</label>
-              <NumberInput
-                value={config.umbralStockBajo}
-                onValueChange={(v) => setConfig({ ...config, umbralStockBajo: v ?? 0 })}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-ink-500">Días previos para alerta de caducidad</label>
-              <NumberInput
-                value={config.diasAlertaCaducidad}
-                onValueChange={(v) => setConfig({ ...config, diasAlertaCaducidad: v ?? 0 })}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-ink-500">Criterio de salida de lotes</label>
-              <div className="mt-1 flex gap-2">
-                {(["FEFO", "FIFO"] as const).map((opcion) => (
-                  <Button
-                    key={opcion}
-                    type="button"
-                    size="sm"
-                    variant={config.criterioSalidaLotes === opcion ? "primary" : "secondary"}
-                    onClick={() => setConfig({ ...config, criterioSalidaLotes: opcion })}
-                  >
-                    {opcion}
-                  </Button>
-                ))}
+          <CardContent className="flex flex-col gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-jacaranda-500 to-jacaranda-700 text-beige-50">
+                <Sparkles size={20} />
+              </div>
+              <div>
+                <p className="font-medium text-ink-900">Bellora Dashboard</p>
+                <p className="text-xs text-ink-500">
+                  {version ? `Versión ${version}` : "Cargando versión..."} · Copyright © 2026 Bellora
+                </p>
               </div>
             </div>
             <Button
               size="sm"
-              disabled={guardando}
-              onClick={() =>
-                guardar({
-                  umbralStockCritico: config.umbralStockCritico,
-                  umbralStockBajo: config.umbralStockBajo,
-                  diasAlertaCaducidad: config.diasAlertaCaducidad,
-                  criterioSalidaLotes: config.criterioSalidaLotes,
-                })
-              }
+              variant="secondary"
+              className="self-end"
+              disabled={buscandoUpdate}
+              onClick={async () => {
+                setBuscandoUpdate(true);
+                try {
+                  await window.api.actualizaciones.buscar();
+                  toast.info("Buscando actualizaciones. Si hay una nueva, se descargará sola.");
+                } catch (e) {
+                  toast.error(mensajeDeError(e));
+                } finally {
+                  setBuscandoUpdate(false);
+                }
+              }}
             >
-              <Save size={16} /> Guardar cambios
+              <RefreshCw size={16} /> Buscar actualizaciones
             </Button>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Moneda y métodos de pago</CardTitle>
+            <CardTitle icon={Wallet}>Moneda y métodos de pago</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div>
-              <label className="text-xs font-medium text-ink-500">Moneda</label>
+              <label className="mb-1 block text-xs font-medium text-ink-500">Moneda</label>
               <Input value={config.moneda} onChange={(e) => setConfig({ ...config, moneda: e.target.value })} />
             </div>
             <div>
-              <label className="text-xs font-medium text-ink-500">Métodos de pago (separados por coma)</label>
+              <label className="mb-1 block text-xs font-medium text-ink-500">Métodos de pago (separados por coma)</label>
               <Input
                 value={config.metodosPago.join(", ")}
                 onChange={(e) =>
@@ -255,6 +250,7 @@ export function GeneralTab() {
             </div>
             <Button
               size="sm"
+              className="self-end"
               disabled={guardando}
               onClick={() => guardar({ moneda: config.moneda, metodosPago: config.metodosPago })}
             >
@@ -265,11 +261,11 @@ export function GeneralTab() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Corte de caja</CardTitle>
+            <CardTitle icon={Lock}>Corte de caja</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div>
-              <label className="text-xs font-medium text-ink-500">Hora del recordatorio de corte</label>
+              <label className="mb-1 block text-xs font-medium text-ink-500">Hora del recordatorio de corte</label>
               <Input
                 type="time"
                 value={config.horaCorte}
@@ -280,7 +276,7 @@ export function GeneralTab() {
                 El corte solo se ejecuta cuando tú lo confirmas manualmente.
               </p>
             </div>
-            <Button size="sm" disabled={guardando} onClick={() => guardar({ horaCorte: config.horaCorte })}>
+            <Button size="sm" className="self-end" disabled={guardando} onClick={() => guardar({ horaCorte: config.horaCorte })}>
               <Save size={16} /> Guardar cambios
             </Button>
           </CardContent>
@@ -288,9 +284,84 @@ export function GeneralTab() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <CalendarClock size={16} className="text-jacaranda-500" /> Horario de atención
-            </CardTitle>
+            <CardTitle icon={Wrench}>Mantenimientos</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-ink-500">
+                Días de anticipación del aviso de mantenimiento
+              </label>
+              <NumberInput
+                min={0}
+                value={config.diasAvisoMantenimiento}
+                onValueChange={(v) => setConfig({ ...config, diasAvisoMantenimiento: v && v >= 0 ? Math.round(v) : 0 })}
+              />
+              <p className="mt-1 text-xs text-ink-500">
+                Las clientas aparecen en "Mantenimientos pendientes" estos días ANTES de su fecha
+                sugerida, para dar tiempo de contactarlas y agendar. Con 0, solo aparecen cuando la
+                fecha ya llegó.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              className="self-end"
+              disabled={guardando}
+              onClick={() => guardar({ diasAvisoMantenimiento: config.diasAvisoMantenimiento })}
+            >
+              <Save size={16} /> Guardar cambios
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle icon={KeyRound}>Licencia</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {estadoLicencia && (
+              <p className="text-sm text-ink-700">
+                Estado: <span className="font-semibold text-ink-900">{ETIQUETA_ESTADO_LICENCIA[estadoLicencia.estado]}</span>
+                {estadoLicencia.expira && <> · vence el {estadoLicencia.expira}</>}
+              </p>
+            )}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-ink-500">Matrícula de este equipo</label>
+                <p className="mt-1 rounded-lg bg-beige-200 px-3 py-2 font-mono text-sm tracking-wide text-ink-900">
+                  {matricula || "Calculando..."}
+                </p>
+                <p className="mt-1 text-xs text-ink-500">
+                  Envíasela a quien te dio la aplicación cuando actives o renueves tu acceso.
+                </p>
+                <Button size="sm" variant="secondary" disabled={!matricula} onClick={copiarMatricula} className="mt-2">
+                  <Copy size={16} /> Copiar matrícula
+                </Button>
+              </div>
+
+              <div className="sm:border-l sm:border-beige-300 sm:pl-4">
+                <label className="mb-1 block text-xs font-medium text-ink-500">Código de activación / renovación</label>
+                <Input
+                  placeholder="Pega aquí el código que te enviaron"
+                  value={tokenLicencia}
+                  onChange={(e) => setTokenLicencia(e.target.value)}
+                />
+                <Button
+                  size="sm"
+                  disabled={activandoLicencia || !tokenLicencia.trim()}
+                  onClick={activarLicencia}
+                  className="mt-2"
+                >
+                  <KeyRound size={16} /> Activar
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle icon={CalendarClock}>Horario de atención</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <p className="text-xs text-ink-500">
@@ -371,6 +442,7 @@ export function GeneralTab() {
             </div>
             <Button
               size="sm"
+              className="self-end"
               disabled={guardando}
               onClick={() =>
                 guardar({
@@ -390,114 +462,61 @@ export function GeneralTab() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Mantenimientos</CardTitle>
+            <CardTitle icon={Boxes}>Inventario</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div>
-              <label className="text-xs font-medium text-ink-500">
-                Días de anticipación del aviso de mantenimiento
-              </label>
+              <label className="mb-1 block text-xs font-medium text-ink-500">Umbral crítico de stock</label>
               <NumberInput
-                min={0}
-                value={config.diasAvisoMantenimiento}
-                onValueChange={(v) => setConfig({ ...config, diasAvisoMantenimiento: v && v >= 0 ? Math.round(v) : 0 })}
+                value={config.umbralStockCritico}
+                onValueChange={(v) => setConfig({ ...config, umbralStockCritico: v ?? 0 })}
               />
-              <p className="mt-1 text-xs text-ink-500">
-                Las clientas aparecen en "Mantenimientos pendientes" estos días ANTES de su fecha
-                sugerida, para dar tiempo de contactarlas y agendar. Con 0, solo aparecen cuando la
-                fecha ya llegó.
-              </p>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-ink-500">Umbral bajo de stock</label>
+              <NumberInput
+                value={config.umbralStockBajo}
+                onValueChange={(v) => setConfig({ ...config, umbralStockBajo: v ?? 0 })}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-ink-500">Días previos para alerta de caducidad</label>
+              <NumberInput
+                value={config.diasAlertaCaducidad}
+                onValueChange={(v) => setConfig({ ...config, diasAlertaCaducidad: v ?? 0 })}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-ink-500">Criterio de salida de lotes</label>
+              <div className="mt-1 flex gap-1.5">
+                {(["FEFO", "FIFO"] as const).map((opcion) => (
+                  <Button
+                    key={opcion}
+                    type="button"
+                    size="sm"
+                    variant={config.criterioSalidaLotes === opcion ? "primary" : "secondary"}
+                    onClick={() => setConfig({ ...config, criterioSalidaLotes: opcion })}
+                  >
+                    {opcion}
+                  </Button>
+                ))}
+              </div>
             </div>
             <Button
               size="sm"
+              className="self-end"
               disabled={guardando}
-              onClick={() => guardar({ diasAvisoMantenimiento: config.diasAvisoMantenimiento })}
+              onClick={() =>
+                guardar({
+                  umbralStockCritico: config.umbralStockCritico,
+                  umbralStockBajo: config.umbralStockBajo,
+                  diasAlertaCaducidad: config.diasAlertaCaducidad,
+                  criterioSalidaLotes: config.criterioSalidaLotes,
+                })
+              }
             >
               <Save size={16} /> Guardar cambios
             </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Acerca de</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-jacaranda-500 to-jacaranda-700 text-beige-50">
-                <Sparkles size={20} />
-              </div>
-              <div>
-                <p className="font-medium text-ink-900">Bellora Dashboard</p>
-                <p className="text-xs text-ink-500">
-                  {version ? `Versión ${version}` : "Cargando versión..."} · Copyright © 2026 Bellora
-                </p>
-              </div>
-            </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={buscandoUpdate}
-              onClick={async () => {
-                setBuscandoUpdate(true);
-                try {
-                  await window.api.actualizaciones.buscar();
-                  toast.info("Buscando actualizaciones. Si hay una nueva, se descargará sola.");
-                } catch (e) {
-                  toast.error(mensajeDeError(e));
-                } finally {
-                  setBuscandoUpdate(false);
-                }
-              }}
-            >
-              <RefreshCw size={16} /> Buscar actualizaciones
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <KeyRound size={16} className="text-jacaranda-500" /> Licencia
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            {estadoLicencia && (
-              <p className="text-sm text-ink-700">
-                Estado: <span className="font-semibold text-ink-900">{ETIQUETA_ESTADO_LICENCIA[estadoLicencia.estado]}</span>
-                {estadoLicencia.expira && <> · vence el {estadoLicencia.expira}</>}
-              </p>
-            )}
-
-            <div>
-              <label className="text-xs font-medium text-ink-500">Matrícula de este equipo</label>
-              <p className="mt-1 rounded-lg bg-beige-200 px-3 py-2 font-mono text-sm tracking-wide text-ink-900">
-                {matricula || "Calculando..."}
-              </p>
-              <p className="mt-1 text-xs text-ink-500">
-                Envíasela a quien te dio la aplicación cuando actives o renueves tu acceso.
-              </p>
-              <Button size="sm" variant="secondary" disabled={!matricula} onClick={copiarMatricula} className="mt-2">
-                <Copy size={16} /> Copiar matrícula
-              </Button>
-            </div>
-
-            <div className="border-t border-beige-300 pt-3">
-              <label className="text-xs font-medium text-ink-500">Código de activación / renovación</label>
-              <Input
-                placeholder="Pega aquí el código que te enviaron"
-                value={tokenLicencia}
-                onChange={(e) => setTokenLicencia(e.target.value)}
-              />
-              <Button
-                size="sm"
-                disabled={activandoLicencia || !tokenLicencia.trim()}
-                onClick={activarLicencia}
-                className="mt-2"
-              >
-                <KeyRound size={16} /> Activar
-              </Button>
-            </div>
           </CardContent>
         </Card>
       </div>

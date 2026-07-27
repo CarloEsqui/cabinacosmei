@@ -5,6 +5,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { ResumenTab } from "@/pages/inventario/Resumen";
 import { MovimientosTab } from "@/pages/inventario/Movimientos";
 import { CaducidadTab } from "@/pages/inventario/Caducidad";
+import { HojasSueltas } from "@/components/ui/decoracion";
 
 // Entradas y salidas ya no son pestañas: se registran desde pop-ups en el Resumen.
 const TABS = [
@@ -30,7 +31,14 @@ export function InventarioPage() {
   }, [searchParams]);
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
+    <div className="relative isolate flex h-full flex-col overflow-y-auto">
+      {/* Decoración de sección (§10): sprig de hojas sin flor — la pieza más neutra del sistema,
+          apropiada para una sección de trabajo. En la página, no en cada pestaña. */}
+      <HojasSueltas
+        className="pointer-events-none absolute bottom-3 right-7 -z-10 hidden select-none lg:block"
+        width={185}
+        opacity={0.42}
+      />
       <PageHeader title="Inventario" subtitle="Existencias, lotes, caducidad y movimientos" />
       <Tabs tabs={TABS} value={tab} onChange={setTab} />
       {tab === "resumen" && <ResumenTab />}

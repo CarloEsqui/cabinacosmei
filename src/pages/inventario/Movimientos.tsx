@@ -1,11 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeftRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Input } from "@/components/ui/input";
+import { IlustracionDocumento } from "@/components/ui/ilustraciones";
 import { MultiSelect } from "@/components/ui/multi-select";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { BotonExportarCsv } from "@/components/BotonExportarCsv";
 import { formatFecha } from "@/lib/format";
 import type { MovimientosFiltro } from "@shared/schemas";
@@ -20,6 +19,18 @@ const TIPO_LABEL: Record<string, string> = {
   ajuste: "Ajuste",
 };
 
+// Mismo lenguaje semántico que el resto de la app: verde = suma inventario, ámbar = requiere
+// atención (devolución), rojo = pérdida real (merma). El resto queda en tono neutro.
+const TIPO_VARIANT: Record<string, NonNullable<BadgeProps["variant"]>> = {
+  entrada: "success",
+  venta: "jacaranda",
+  consumo_servicio: "neutral",
+  merma: "danger",
+  devolucion: "warning",
+  uso_interno: "neutral",
+  ajuste: "neutral",
+};
+
 export function MovimientosTab() {
   const [filtro, setFiltro] = useState<MovimientosFiltro>({});
 
@@ -32,90 +43,111 @@ export function MovimientosTab() {
     queryFn: () => window.api.productos.listar(),
   });
 
+  // Para distinguir "sin datos aún" de "sin resultados con estos filtros" en el EmptyState (§2),
+  // sin disparar ninguna query adicional: basta ver si el usuario activó algún filtro.
+  const hayFiltros = useMemo(
+    () =>
+      Boolean(
+        filtro.fechaDesde ||
+          filtro.fechaHasta ||
+          (filtro.productoIds && filtro.productoIds.length > 0) ||
+          (filtro.tipos && filtro.tipos.length > 0),
+      ),
+    [filtro],
+  );
+
   return (
     <div className="p-8">
-      <div className="mb-4 flex flex-wrap gap-3">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-ink-500">Desde</label>
-          <Input
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        {/* Rango de fechas como un solo control visual (§1): dos inputs unidos por un "–" dentro
+            de un contenedor con borde común, en vez de dos campos sueltos con label. */}
+        <div className="flex h-10 items-center gap-1 rounded-xl border border-beige-300 bg-beige-50 px-2">
+          <input
             type="date"
+            title="Desde"
             value={filtro.fechaDesde ?? ""}
             onChange={(e) => setFiltro({ ...filtro, fechaDesde: e.target.value || undefined })}
+            className="h-8 border-0 bg-transparent px-1 text-sm text-ink-900 focus:outline-none"
           />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-ink-500">Hasta</label>
-          <Input
+          <span className="text-ink-400">–</span>
+          <input
             type="date"
+            title="Hasta"
             value={filtro.fechaHasta ?? ""}
             onChange={(e) => setFiltro({ ...filtro, fechaHasta: e.target.value || undefined })}
+            className="h-8 border-0 bg-transparent px-1 text-sm text-ink-900 focus:outline-none"
           />
         </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-ink-500">Producto</label>
-          <MultiSelect
-            options={productos.map((p) => ({ value: p.id, label: p.nombre }))}
-            selected={filtro.productoIds ?? []}
-            onChange={(productoIds) =>
-              setFiltro({ ...filtro, productoIds: productoIds.length > 0 ? productoIds : undefined })
-            }
-            placeholder="Todos"
-            className="min-w-[180px]"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-ink-500">Tipo</label>
-          <MultiSelect
-            options={Object.entries(TIPO_LABEL).map(([valor, label]) => ({ value: valor, label }))}
-            selected={filtro.tipos ?? []}
-            onChange={(tipos) => setFiltro({ ...filtro, tipos: tipos.length > 0 ? tipos : undefined })}
-            placeholder="Todos"
-            className="min-w-[160px]"
-          />
-        </div>
-        <div className="ml-auto flex items-end">
+        <MultiSelect
+          options={productos.map((p) => ({ value: p.id, label: p.nombre }))}
+          selected={filtro.productoIds ?? []}
+          onChange={(productoIds) =>
+            setFiltro({ ...filtro, productoIds: productoIds.length > 0 ? productoIds : undefined })
+          }
+          placeholder="Todos los productos"
+          className="min-w-[180px]"
+        />
+        <MultiSelect
+          options={Object.entries(TIPO_LABEL).map(([valor, label]) => ({ value: valor, label }))}
+          selected={filtro.tipos ?? []}
+          onChange={(tipos) => setFiltro({ ...filtro, tipos: tipos.length > 0 ? tipos : undefined })}
+          placeholder="Todos los tipos"
+          className="min-w-[160px]"
+        />
+        <div className="ml-auto">
           <BotonExportarCsv tipo="movimientos" filtro={filtro} label="Exportar" variant="secondary" />
         </div>
       </div>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
+        <table className="tabla-bellora">
+          <thead>
             <tr>
-              <th className="px-4 py-2">Fecha</th>
-              <th className="px-4 py-2">Folio</th>
-              <th className="px-4 py-2">Tipo</th>
-              <th className="px-4 py-2">Producto</th>
-              <th className="px-4 py-2">Lote</th>
-              <th className="px-4 py-2">Cantidad</th>
-              <th className="px-4 py-2">Observaciones</th>
+              <th>Fecha</th>
+              <th>Folio</th>
+              <th>Tipo</th>
+              <th>Producto</th>
+              <th>Lote</th>
+              <th className="num">Cantidad</th>
+              <th>Observaciones</th>
             </tr>
           </thead>
           <tbody key={JSON.stringify(filtro)} className="aparecer-suave">
             {movimientos.map((m) => (
-              <tr key={m.id} className="border-t border-beige-200">
-                <td className="px-4 py-2 text-ink-700">{formatFecha(m.fecha)}</td>
-                <td className="px-4 py-2 text-ink-700">{m.folio || "—"}</td>
-                <td className="px-4 py-2">
-                  <Badge variant={m.tipo === "entrada" ? "success" : "neutral"}>
-                    {TIPO_LABEL[m.tipo] ?? m.tipo}
-                  </Badge>
+              <tr key={m.id}>
+                <td>{formatFecha(m.fecha)}</td>
+                <td>{m.folio || "—"}</td>
+                <td>
+                  <Badge variant={TIPO_VARIANT[m.tipo] ?? "neutral"}>{TIPO_LABEL[m.tipo] ?? m.tipo}</Badge>
                 </td>
-                <td className="px-4 py-2 text-ink-900">{m.productoNombre || "—"}</td>
-                <td className="px-4 py-2 text-ink-700">{m.numeroLote || "—"}</td>
-                <td className="px-4 py-2 text-ink-700">{m.cantidad}</td>
-                <td className="px-4 py-2 text-ink-500">{m.observaciones || "—"}</td>
+                <td className="text-ink-900">{m.productoNombre || "—"}</td>
+                <td>{m.numeroLote || "—"}</td>
+                <td className="num">{m.cantidad}</td>
+                <td className="text-ink-500">{m.observaciones || "—"}</td>
               </tr>
             ))}
             {movimientos.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-6">
-                  <EmptyState icon={ArrowLeftRight} mensaje="Sin movimientos registrados aún." submensaje="Las entradas y salidas de inventario aparecerán aquí." />
+                  <EmptyState
+                    ilustracion={IlustracionDocumento}
+                    mensaje={hayFiltros ? "Ningún movimiento coincide con los filtros." : "Sin movimientos registrados aún."}
+                    submensaje={
+                      hayFiltros
+                        ? "Prueba ajustando el rango de fechas o los filtros."
+                        : "Las entradas y salidas de inventario aparecerán aquí."
+                    }
+                  />
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        {movimientos.length > 0 && (
+          <div className="border-t border-beige-200 px-4 py-2.5 text-xs text-ink-500">
+            Mostrando {movimientos.length} {movimientos.length === 1 ? "movimiento" : "movimientos"}
+          </div>
+        )}
       </Card>
     </div>
   );

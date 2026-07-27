@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, Power, PowerOff, Package } from "lucide-react";
+import { Plus, Pencil, Trash2, Power, PowerOff, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { SortableHeader } from "@/components/ui/sortable-header";
 import { useToast } from "@/components/ui/toast";
 import { EmptyState } from "@/components/ui/empty-state";
+import { IlustracionPaquete } from "@/components/ui/ilustraciones";
 import { ProductoFormModal } from "@/components/catalogos/ProductoFormModal";
 import { formatMoneda } from "@/lib/format";
 import { mensajeDeError } from "@/lib/errores";
@@ -103,14 +104,7 @@ export function ProductosTab() {
 
   return (
     <div className="p-8">
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-ink-500">{productos.length} productos registrados</p>
-        <Button size="sm" onClick={abrirNuevo}>
-          <Plus size={16} /> Nuevo producto
-        </Button>
-      </div>
-
-      <div className="mb-4 flex flex-wrap gap-3">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <Input
           placeholder="Buscar producto..."
           value={busqueda}
@@ -134,61 +128,70 @@ export function ProductosTab() {
           placeholder="Todos los estatus"
           className="max-w-[160px]"
         />
+        <Button size="sm" className="ml-auto" onClick={abrirNuevo}>
+          <Plus size={16} /> Nuevo producto
+        </Button>
       </div>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
+        <table className="tabla-bellora">
+          <thead>
             <tr>
               <SortableHeader label="Nombre" sortKey="nombre" activo={orden} direccion={direccion} onSort={alternarOrden} />
-              <th className="px-4 py-2">SKU</th>
-              <th className="px-4 py-2">Categoría</th>
-              <th className="px-4 py-2">Presentación</th>
-              <th className="px-4 py-2">Precio base</th>
+              <th>SKU</th>
+              <th>Categoría</th>
+              <th>Presentación</th>
+              <th className="num">Precio base</th>
               <SortableHeader
                 label="Precio venta"
                 sortKey="precioVenta"
                 activo={orden}
                 direccion={direccion}
                 onSort={alternarOrden}
+                className="num"
               />
-              <th className="px-4 py-2">Estatus</th>
-              <th className="px-4 py-2"></th>
+              <th>Estatus</th>
+              <th></th>
             </tr>
           </thead>
           <tbody key={`${filtrosTipo.join()}|${filtrosEstatus.join()}|${orden}|${direccion}`} className="aparecer-suave">
             {filtrados.map((p) => (
-              <tr key={p.id} className="border-t border-beige-200">
-                <td className="px-4 py-2 font-medium text-ink-900">{p.nombre}</td>
-                <td className="px-4 py-2 text-ink-700">{p.sku || "—"}</td>
-                <td className="px-4 py-2 text-ink-700">{nombreTipo(p.tipoProductoId)}</td>
-                <td className="px-4 py-2 text-ink-700">
+              <tr key={p.id}>
+                <td className="font-medium text-ink-900">{p.nombre}</td>
+                <td>{p.sku || "—"}</td>
+                <td>{nombreTipo(p.tipoProductoId)}</td>
+                <td>
                   {p.presentacion
                     ? p.contenidoCantidad && p.contenidoUnidad
                       ? `${p.presentacion} · ${p.contenidoCantidad} ${p.contenidoUnidad}`
                       : p.presentacion
                     : "—"}
                 </td>
-                <td className="px-4 py-2 tabular-nums text-ink-700">{formatMoneda(p.costoBase)}</td>
-                <td className="px-4 py-2 tabular-nums text-ink-700">{formatMoneda(p.precioVenta)}</td>
-                <td className="px-4 py-2">
+                <td className="num">{formatMoneda(p.costoBase)}</td>
+                <td className="num">{formatMoneda(p.precioVenta)}</td>
+                <td>
                   <Badge variant={p.activo ? "success" : "neutral"}>{p.activo ? "Activo" : "Inactivo"}</Badge>
                 </td>
-                <td className="px-4 py-2 text-right">
+                <td className="text-right">
                   <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => abrirEditar(p)} title="Editar">
-                      <Pencil size={14} />
+                    <Button variant="ghost" size="sm" className="group" onClick={() => abrirEditar(p)} title="Editar">
+                      <Pencil size={14} className="text-ink-400 transition-colors group-hover:text-ink-900" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="group"
                       onClick={() => alternarActivo(p)}
                       title={p.activo ? "Desactivar" : "Activar"}
                     >
-                      {p.activo ? <PowerOff size={14} /> : <Power size={14} />}
+                      {p.activo ? (
+                        <PowerOff size={14} className="text-ink-400 transition-colors group-hover:text-warning-500" />
+                      ) : (
+                        <Power size={14} className="text-ink-400 transition-colors group-hover:text-success-500" />
+                      )}
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => eliminar(p)} title="Eliminar">
-                      <Trash2 size={14} className="text-danger-500" />
+                    <Button variant="ghost" size="sm" className="group" onClick={() => eliminar(p)} title="Eliminar">
+                      <Trash2 size={14} className="text-ink-400 transition-colors group-hover:text-danger-500" />
                     </Button>
                   </div>
                 </td>
@@ -196,17 +199,26 @@ export function ProductosTab() {
             ))}
             {filtrados.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-6">
-                  <EmptyState
-                    icon={Package}
-                    mensaje={productos.length === 0 ? "Aún no hay productos registrados." : "Ningún producto coincide con los filtros."}
-                    submensaje={productos.length === 0 ? "Crea tu primer producto con el botón de arriba." : undefined}
-                  />
+                <td colSpan={8} className="px-4 py-8">
+                  {productos.length === 0 ? (
+                    <EmptyState
+                      ilustracion={IlustracionPaquete}
+                      mensaje="Aún no hay productos registrados."
+                      submensaje="Crea tu primer producto con el botón de arriba."
+                    />
+                  ) : (
+                    <EmptyState icon={Search} mensaje="Ningún producto coincide con los filtros." />
+                  )}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        {filtrados.length > 0 && (
+          <div className="border-t border-beige-200 px-4 py-2.5 text-xs text-ink-500">
+            Mostrando {filtrados.length} de {productos.length} productos
+          </div>
+        )}
       </Card>
 
       <ProductoFormModal

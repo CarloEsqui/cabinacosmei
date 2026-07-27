@@ -2,10 +2,24 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ChevronDown, ChevronUp, Pencil, Lock, Unlock, Trash2, Boxes, PackagePlus, PackageMinus } from "lucide-react";
+import {
+  ChevronDown,
+  Pencil,
+  Lock,
+  Unlock,
+  Trash2,
+  Boxes,
+  PackagePlus,
+  PackageMinus,
+  AlertTriangle,
+  TrendingDown,
+  Wallet,
+} from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { IlustracionPaquete } from "@/components/ui/ilustraciones";
 import { Badge, semaforoVariant } from "@/components/ui/badge";
+import { StatChip } from "@/components/ui/stat-chip";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -15,7 +29,8 @@ import { SortableHeader } from "@/components/ui/sortable-header";
 import { useToast } from "@/components/ui/toast";
 import { mensajeDeError } from "@/lib/errores";
 import { useEliminarHibrido } from "@/hooks/use-eliminar-hibrido";
-import { formatFecha, formatearStock } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import { formatFecha, formatearStock, formatMoneda } from "@/lib/format";
 import { EntradaForm } from "@/components/inventario/EntradaForm";
 import { SalidaForm } from "@/components/inventario/SalidaForm";
 import { BotonExportarCsv } from "@/components/BotonExportarCsv";
@@ -61,6 +76,20 @@ export function ResumenTab() {
     [productos],
   );
 
+  // Franja de stats (§4): se calcula sobre `productos`, ya cargado por la query de arriba — cero
+  // queries nuevas. El valor en stock usa el costo base, que ya viaja en cada fila del resumen.
+  const stats = useMemo(() => {
+    let criticos = 0;
+    let bajos = 0;
+    let valor = 0;
+    for (const p of productos) {
+      if (p.semaforo === "critico") criticos++;
+      else if (p.semaforo === "bajo") bajos++;
+      valor += p.stockTotal * (p.costoBase ?? 0);
+    }
+    return { criticos, bajos, valor };
+  }, [productos]);
+
   function alternarOrden(key: OrdenKey) {
     if (orden === key) {
       setDireccion(direccion === "asc" ? "desc" : "asc");
@@ -96,6 +125,13 @@ export function ResumenTab() {
 
   return (
     <div className="p-8">
+      <div className="mb-4 flex flex-wrap gap-3">
+        <StatChip icon={Boxes} valor={productos.length} label="Productos" />
+        <StatChip icon={AlertTriangle} valor={stats.criticos} label="En estado crítico" tono="danger" />
+        <StatChip icon={TrendingDown} valor={stats.bajos} label="Bajos" tono="warning" />
+        <StatChip icon={Wallet} valor={formatMoneda(stats.valor)} label="Valor en stock" />
+      </div>
+
       <div className="mb-4 flex flex-wrap gap-3">
         <Input
           placeholder="Buscar producto..."
@@ -145,14 +181,21 @@ export function ResumenTab() {
       </div>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-beige-200 text-left text-xs font-medium uppercase tracking-wide text-ink-500">
+        <table className="tabla-bellora">
+          <thead>
             <tr>
-              <th className="px-4 py-2"></th>
+              <th className="w-8"></th>
               <SortableHeader label="Producto" sortKey="nombre" activo={orden} direccion={direccion} onSort={alternarOrden} />
-              <th className="px-4 py-2">Categoría</th>
-              <th className="px-4 py-2">Proveedor</th>
-              <SortableHeader label="Stock total" sortKey="stockTotal" activo={orden} direccion={direccion} onSort={alternarOrden} />
+              <th>Categoría</th>
+              <th>Proveedor</th>
+              <SortableHeader
+                label="Stock total"
+                sortKey="stockTotal"
+                activo={orden}
+                direccion={direccion}
+                onSort={alternarOrden}
+                className="num"
+              />
               <SortableHeader
                 label="Próx. caducidad"
                 sortKey="loteMasProximoACaducar"
@@ -160,7 +203,7 @@ export function ResumenTab() {
                 direccion={direccion}
                 onSort={alternarOrden}
               />
-              <th className="px-4 py-2">Estado</th>
+              <th>Estado</th>
             </tr>
           </thead>
           <tbody key={`${filtrosTipo.join()}|${filtrosProveedor.join()}|${filtrosSemaforo.join()}|${orden}|${direccion}`} className="aparecer-suave">
@@ -175,12 +218,30 @@ export function ResumenTab() {
             {filtrados.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-6">
-                  <EmptyState icon={Boxes} mensaje="No hay productos que coincidan con los filtros." />
+                  <EmptyState
+                    ilustracion={IlustracionPaquete}
+                    mensaje={
+                      productos.length === 0
+                        ? "Aún no tienes productos registrados."
+                        : "Ningún producto coincide con los filtros."
+                    }
+                    submensaje={
+                      productos.length === 0
+                        ? "Registra tu primera entrada de inventario con el botón de arriba."
+                        : "Prueba ajustando la búsqueda o los filtros."
+                    }
+                  />
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        {filtrados.length > 0 && (
+          <div className="border-t border-beige-200 px-4 py-2.5 text-xs text-ink-500">
+            Mostrando {filtrados.length} de {productos.length}{" "}
+            {productos.length === 1 ? "producto" : "productos"}
+          </div>
+        )}
       </Card>
 
       <Modal open={modalEntrada} onClose={() => setModalEntrada(false)} title="Nueva entrada">
@@ -252,14 +313,17 @@ function ProductoFila({
 
   return (
     <>
-      <tr className="cursor-pointer border-t border-beige-200 hover:bg-beige-100" onClick={onToggle}>
-        <td className="px-4 py-2 text-ink-500">
-          {expandido ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+      <tr className="cursor-pointer" onClick={onToggle}>
+        <td>
+          <ChevronDown
+            size={16}
+            className={cn("text-ink-400 transition-transform duration-200", expandido && "rotate-180")}
+          />
         </td>
-        <td className="px-4 py-2 font-medium text-ink-900">{producto.nombre}</td>
-        <td className="px-4 py-2 text-ink-700">{producto.tipoProductoNombre || "—"}</td>
-        <td className="px-4 py-2 text-ink-700">{producto.proveedorNombre || "—"}</td>
-        <td className="px-4 py-2 text-ink-700">
+        <td className="font-medium text-ink-900">{producto.nombre}</td>
+        <td>{producto.tipoProductoNombre || "—"}</td>
+        <td>{producto.proveedorNombre || "—"}</td>
+        <td className="num">
           {formatearStock(
             producto.stockTotal,
             producto.presentacion,
@@ -267,80 +331,90 @@ function ProductoFila({
             producto.contenidoUnidad,
           )}
         </td>
-        <td className="px-4 py-2 text-ink-700">{formatFecha(producto.loteMasProximoACaducar)}</td>
-        <td className="px-4 py-2">
+        <td>{formatFecha(producto.loteMasProximoACaducar)}</td>
+        <td>
           <Badge variant={semaforoVariant(producto.semaforo)}>
             {producto.semaforo === "critico" ? "Crítico" : producto.semaforo === "bajo" ? "Bajo" : "Adecuado"}
           </Badge>
         </td>
       </tr>
       {expandido && (
-        <tr className="border-t border-beige-200 bg-beige-100">
-          <td colSpan={7} className="px-4 py-3">
+        <tr>
+          <td colSpan={7} className="bg-beige-100 px-4 py-3">
             <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: "easeOut" }}>
             {lotes.length === 0 ? (
-              <p className="text-xs text-ink-500">Sin lotes registrados.</p>
+              <p className="py-2 text-center text-xs text-ink-500">Sin lotes registrados.</p>
             ) : (
-              <table className="w-full text-xs">
-                <thead className="text-ink-500">
-                  <tr>
-                    <th className="px-2 py-1 text-left">Lote</th>
-                    <th className="px-2 py-1 text-left">Caducidad</th>
-                    <th className="px-2 py-1 text-left">Disponible</th>
-                    <th className="px-2 py-1 text-left">Estado</th>
-                    <th className="px-2 py-1"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lotes.map((l) => (
-                    <tr key={l.id} className="border-t border-beige-200">
-                      <td className="px-2 py-1">{l.numeroLote || l.id.slice(0, 8)}</td>
-                      <td className="px-2 py-1">{formatFecha(l.fechaCaducidad)}</td>
-                      <td className="px-2 py-1">
-                        {formatearStock(l.cantidadDisponible, l.presentacion, l.contenidoCantidad, l.contenidoUnidad)}
-                      </td>
-                      <td className="px-2 py-1 capitalize">{l.estado}</td>
-                      <td className="px-2 py-1 text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditando(l);
-                            }}
-                            title="Editar"
-                          >
-                            <Pencil size={12} />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              alternarEstado(l);
-                            }}
-                            title={l.estado === "bloqueado" ? "Desbloquear" : "Bloquear"}
-                          >
-                            {l.estado === "bloqueado" ? <Unlock size={12} /> : <Lock size={12} />}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              eliminar(l);
-                            }}
-                            title="Eliminar"
-                          >
-                            <Trash2 size={12} className="text-danger-500" />
-                          </Button>
-                        </div>
-                      </td>
+              <div className="overflow-hidden rounded-xl border border-beige-200 bg-beige-50">
+                <table className="w-full text-xs">
+                  <thead className="bg-beige-200 text-left font-medium uppercase tracking-wide text-ink-500">
+                    <tr>
+                      <th className="px-3 py-2">Lote</th>
+                      <th className="px-3 py-2">Caducidad</th>
+                      <th className="px-3 py-2 text-right">Disponible</th>
+                      <th className="px-3 py-2">Estado</th>
+                      <th className="px-3 py-2"></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {lotes.map((l) => (
+                      <tr key={l.id} className="border-t border-beige-200 transition-colors hover:bg-beige-100/60">
+                        <td className="px-3 py-2 text-ink-700">{l.numeroLote || l.id.slice(0, 8)}</td>
+                        <td className="px-3 py-2 text-ink-700">{formatFecha(l.fechaCaducidad)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-ink-700">
+                          {formatearStock(l.cantidadDisponible, l.presentacion, l.contenidoCantidad, l.contenidoUnidad)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge variant={l.estado === "bloqueado" ? "warning" : "success"}>
+                            {l.estado === "bloqueado" ? "Bloqueado" : "Activo"}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditando(l);
+                              }}
+                              title="Editar"
+                            >
+                              <Pencil size={12} className="text-ink-400" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                alternarEstado(l);
+                              }}
+                              title={l.estado === "bloqueado" ? "Desbloquear" : "Bloquear"}
+                            >
+                              {l.estado === "bloqueado" ? (
+                                <Unlock size={12} className="text-ink-400" />
+                              ) : (
+                                <Lock size={12} className="text-ink-400" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                eliminar(l);
+                              }}
+                              title="Eliminar"
+                            >
+                              <Trash2 size={12} className="text-ink-400 hover:text-danger-500" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
             </motion.div>
           </td>
@@ -432,7 +506,7 @@ function LoteEditModal({
           <label className="mb-1 block text-xs font-medium text-ink-500">Notas</label>
           <Input value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} />
         </div>
-        <Button type="submit" disabled={guardar.isPending} className="mt-2">
+        <Button type="submit" disabled={guardar.isPending} className="mt-2 w-full">
           Guardar
         </Button>
       </form>

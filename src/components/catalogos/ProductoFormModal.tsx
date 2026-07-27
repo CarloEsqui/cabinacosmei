@@ -149,6 +149,7 @@ export function ProductoFormModal({
             guardar.mutate();
           }}
         >
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Datos generales</p>
           <div>
             <label className="mb-1 block text-xs font-medium text-ink-500">Nombre *</label>
             <Input required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
@@ -224,6 +225,7 @@ export function ProductoFormModal({
             </div>
           </div>
 
+          <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Precios</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-500">Costo base</label>
@@ -243,9 +245,9 @@ export function ProductoFormModal({
             </div>
           </div>
 
-          {/* Presentación: la pieza en la que se cuenta el stock y, opcionalmente, su contenido. */}
+          <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Presentación</p>
+          {/* La pieza en la que se cuenta el stock y, opcionalmente, su contenido. */}
           <div className="rounded-xl border border-beige-300 bg-beige-100/60 p-3">
-            <p className="mb-2 text-xs font-semibold text-jacaranda-700">Presentación</p>
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="mb-1 block text-xs font-medium text-ink-500">Pieza</label>
@@ -329,6 +331,7 @@ export function ProductoFormModal({
             </p>
           </div>
 
+          <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Inventario</p>
           {/* Modo de consumo: solo relevante si la categoría se consume en servicios. */}
           <Expandable open={categoriaConsume}>
             <div className="rounded-xl border border-jacaranda-200 bg-jacaranda-50/60 p-3">
@@ -375,7 +378,7 @@ export function ProductoFormModal({
             />
             Activo
           </label>
-          <Button type="submit" disabled={guardar.isPending || contenidoFaltante} className="mt-2">
+          <Button type="submit" disabled={guardar.isPending || contenidoFaltante} className="mt-2 w-full">
             Guardar
           </Button>
         </form>

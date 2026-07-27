@@ -8,6 +8,7 @@ import { CatalogosTab } from "@/pages/configuracion/Catalogos";
 import { ServiciosTab } from "@/pages/configuracion/Servicios";
 import { RespaldosTab } from "@/pages/configuracion/Respaldos";
 import { BitacoraTab } from "@/pages/configuracion/Bitacora";
+import { ManchaOrganica } from "@/components/ui/decoracion";
 
 const TABS = [
   { value: "general", label: "General" },
@@ -23,7 +24,15 @@ export function ConfiguracionPage() {
   const [tab, setTab] = useState("general");
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
+    <div className="relative isolate flex h-full flex-col overflow-y-auto">
+      {/* Decoración de sección (§10): página densa → SOLO la capa de lavado, sin botánica. Da
+          profundidad a la esquina sin añadir un solo trazo que compita con los formularios. */}
+      <ManchaOrganica
+        className="pointer-events-none absolute right-0 top-24 -z-10 hidden select-none lg:block"
+        variante={3}
+        width={430}
+        opacity={0.4}
+      />
       <PageHeader title="Configuración" subtitle="Ajustes generales del sistema" />
       <Tabs tabs={TABS} value={tab} onChange={setTab} />
       {tab === "general" && <GeneralTab />}
