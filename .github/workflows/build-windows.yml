@@ -22,13 +22,14 @@ jobs:
 
       - run: npm ci
 
-      # Al empujar un tag v*, además de generar el .exe se publica como GitHub Release —
-      # de ahí lee electron-updater para ofrecer la actualización a las instalaciones existentes.
-      - name: Compilar y publicar release
+      # electron-builder SOLO compila aquí (--publish never): dejarlo publicar directo a GitHub
+      # (--publish always) es lo que causaba releases duplicados con el mismo tag (el .exe+latest.yml
+      # por un lado y el .blockmap solo por otro) — sube cada archivo con su propia llamada a la API
+      # y, si hay carrera entre ellas, cada una puede terminar creando su propio Release. Publicar en
+      # un paso aparte y atómico (más abajo) resuelve esto de raíz.
+      - name: Compilar
         if: startsWith(github.ref, 'refs/tags/')
-        run: npm run build && npx electron-builder --win --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build && npx electron-builder --win --publish never
 
       - name: Compilar sin publicar (ejecución manual)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -38,3 +39,18 @@ jobs:
         with:
           name: bellora-dashboard-windows
           path: release/*.exe
+
+      # Publica los 3 archivos (.exe, .blockmap, latest.yml) en UNA sola llamada a la API, sobre el
+      # Release ya resuelto por tag una única vez — de ahí lee electron-updater para ofrecer la
+      # actualización a las instalaciones existentes.
+      - name: Publicar release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
