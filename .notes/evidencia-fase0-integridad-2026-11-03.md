@@ -110,8 +110,10 @@ No aplica. Es app de escritorio; llega a la cabina con el próximo release. `npm
 typecheck exit=0
 ```
 
-`npm run build`: **no verificado en esta sesión** (el sandbox cuelga `vite build` en "transforming…").
-Pendiente: lo corre Carlos antes del commit.
+`npm run build`: el sandbox de la sesión cuelga `vite build` en "transforming…"; lo corrió Carlos en
+su terminal antes de commitear. **Pasó**: typecheck ok, renderer ✓ (3729 módulos), `dist-electron/main.js` ✓,
+`preload.js` ✓. Observación: el build del renderer tardó 19m 42s, con 71 % del tiempo en `rolldown:vite-resolve`.
+No bloquea, pero conviene investigarlo aparte.
 
 ### E2E — CERRADO para DAT-A4 (proxy fiel), PARCIAL para DAT-C1
 DAT-A4: `electron/db/index.ts` real empaquetado con esbuild y ejecutado bajo Electron contra
@@ -139,8 +141,7 @@ DAT-C1: el filtro se probó en aislamiento (salida arriba). Pendiente el E2E en 
 
 ## Working tree state
 
-Sin commitear (los commits los hace Carlos):
-- `electron/services/errores.ts`, `src/lib/errores.ts`, `electron/services/productos.ts` — DAT-A1/B1/B8.
-- `electron/services/respaldos.ts`, `electron/db/index.ts` — DAT-C1/A4 (superficies críticas; esta evidencia las respalda).
-- Todos los archivos del arranque Atlas (PROJECT.md, CLAUDE.md, CODEOWNERS, APPLIED-MIGRATIONS.md,
-  `.github/`, `githooks/`, `.atlas-notes-allow`, `.notes/`) — pendientes del primer commit.
+Commiteado por Carlos en la rama `atlas/arranque`:
+- `c53e7f1` — arranque Atlas (contrato, git layer, auditorías y plan).
+- `0433e1d` — arreglos de la Fase 0 (DAT-A1/B1/B8/C1/A4) con esta evidencia. Gitleaks: sin fugas.
+Pendiente: el E2E en UI de DAT-A1 y DAT-C1 (arriba), push y PR.
