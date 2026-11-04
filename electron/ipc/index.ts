@@ -174,6 +174,9 @@ export function registrarIpc(): void {
   ipcMain.handle("inventario:actualizarLote", (_e, id: string, input) =>
     inventarioService.actualizarLote(id, loteInputSchema.parse(input), usuarioActualId() ?? undefined),
   );
+  ipcMain.handle("inventario:darDeBajaLote", (_e, id: string, motivo?: string) =>
+    inventarioService.darDeBajaLote(id, typeof motivo === "string" ? motivo : undefined, usuarioActualId() ?? undefined),
+  );
   ipcMain.handle("inventario:cambiarEstadoLote", (_e, id: string, estado: "activo" | "bloqueado") =>
     inventarioService.cambiarEstadoLote(id, estado, usuarioActualId() ?? undefined),
   );

@@ -52,7 +52,10 @@ export interface Producto {
 export interface ProductoConStock extends Producto {
   tipoProductoNombre: string | null;
   proveedorNombre: string | null;
+  /** Stock usable: lotes activos no caducados. */
   stockTotal: number;
+  /** Existencias en lotes ya caducados, pendientes de dar de baja (no cuentan como stock). */
+  stockCaducado: number;
   semaforo: Semaforo;
   loteMasProximoACaducar: string | null; // fecha ISO
 }

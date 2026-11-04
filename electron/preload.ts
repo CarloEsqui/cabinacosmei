@@ -55,6 +55,7 @@ const api: IpcApi = {
     caducados: () => ipcRenderer.invoke("inventario:caducados"),
     actualizarLote: (id, input) => ipcRenderer.invoke("inventario:actualizarLote", id, input),
     cambiarEstadoLote: (id, estado) => ipcRenderer.invoke("inventario:cambiarEstadoLote", id, estado),
+    darDeBajaLote: (id, motivo) => ipcRenderer.invoke("inventario:darDeBajaLote", id, motivo),
     eliminarLote: (id) => ipcRenderer.invoke("inventario:eliminarLote", id),
     registrarEntrada: (input) => ipcRenderer.invoke("inventario:registrarEntrada", input),
     registrarSalida: (input) => ipcRenderer.invoke("inventario:registrarSalida", input),

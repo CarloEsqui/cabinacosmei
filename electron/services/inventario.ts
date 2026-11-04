@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, like, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, like, lt, lte, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import {
   productos,
@@ -95,14 +95,19 @@ function generarNumeroLote(db: DbConSelect): string {
 export async function resumenInventario(): Promise<ProductoConStock[]> {
   const db = getDb();
   const config = await obtenerConfig();
+  const hoy = fechaLocalIso();
+  // Un lote caduca al día SIGUIENTE de su fecha (misma regla que registrarSalidaEnTx). Lo caducado
+  // no cuenta como stock usable: antes inflaba el total y el semáforo (DAT-M7, 2026-11-04).
+  const usable = sql`(${lotes.fechaCaducidad} IS NULL OR ${lotes.fechaCaducidad} >= ${hoy})`;
 
   const filas = db
     .select({
       producto: productos,
       tipoNombre: tiposProducto.nombreTipo,
       proveedorNombre: proveedores.nombreComercial,
-      stockTotal: sql<number>`COALESCE(SUM(CASE WHEN ${lotes.estado} = 'activo' THEN ${lotes.cantidadDisponible} ELSE 0 END), 0)`,
-      proximaCaducidad: sql<string | null>`MIN(CASE WHEN ${lotes.cantidadDisponible} > 0 AND ${lotes.estado} = 'activo' THEN ${lotes.fechaCaducidad} END)`,
+      stockTotal: sql<number>`COALESCE(SUM(CASE WHEN ${lotes.estado} = 'activo' AND ${usable} THEN ${lotes.cantidadDisponible} ELSE 0 END), 0)`,
+      stockCaducado: sql<number>`COALESCE(SUM(CASE WHEN ${lotes.estado} <> 'agotado' AND NOT ${usable} THEN ${lotes.cantidadDisponible} ELSE 0 END), 0)`,
+      proximaCaducidad: sql<string | null>`MIN(CASE WHEN ${lotes.cantidadDisponible} > 0 AND ${lotes.estado} = 'activo' AND ${usable} THEN ${lotes.fechaCaducidad} END)`,
     })
     .from(productos)
     .leftJoin(tiposProducto, eq(productos.tipoProductoId, tiposProducto.id))
@@ -118,6 +123,7 @@ export async function resumenInventario(): Promise<ProductoConStock[]> {
     tipoProductoNombre: f.tipoNombre,
     proveedorNombre: f.proveedorNombre,
     stockTotal: Number(f.stockTotal),
+    stockCaducado: Number(f.stockCaducado),
     loteMasProximoACaducar: f.proximaCaducidad,
     semaforo: calcularSemaforo(
       Number(f.stockTotal),
@@ -246,9 +252,9 @@ export async function lotesProximosACaducar(): Promise<Lote[]> {
         eq(lotes.estado, "activo"),
         sql`${lotes.cantidadDisponible} > 0`,
         isNotNull(lotes.fechaCaducidad),
-        // Estrictamente en el futuro: los que ya caducaron (fecha <= hoy) van solo en "Caducados",
-        // no deben duplicarse aquí.
-        gt(lotes.fechaCaducidad, hoy),
+        // Desde hoy: un lote que vence hoy todavía se puede usar (caduca al día siguiente, misma
+        // regla que registrarSalidaEnTx); los ya caducados (fecha < hoy) van solo en "Caducados".
+        gte(lotes.fechaCaducidad, hoy),
         lte(lotes.fechaCaducidad, limiteIso),
       ),
     )
@@ -280,7 +286,7 @@ export async function lotesCaducados(): Promise<Lote[]> {
       and(
         sql`${lotes.cantidadDisponible} > 0`,
         isNotNull(lotes.fechaCaducidad),
-        lte(lotes.fechaCaducidad, hoy),
+        lt(lotes.fechaCaducidad, hoy),
       ),
     )
     .orderBy(asc(lotes.fechaCaducidad))
@@ -459,8 +465,11 @@ export function registrarSalidaEnTx(
   if (input.loteId) {
     const lote = tx.select().from(lotes).where(eq(lotes.id, input.loteId)).get();
     if (!lote) throw new Error("El lote especificado no existe.");
-    if (lote.estado === "bloqueado") throw new Error("Este lote está bloqueado y no puede usarse.");
-    if (lote.fechaCaducidad && lote.fechaCaducidad < hoy) {
+    // Merma y devolución son justo la forma de sacar del inventario un lote que ya no sirve: se
+    // permiten aunque esté caducado o bloqueado. Para usarlo (consumo, venta, etc.) sigue prohibido.
+    const esBaja = input.tipoSalida === "merma" || input.tipoSalida === "devolucion";
+    if (!esBaja && lote.estado === "bloqueado") throw new Error("Este lote está bloqueado y no puede usarse.");
+    if (!esBaja && lote.fechaCaducidad && lote.fechaCaducidad < hoy) {
       throw new Error("Este lote está caducado y no puede usarse.");
     }
     candidatos = [lote];
@@ -559,6 +568,38 @@ export function registrarSalidaEnTx(
   });
 
   return tx.select().from(salidasInventario).where(inArray(salidasInventario.id, salidasCreadas)).all();
+}
+
+/**
+ * Da de baja TODO lo que queda de un lote (caducado, dañado o desechado) como una salida tipo
+ * "merma": el lote queda en 0 / agotado y deja de aparecer en stock, caducados y alertas, pero su
+ * historia y su costo quedan en Movimientos y en el reporte de mermas (DAT-A5, 2026-11-04). Nada se
+ * borra.
+ */
+export async function darDeBajaLote(loteId: string, motivo: string | undefined, usuarioId?: string) {
+  const db = getDb();
+  const config = await obtenerConfig();
+  const hoy = fechaLocalIso();
+  return db.transaction((tx) => {
+    const lote = tx.select().from(lotes).where(eq(lotes.id, loteId)).get();
+    if (!lote) throw new Error("El lote no existe.");
+    if (lote.cantidadDisponible <= 0) throw new Error("Este lote ya no tiene existencias.");
+    const caducado = !!lote.fechaCaducidad && lote.fechaCaducidad < hoy;
+    return registrarSalidaEnTx(
+      tx,
+      {
+        fecha: hoy,
+        productoId: lote.productoId,
+        loteId: lote.id,
+        tipoSalida: "merma",
+        cantidad: lote.cantidadDisponible,
+        observaciones: motivo?.trim() || (caducado ? "Baja por caducidad" : "Baja de lote"),
+      },
+      config.criterioSalidaLotes,
+      hoy,
+      usuarioId,
+    );
+  });
 }
 
 export async function registrarSalida(input: SalidaInput, usuarioId?: string) {

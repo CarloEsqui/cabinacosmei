@@ -74,7 +74,8 @@ export function ProductosTab() {
 
   const [busqueda, setBusqueda] = useState("");
   const [filtrosTipo, setFiltrosTipo] = useState<string[]>([]);
-  const [filtrosEstatus, setFiltrosEstatus] = useState<string[]>([]);
+  // Por defecto solo activos: un producto desactivado ya no se maneja (sigue a un clic en el filtro).
+  const [filtrosEstatus, setFiltrosEstatus] = useState<string[]>(["activo"]);
   const [orden, setOrden] = useState<OrdenKey>("nombre");
   const [direccion, setDireccion] = useState<"asc" | "desc">("asc");
 

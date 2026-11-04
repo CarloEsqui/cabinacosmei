@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Clock, CalendarX } from "lucide-react";
+import { Clock, CalendarX, PackageX } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useDarDeBajaLote } from "@/components/inventario/useDarDeBajaLote";
 import { Select } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
 import { IlustracionPaquete } from "@/components/ui/ilustraciones";
@@ -33,6 +35,7 @@ export function CaducidadTab() {
   const [ordenProximos, setOrdenProximos] = useState<Orden>("fechaCaducidad");
   const [ordenCaducados, setOrdenCaducados] = useState<Orden>("fechaCaducidad");
 
+  const darDeBaja = useDarDeBajaLote();
   const proximosOrdenados = useOrdenados(proximos, ordenProximos);
   const caducadosOrdenados = useOrdenados(caducados, ordenCaducados);
 
@@ -114,12 +117,16 @@ export function CaducidadTab() {
                 <p className="font-medium text-ink-900">{l.productoNombre}</p>
                 <p className="text-xs text-ink-500">Lote {l.numeroLote || l.id.slice(0, 8)}</p>
               </div>
-              <div className="text-right">
-                <p className="tabular-nums text-danger-500">{formatFecha(l.fechaCaducidad)}</p>
-                <p className="text-xs text-ink-500">
-                  {formatearStock(l.cantidadDisponible, l.presentacion, l.contenidoCantidad, l.contenidoUnidad)}{" "}
-                  disponibles — bloqueado
-                </p>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <p className="tabular-nums text-danger-500">Caducó el {formatFecha(l.fechaCaducidad)}</p>
+                  <p className="text-xs text-ink-500">
+                    {formatearStock(l.cantidadDisponible, l.presentacion, l.contenidoCantidad, l.contenidoUnidad)} sin usar
+                  </p>
+                </div>
+                <Button variant="secondary" size="sm" onClick={() => darDeBaja(l)} title="Registrar como merma lo que queda">
+                  <PackageX size={14} /> Dar de baja
+                </Button>
               </div>
             </div>
           ))}

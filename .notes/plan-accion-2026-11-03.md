@@ -117,6 +117,11 @@ aparece "Desactivar en su lugar" y funciona; "Borrar datos de negocio" + 4 respa
          también "No asistió". *E2E en UI pendiente (Carlos).*
        - [ ] **A + D** van con R3 (ítem 2). [ ] **C** va al Gate 001 del ítem 3.
          Backlog: CIT-B1–B4.
+2c. [x] **Lotes caducados (DAT-A5, DAT-M7 nuevos; cierra DAT-B7)** — reportado por Carlos en la
+       prueba manual: "Dar de baja" registra como merma lo que queda del lote, y el stock no cuenta
+       lo caducado. Un lote caduca al día siguiente de su fecha. Evidencia
+       [evidencia-dat-a5-m7-b7-2026-11-04.md](evidencia-dat-a5-m7-b7-2026-11-04.md). *E2E en UI
+       pendiente (Carlos).*
 3. [ ] **R2b Cancelar salidas/entradas (DAT-A2, DIN-A4)** — **Gate 001 primero** (cambio de BD
        significativo + dinero): diseño de cancelación/reversa (estado `cancelada` + motivo + fecha,
        devolver `cantidadDisponible` al lote, movimiento inverso, bitácora; ventas y pagos se

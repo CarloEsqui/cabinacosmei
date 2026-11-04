@@ -7,7 +7,7 @@ import {
   Pencil,
   Lock,
   Unlock,
-  Trash2,
+  PackageX,
   Boxes,
   PackagePlus,
   PackageMinus,
@@ -28,7 +28,7 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { SortableHeader } from "@/components/ui/sortable-header";
 import { useToast } from "@/components/ui/toast";
 import { mensajeDeError } from "@/lib/errores";
-import { useEliminarHibrido } from "@/hooks/use-eliminar-hibrido";
+import { useDarDeBajaLote, loteCaducado } from "@/components/inventario/useDarDeBajaLote";
 import { cn } from "@/lib/utils";
 import { formatFecha, formatearStock, formatMoneda } from "@/lib/format";
 import { EntradaForm } from "@/components/inventario/EntradaForm";
@@ -265,6 +265,7 @@ function ProductoFila({
     tipoProductoNombre: string | null;
     proveedorNombre: string | null;
     stockTotal: number;
+    stockCaducado: number;
     loteMasProximoACaducar: string | null;
     semaforo: "critico" | "bajo" | "adecuado";
     presentacion: string | null;
@@ -276,7 +277,7 @@ function ProductoFila({
 }) {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const eliminarHibrido = useEliminarHibrido();
+  const darDeBaja = useDarDeBajaLote();
   const [editando, setEditando] = useState<Lote | null>(null);
 
   const { data: lotes = [] } = useQuery({
@@ -300,16 +301,6 @@ function ProductoFila({
     }
   }
 
-  function eliminar(l: Lote) {
-    eliminarHibrido({
-      nombre: `el lote "${l.numeroLote || l.id.slice(0, 8)}"`,
-      eliminar: () => window.api.inventario.eliminarLote(l.id),
-      desactivar: () => window.api.inventario.cambiarEstadoLote(l.id, "bloqueado"),
-      alternativaLabel: "Bloquear en su lugar",
-      mensajeExitoAlternativa: "Lote bloqueado.",
-      onExito: invalidar,
-    });
-  }
 
   return (
     <>
@@ -329,6 +320,11 @@ function ProductoFila({
             producto.presentacion,
             producto.contenidoCantidad,
             producto.contenidoUnidad,
+          )}
+          {producto.stockCaducado > 0 && (
+            <span className="block text-xs text-danger-500" title="Existencias caducadas: no cuentan como stock. Dales de baja.">
+              +{formatearStock(producto.stockCaducado, producto.presentacion, producto.contenidoCantidad, producto.contenidoUnidad)} caducado
+            </span>
           )}
         </td>
         <td>{formatFecha(producto.loteMasProximoACaducar)}</td>
@@ -365,9 +361,15 @@ function ProductoFila({
                           {formatearStock(l.cantidadDisponible, l.presentacion, l.contenidoCantidad, l.contenidoUnidad)}
                         </td>
                         <td className="px-3 py-2">
-                          <Badge variant={l.estado === "bloqueado" ? "warning" : "success"}>
-                            {l.estado === "bloqueado" ? "Bloqueado" : "Activo"}
-                          </Badge>
+                          {l.estado === "agotado" ? (
+                            <Badge variant="neutral">Agotado</Badge>
+                          ) : loteCaducado(l) ? (
+                            <Badge variant="danger">Caducado</Badge>
+                          ) : (
+                            <Badge variant={l.estado === "bloqueado" ? "warning" : "success"}>
+                              {l.estado === "bloqueado" ? "Bloqueado" : "Activo"}
+                            </Badge>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-right">
                           <div className="flex justify-end gap-1">
@@ -397,17 +399,19 @@ function ProductoFila({
                                 <Lock size={12} className="text-ink-400" />
                               )}
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                eliminar(l);
-                              }}
-                              title="Eliminar"
-                            >
-                              <Trash2 size={12} className="text-ink-400 hover:text-danger-500" />
-                            </Button>
+                            {l.cantidadDisponible > 0 && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  darDeBaja(l);
+                                }}
+                                title="Dar de baja (registrar como merma lo que queda)"
+                              >
+                                <PackageX size={12} className="text-ink-400 hover:text-danger-500" />
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>

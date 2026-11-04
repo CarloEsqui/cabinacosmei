@@ -366,7 +366,7 @@ function ListaProductos({
                   }}
                 >
                   <option value="">Selecciona un producto</option>
-                  {productos.map((p) => (
+                  {productos.filter((p) => p.activo || p.id === fila.productoId).map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.nombre}
                     </option>

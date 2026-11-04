@@ -126,7 +126,7 @@ export function EntradaForm({ onRegistrado }: { onRegistrado?: () => void }) {
               onChange={(e) => seleccionarProducto(e.target.value)}
             >
               <option value="">Selecciona un producto</option>
-              {productos.map((p) => (
+              {productos.filter((p) => p.activo || p.id === form.productoId).map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.nombre}
                 </option>
