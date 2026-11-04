@@ -22,6 +22,9 @@ electron/services/pagos.ts                @CarloEsqui
 electron/services/corte.ts                @CarloEsqui
 electron/services/serviciosRealizados.ts  @CarloEsqui
 electron/services/reportesFinanzas.ts     @CarloEsqui
+electron/services/cobros.ts               @CarloEsqui
+electron/services/tarjetasRegalo.ts       @CarloEsqui
+electron/services/cupones.ts              @CarloEsqui
 src/pages/agenda/CierreCitaModal.tsx      @CarloEsqui
 src/pages/Corte.tsx                       @CarloEsqui
 
