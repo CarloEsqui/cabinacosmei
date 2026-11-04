@@ -81,6 +81,12 @@ export const salidaInputSchema = z.object({
 });
 export type SalidaInput = z.infer<typeof salidaInputSchema>;
 
+/** Cancelar una entrada o salida de inventario capturada por error (DAT-A2). Motivo opcional (decisión de Carlos). */
+export const cancelacionInventarioSchema = z.object({
+  id: z.string().min(1),
+  motivo: z.string().trim().optional(),
+});
+
 export const loteInputSchema = z.object({
   numeroLote: z.string().optional(),
   fechaCaducidad: z.string().optional(),

@@ -41,6 +41,7 @@ import {
   clienteInputSchema,
   servicioCatalogoInputSchema,
   citaInputSchema,
+  cancelacionInventarioSchema,
   citasFiltroSchema,
   cierreCitaInputSchema,
   guardarRecetaInputSchema,
@@ -174,6 +175,17 @@ export function registrarIpc(): void {
   ipcMain.handle("inventario:actualizarLote", (_e, id: string, input) =>
     inventarioService.actualizarLote(id, loteInputSchema.parse(input), usuarioActualId() ?? undefined),
   );
+  ipcMain.handle("inventario:cancelarEntrada", (_e, id: string, motivo?: string) => {
+    const input = cancelacionInventarioSchema.parse({ id, motivo });
+    return inventarioService.cancelarEntrada(input.id, input.motivo, usuarioActualId() ?? undefined);
+  });
+  ipcMain.handle("inventario:cancelarSalida", (_e, id: string, motivo?: string) => {
+    const input = cancelacionInventarioSchema.parse({ id, motivo });
+    return inventarioService.cancelarSalida(input.id, input.motivo, usuarioActualId() ?? undefined);
+  });
+  ipcMain.handle("inventario:darDeBajaLote", (_e, id: string, motivo?: string) =>
+    inventarioService.darDeBajaLote(id, typeof motivo === "string" ? motivo : undefined, usuarioActualId() ?? undefined),
+  );
   ipcMain.handle("inventario:cambiarEstadoLote", (_e, id: string, estado: "activo" | "bloqueado") =>
     inventarioService.cambiarEstadoLote(id, estado, usuarioActualId() ?? undefined),
   );
@@ -240,6 +252,12 @@ export function registrarIpc(): void {
     citasService.cambiarEstadoCita(id, estado, usuarioActualId() ?? undefined),
   );
   ipcMain.handle("citas:mantenimientosNoProgramados", () => citasService.listarMantenimientosNoProgramados());
+  ipcMain.handle("citas:reactivar", (_e, id: string) =>
+    citasService.reactivarCita(id, usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("citas:eliminar", (_e, id: string) =>
+    citasService.eliminarCita(id, usuarioActualId() ?? undefined),
+  );
   ipcMain.handle("citas:descartarMantenimiento", (_e, servicioRealizadoId: string) =>
     citasService.descartarMantenimiento(servicioRealizadoId, usuarioActualId() ?? undefined),
   );

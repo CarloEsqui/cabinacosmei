@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, like, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, lte, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import {
   productos,
@@ -46,6 +46,13 @@ interface DbConSelect {
 // (leer lotes, descontar stock, insertar salidas/movimientos). Permite que `registrarSalida` opere
 // tanto sobre `db` (abriendo su propia transacción) como sobre el `tx` de una transacción externa
 // —p. ej. el cierre de cita— sin abrir una transacción anidada (better-sqlite3 no las soporta).
+// Cantidades de stock en piezas (pueden ser fracciones: 1/3 de ampolleta). Se comparan con tolerancia
+// EPS y se redondean a 9 decimales al escribir en el lote: suficiente para que tres tercios vuelvan a
+// sumar 1 (redondear a 6 decimales dejaba 0.999999) y para que no queden residuos tipo 1e-16 que
+// dejaban un lote "activo" con nada (DAT-M2; Gate 001 de cancelación, condición 3).
+const EPS = 1e-6;
+const redondear = (x: number) => Math.round(x * 1e9) / 1e9;
+
 interface DbOTx {
   select: ReturnType<typeof getDb>["select"];
   insert: ReturnType<typeof getDb>["insert"];
@@ -95,14 +102,19 @@ function generarNumeroLote(db: DbConSelect): string {
 export async function resumenInventario(): Promise<ProductoConStock[]> {
   const db = getDb();
   const config = await obtenerConfig();
+  const hoy = fechaLocalIso();
+  // Un lote caduca al día SIGUIENTE de su fecha (misma regla que registrarSalidaEnTx). Lo caducado
+  // no cuenta como stock usable: antes inflaba el total y el semáforo (DAT-M7, 2026-11-04).
+  const usable = sql`(${lotes.fechaCaducidad} IS NULL OR ${lotes.fechaCaducidad} >= ${hoy})`;
 
   const filas = db
     .select({
       producto: productos,
       tipoNombre: tiposProducto.nombreTipo,
       proveedorNombre: proveedores.nombreComercial,
-      stockTotal: sql<number>`COALESCE(SUM(CASE WHEN ${lotes.estado} = 'activo' THEN ${lotes.cantidadDisponible} ELSE 0 END), 0)`,
-      proximaCaducidad: sql<string | null>`MIN(CASE WHEN ${lotes.cantidadDisponible} > 0 AND ${lotes.estado} = 'activo' THEN ${lotes.fechaCaducidad} END)`,
+      stockTotal: sql<number>`COALESCE(SUM(CASE WHEN ${lotes.estado} = 'activo' AND ${usable} THEN ${lotes.cantidadDisponible} ELSE 0 END), 0)`,
+      stockCaducado: sql<number>`COALESCE(SUM(CASE WHEN ${lotes.estado} <> 'agotado' AND NOT ${usable} THEN ${lotes.cantidadDisponible} ELSE 0 END), 0)`,
+      proximaCaducidad: sql<string | null>`MIN(CASE WHEN ${lotes.cantidadDisponible} > 0 AND ${lotes.estado} = 'activo' AND ${usable} THEN ${lotes.fechaCaducidad} END)`,
     })
     .from(productos)
     .leftJoin(tiposProducto, eq(productos.tipoProductoId, tiposProducto.id))
@@ -118,6 +130,7 @@ export async function resumenInventario(): Promise<ProductoConStock[]> {
     tipoProductoNombre: f.tipoNombre,
     proveedorNombre: f.proveedorNombre,
     stockTotal: Number(f.stockTotal),
+    stockCaducado: Number(f.stockCaducado),
     loteMasProximoACaducar: f.proximaCaducidad,
     semaforo: calcularSemaforo(
       Number(f.stockTotal),
@@ -246,9 +259,9 @@ export async function lotesProximosACaducar(): Promise<Lote[]> {
         eq(lotes.estado, "activo"),
         sql`${lotes.cantidadDisponible} > 0`,
         isNotNull(lotes.fechaCaducidad),
-        // Estrictamente en el futuro: los que ya caducaron (fecha <= hoy) van solo en "Caducados",
-        // no deben duplicarse aquí.
-        gt(lotes.fechaCaducidad, hoy),
+        // Desde hoy: un lote que vence hoy todavía se puede usar (caduca al día siguiente, misma
+        // regla que registrarSalidaEnTx); los ya caducados (fecha < hoy) van solo en "Caducados".
+        gte(lotes.fechaCaducidad, hoy),
         lte(lotes.fechaCaducidad, limiteIso),
       ),
     )
@@ -280,7 +293,7 @@ export async function lotesCaducados(): Promise<Lote[]> {
       and(
         sql`${lotes.cantidadDisponible} > 0`,
         isNotNull(lotes.fechaCaducidad),
-        lte(lotes.fechaCaducidad, hoy),
+        lt(lotes.fechaCaducidad, hoy),
       ),
     )
     .orderBy(asc(lotes.fechaCaducidad))
@@ -459,8 +472,11 @@ export function registrarSalidaEnTx(
   if (input.loteId) {
     const lote = tx.select().from(lotes).where(eq(lotes.id, input.loteId)).get();
     if (!lote) throw new Error("El lote especificado no existe.");
-    if (lote.estado === "bloqueado") throw new Error("Este lote está bloqueado y no puede usarse.");
-    if (lote.fechaCaducidad && lote.fechaCaducidad < hoy) {
+    // Merma y devolución son justo la forma de sacar del inventario un lote que ya no sirve: se
+    // permiten aunque esté caducado o bloqueado. Para usarlo (consumo, venta, etc.) sigue prohibido.
+    const esBaja = input.tipoSalida === "merma" || input.tipoSalida === "devolucion";
+    if (!esBaja && lote.estado === "bloqueado") throw new Error("Este lote está bloqueado y no puede usarse.");
+    if (!esBaja && lote.fechaCaducidad && lote.fechaCaducidad < hoy) {
       throw new Error("Este lote está caducado y no puede usarse.");
     }
     candidatos = [lote];
@@ -500,7 +516,8 @@ export function registrarSalidaEnTx(
   for (const lote of candidatos) {
     if (restante <= 0) break;
     const tomar = Math.min(restante, lote.cantidadDisponible);
-    const nuevaDisponible = lote.cantidadDisponible - tomar;
+    const restanteLote = redondear(lote.cantidadDisponible - tomar);
+    const nuevaDisponible = restanteLote <= EPS ? 0 : restanteLote;
 
     tx.update(lotes)
       .set({
@@ -561,6 +578,38 @@ export function registrarSalidaEnTx(
   return tx.select().from(salidasInventario).where(inArray(salidasInventario.id, salidasCreadas)).all();
 }
 
+/**
+ * Da de baja TODO lo que queda de un lote (caducado, dañado o desechado) como una salida tipo
+ * "merma": el lote queda en 0 / agotado y deja de aparecer en stock, caducados y alertas, pero su
+ * historia y su costo quedan en Movimientos y en el reporte de mermas (DAT-A5, 2026-11-04). Nada se
+ * borra.
+ */
+export async function darDeBajaLote(loteId: string, motivo: string | undefined, usuarioId?: string) {
+  const db = getDb();
+  const config = await obtenerConfig();
+  const hoy = fechaLocalIso();
+  return db.transaction((tx) => {
+    const lote = tx.select().from(lotes).where(eq(lotes.id, loteId)).get();
+    if (!lote) throw new Error("El lote no existe.");
+    if (lote.cantidadDisponible <= 0) throw new Error("Este lote ya no tiene existencias.");
+    const caducado = !!lote.fechaCaducidad && lote.fechaCaducidad < hoy;
+    return registrarSalidaEnTx(
+      tx,
+      {
+        fecha: hoy,
+        productoId: lote.productoId,
+        loteId: lote.id,
+        tipoSalida: "merma",
+        cantidad: lote.cantidadDisponible,
+        observaciones: motivo?.trim() || (caducado ? "Baja por caducidad" : "Baja de lote"),
+      },
+      config.criterioSalidaLotes,
+      hoy,
+      usuarioId,
+    );
+  });
+}
+
 export async function registrarSalida(input: SalidaInput, usuarioId?: string) {
   const db = getDb();
   const config = await obtenerConfig();
@@ -568,6 +617,178 @@ export async function registrarSalida(input: SalidaInput, usuarioId?: string) {
   // Los llamadores sueltos (SalidaForm vía IPC) siguen teniendo su salida atómica: el wrapper abre
   // su propia transacción y delega el cuerpo en la función que opera sobre el `tx`.
   return db.transaction((tx) => registrarSalidaEnTx(tx, input, config.criterioSalidaLotes, hoy, usuarioId));
+}
+
+
+// ---------------------------------------------------------------------------
+// Cancelación de entradas y salidas (DAT-A2, migración 0004, Gate 001 2026-11-04)
+// ---------------------------------------------------------------------------
+// Nunca se borra un documento: se marca "cancelada" (fecha, motivo, usuaria) y un movimiento
+// nuevo `cancelacion_entrada` / `cancelacion_salida` deja el rastro, con cantidad POSITIVA (el tipo
+// da la dirección, igual que el resto de `movimientos`). Tolerancia y redondeo: ver EPS arriba.
+
+
+// Motivo OPCIONAL: decisión de Carlos (2026-11-04), "solo confirmar y listo". Si viene, se guarda.
+function motivoOpcional(motivo?: string): string | null {
+  const limpio = motivo?.trim();
+  return limpio ? limpio : null;
+}
+
+/**
+ * Cancela una entrada dentro de una transacción existente. Solo si TODA su cantidad sigue
+ * disponible en el lote (nada de ella se ha usado). Exportada para que la reversa de un servicio
+ * cerrado (CIT-C1, su propio Gate) pueda reutilizarla en su transacción.
+ */
+export function cancelarEntradaEnTx(tx: DbOTx, entradaId: string, motivo: string | undefined, hoy: string, usuarioId?: string) {
+  const razon = motivoOpcional(motivo);
+  const entrada = tx.select().from(entradasInventario).where(eq(entradasInventario.id, entradaId)).get();
+  if (!entrada) throw new Error("La entrada no existe.");
+  if (entrada.estatus === "cancelada") throw new Error("Esta entrada ya estaba cancelada.");
+  const lote = tx.select().from(lotes).where(eq(lotes.id, entrada.loteId)).get();
+  if (!lote) throw new Error("El lote de esta entrada no existe.");
+  if (lote.cantidadDisponible + EPS < entrada.cantidad) {
+    throw new Error(
+      "Ya se usó parte de lo que entró en este lote. Cancela primero esas salidas, o registra una merma por lo que sobra.",
+    );
+  }
+
+  const disponible = redondear(lote.cantidadDisponible - entrada.cantidad);
+  const inicial = redondear(Math.max(0, lote.cantidadInicial - entrada.cantidad));
+  tx.update(lotes)
+    .set({
+      cantidadDisponible: disponible <= EPS ? 0 : disponible,
+      cantidadInicial: inicial,
+      estado: disponible <= EPS ? "agotado" : lote.estado,
+      updatedAt: new Date(),
+    })
+    .where(eq(lotes.id, lote.id))
+    .run();
+
+  tx.update(entradasInventario)
+    .set({ estatus: "cancelada", canceladaAt: new Date(), canceladaMotivo: razon, canceladaPorUsuarioId: usuarioId || null })
+    .where(eq(entradasInventario.id, entrada.id))
+    .run();
+
+  tx.insert(movimientos)
+    .values({
+      id: randomUUID(),
+      fecha: hoy,
+      tipo: "cancelacion_entrada",
+      productoId: entrada.productoId,
+      loteId: entrada.loteId,
+      cantidad: entrada.cantidad,
+      referenciaTipo: "entrada_inventario",
+      referenciaId: entrada.id,
+      proveedorId: entrada.proveedorId,
+      usuarioId: usuarioId || null,
+      observaciones: razon ?? "Captura cancelada",
+    })
+    .run();
+
+  registrarAccion(tx, {
+    usuarioId,
+    accion: "entrada_cancelada",
+    entidadTipo: "entrada",
+    entidadId: entrada.id,
+    detalle: `${entrada.folio ?? "sin folio"} · -${entrada.cantidad}${razon ? ` · ${razon}` : ""}`,
+  });
+}
+
+/**
+ * Cancela una salida dentro de una transacción existente. Una salida que se repartió en varios
+ * lotes son varias filas con el MISMO folio: se cancelan todas juntas o ninguna. Por defecto rechaza
+ * las salidas ligadas a un servicio realizado (BR-004); la reversa de un servicio cerrado (CIT-C1)
+ * pasará `permitirLigadasAServicio`.
+ */
+export function cancelarSalidaEnTx(
+  tx: DbOTx,
+  salidaId: string,
+  motivo: string | undefined,
+  hoy: string,
+  usuarioId?: string,
+  opciones: { permitirLigadasAServicio?: boolean } = {},
+) {
+  const razon = motivoOpcional(motivo);
+  const base = tx.select().from(salidasInventario).where(eq(salidasInventario.id, salidaId)).get();
+  if (!base) throw new Error("La salida no existe.");
+
+  const grupo = base.folio
+    ? tx
+        .select()
+        .from(salidasInventario)
+        .where(
+          and(
+            eq(salidasInventario.folio, base.folio),
+            base.servicioRealizadoId
+              ? eq(salidasInventario.servicioRealizadoId, base.servicioRealizadoId)
+              : isNull(salidasInventario.servicioRealizadoId),
+          ),
+        )
+        .all()
+    : [base];
+
+  if (grupo.some((s) => s.estatus === "cancelada")) throw new Error("Esta salida ya estaba cancelada.");
+  if (!opciones.permitirLigadasAServicio && grupo.some((s) => s.servicioRealizadoId)) {
+    throw new Error("Esta salida viene del cierre de una cita; se corrige desde la cita, no desde Movimientos.");
+  }
+
+  for (const s of grupo) {
+    const lote = tx.select().from(lotes).where(eq(lotes.id, s.loteId)).get();
+    if (!lote) throw new Error("El lote de esta salida no existe.");
+    tx.update(lotes)
+      .set({
+        cantidadDisponible: redondear(lote.cantidadDisponible + s.cantidad),
+        // Un lote agotado vuelve a activo; uno bloqueado se queda bloqueado.
+        estado: lote.estado === "agotado" ? "activo" : lote.estado,
+        updatedAt: new Date(),
+      })
+      .where(eq(lotes.id, lote.id))
+      .run();
+
+    tx.update(salidasInventario)
+      .set({ estatus: "cancelada", canceladaAt: new Date(), canceladaMotivo: razon, canceladaPorUsuarioId: usuarioId || null })
+      .where(eq(salidasInventario.id, s.id))
+      .run();
+
+    tx.insert(movimientos)
+      .values({
+        id: randomUUID(),
+        fecha: hoy,
+        tipo: "cancelacion_salida",
+        productoId: s.productoId,
+        loteId: s.loteId,
+        cantidad: s.cantidad,
+        referenciaTipo: "salida_inventario",
+        referenciaId: s.id,
+        clienteId: s.clienteId,
+        usuarioId: usuarioId || null,
+        observaciones: razon ?? "Captura cancelada",
+      })
+      .run();
+  }
+
+  const total = redondear(grupo.reduce((acc, s) => acc + s.cantidad, 0));
+  registrarAccion(tx, {
+    usuarioId,
+    accion: "salida_cancelada",
+    entidadTipo: "producto",
+    entidadId: base.productoId,
+    detalle: `${base.folio ?? "sin folio"} · ${base.tipoSalida} · +${total}${razon ? ` · ${razon}` : ""}`,
+  });
+}
+
+/** Cancela una entrada capturada por error (IPC `inventario:cancelarEntrada`). Sin PIN ni motivo obligatorio: decisión de Carlos. */
+export async function cancelarEntrada(entradaId: string, motivo?: string, usuarioId?: string): Promise<void> {
+  const db = getDb();
+  const hoy = fechaLocalIso();
+  db.transaction((tx) => cancelarEntradaEnTx(tx, entradaId, motivo, hoy, usuarioId));
+}
+
+/** Cancela una salida suelta (no ligada a una cita) capturada por error (IPC `inventario:cancelarSalida`). */
+export async function cancelarSalida(salidaId: string, motivo?: string, usuarioId?: string): Promise<void> {
+  const db = getDb();
+  const hoy = fechaLocalIso();
+  db.transaction((tx) => cancelarSalidaEnTx(tx, salidaId, motivo, hoy, usuarioId));
 }
 
 // ---------------------------------------------------------------------------
@@ -594,6 +815,9 @@ export async function listarMovimientos(filtro: MovimientosFiltro): Promise<Movi
       productoNombre: productos.nombre,
       numeroLote: lotes.numeroLote,
       folio: sql<string | null>`COALESCE(${entradasInventario.folio}, ${salidasInventario.folio})`,
+      docEstatus: sql<string | null>`COALESCE(${entradasInventario.estatus}, ${salidasInventario.estatus})`,
+      docMotivo: sql<string | null>`COALESCE(${entradasInventario.canceladaMotivo}, ${salidasInventario.canceladaMotivo})`,
+      docServicioRealizadoId: salidasInventario.servicioRealizadoId,
     })
     .from(movimientos)
     .leftJoin(productos, eq(movimientos.productoId, productos.id))
@@ -619,5 +843,10 @@ export async function listarMovimientos(filtro: MovimientosFiltro): Promise<Movi
     proveedorId: f.mov.proveedorId,
     observaciones: f.mov.observaciones,
     createdAt: f.mov.createdAt.getTime(),
+    referenciaTipo: f.mov.referenciaTipo,
+    referenciaId: f.mov.referenciaId,
+    documentoEstatus: f.docEstatus,
+    documentoMotivoCancelacion: f.docMotivo,
+    ligadoAServicio: !!f.docServicioRealizadoId,
   }));
 }

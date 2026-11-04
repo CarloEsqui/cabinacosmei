@@ -1,5 +1,12 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Ban } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
+import { mensajeDeError } from "@/lib/errores";
+import { cn } from "@/lib/utils";
+import type { MovimientoRow } from "@shared/types";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { IlustracionDocumento } from "@/components/ui/ilustraciones";
@@ -17,6 +24,8 @@ const TIPO_LABEL: Record<string, string> = {
   devolucion: "Devolución",
   uso_interno: "Uso interno",
   ajuste: "Ajuste",
+  cancelacion_entrada: "Cancelación de entrada",
+  cancelacion_salida: "Cancelación de salida",
 };
 
 // Mismo lenguaje semántico que el resto de la app: verde = suma inventario, ámbar = requiere
@@ -29,10 +38,58 @@ const TIPO_VARIANT: Record<string, NonNullable<BadgeProps["variant"]>> = {
   devolucion: "warning",
   uso_interno: "neutral",
   ajuste: "neutral",
+  cancelacion_entrada: "neutral",
+  cancelacion_salida: "neutral",
 };
+
+/** Un movimiento original (no una cancelación) cuyo documento sigue vigente y no viene de una cita. */
+function esCancelable(m: MovimientoRow): boolean {
+  return (
+    !m.tipo.startsWith("cancelacion_") &&
+    m.documentoEstatus === "vigente" &&
+    !m.ligadoAServicio &&
+    (m.referenciaTipo === "entrada_inventario" || m.referenciaTipo === "salida_inventario")
+  );
+}
 
 export function MovimientosTab() {
   const [filtro, setFiltro] = useState<MovimientosFiltro>({});
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [ocupado, setOcupado] = useState(false);
+
+  /**
+   * Cancelar una entrada o salida capturada por error (DAT-A2). Solo confirmar: sin PIN ni motivo
+   * (decisión de Carlos, 2026-11-04). Nada se borra: el documento queda tachado y un movimiento de
+   * cancelación deja el rastro.
+   */
+  async function cancelar(m: MovimientoRow) {
+    const esEntrada = m.referenciaTipo === "entrada_inventario";
+    const r = await confirm({
+      titulo: esEntrada ? "Cancelar entrada" : "Cancelar salida",
+      mensaje: esEntrada
+        ? `¿Cancelar la entrada de ${m.cantidad} de ${m.productoNombre ?? "este producto"}? Se restará del stock y dejará de contar como compra. Quedará tachada en el historial.`
+        : `¿Cancelar la salida de ${m.cantidad} de ${m.productoNombre ?? "este producto"}? Se devolverá al lote${m.folio ? ` (si el folio ${m.folio} tomó de varios lotes, se cancela completo)` : ""}. Quedará tachada en el historial.`,
+      confirmarLabel: esEntrada ? "Cancelar entrada" : "Cancelar salida",
+      cancelarLabel: "Volver",
+      destructivo: true,
+    });
+    if (r !== "confirmado" || !m.referenciaId) return;
+    setOcupado(true);
+    try {
+      if (esEntrada) await window.api.inventario.cancelarEntrada(m.referenciaId);
+      else await window.api.inventario.cancelarSalida(m.referenciaId);
+      for (const key of ["movimientos", "inventarioResumen", "lotesPorProducto", "lotesCaducados", "lotesProximosACaducar"]) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
+      toast.success(esEntrada ? "Entrada cancelada." : "Salida cancelada.");
+    } catch (e) {
+      toast.error(mensajeDeError(e));
+    } finally {
+      setOcupado(false);
+    }
+  }
 
   const { data: movimientos = [] } = useQuery({
     queryKey: ["movimientos", filtro],
@@ -110,25 +167,51 @@ export function MovimientosTab() {
               <th>Lote</th>
               <th className="num">Cantidad</th>
               <th>Observaciones</th>
+              <th></th>
             </tr>
           </thead>
           <tbody key={JSON.stringify(filtro)} className="aparecer-suave">
-            {movimientos.map((m) => (
-              <tr key={m.id}>
-                <td>{formatFecha(m.fecha)}</td>
-                <td>{m.folio || "—"}</td>
-                <td>
-                  <Badge variant={TIPO_VARIANT[m.tipo] ?? "neutral"}>{TIPO_LABEL[m.tipo] ?? m.tipo}</Badge>
-                </td>
-                <td className="text-ink-900">{m.productoNombre || "—"}</td>
-                <td>{m.numeroLote || "—"}</td>
-                <td className="num">{m.cantidad}</td>
-                <td className="text-ink-500">{m.observaciones || "—"}</td>
-              </tr>
-            ))}
+            {movimientos.map((m) => {
+              const cancelado = m.documentoEstatus === "cancelada" && !m.tipo.startsWith("cancelacion_");
+              return (
+                <tr key={m.id} className={cn(cancelado && "text-ink-400")}>
+                  <td className={cn(cancelado && "line-through")}>{formatFecha(m.fecha)}</td>
+                  <td className={cn(cancelado && "line-through")}>{m.folio || "—"}</td>
+                  <td>
+                    <Badge variant={cancelado ? "neutral" : (TIPO_VARIANT[m.tipo] ?? "neutral")}>
+                      {TIPO_LABEL[m.tipo] ?? m.tipo}
+                    </Badge>
+                  </td>
+                  <td className={cn("text-ink-900", cancelado && "text-ink-400 line-through")}>{m.productoNombre || "—"}</td>
+                  <td>{m.numeroLote || "—"}</td>
+                  <td className={cn("num", cancelado && "line-through")}>{m.cantidad}</td>
+                  <td className="text-ink-500">
+                    {cancelado ? (
+                      <span className="text-danger-500">
+                        Cancelada{m.documentoMotivoCancelacion ? `: ${m.documentoMotivoCancelacion}` : ""}
+                      </span>
+                    ) : (
+                      m.observaciones || "—"
+                    )}
+                  </td>
+                  <td className="text-right">
+                    {esCancelable(m) && (
+                      <Button variant="ghost" size="sm" disabled={ocupado} onClick={() => cancelar(m)} title="Cancelar este documento">
+                        <Ban size={14} className="text-ink-400" /> Cancelar…
+                      </Button>
+                    )}
+                    {m.ligadoAServicio && m.documentoEstatus === "vigente" && !m.tipo.startsWith("cancelacion_") && (
+                      <span className="text-xs text-ink-400" title="Las salidas del cierre de una cita se corrigen desde la cita">
+                        De una cita
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
             {movimientos.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-6">
+                <td colSpan={8} className="px-4 py-6">
                   <EmptyState
                     ilustracion={IlustracionDocumento}
                     mensaje={hayFiltros ? "Ningún movimiento coincide con los filtros." : "Sin movimientos registrados aún."}
@@ -149,6 +232,7 @@ export function MovimientosTab() {
           </div>
         )}
       </Card>
+
     </div>
   );
 }

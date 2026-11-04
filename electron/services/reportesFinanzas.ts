@@ -28,7 +28,7 @@ function comprasDelRango(desde: string, hasta: string): number {
   const filas = db
     .select({ total: entradasInventario.total })
     .from(entradasInventario)
-    .where(and(gte(entradasInventario.fecha, desde), lte(entradasInventario.fecha, hasta)))
+    .where(and(eq(entradasInventario.estatus, "vigente"), gte(entradasInventario.fecha, desde), lte(entradasInventario.fecha, hasta)))
     .all();
   return filas.reduce((acc, f) => acc + (f.total ?? 0), 0);
 }

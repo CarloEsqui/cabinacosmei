@@ -108,6 +108,9 @@ export interface IpcApi {
     movimientos(filtro: MovimientosFiltro): Promise<MovimientoRow[]>;
     actualizarLote(id: string, input: LoteInput): Promise<Lote | undefined>;
     cambiarEstadoLote(id: string, estado: "activo" | "bloqueado"): Promise<Lote | undefined>;
+    darDeBajaLote(id: string, motivo?: string): Promise<unknown>;
+    cancelarEntrada(id: string, motivo?: string): Promise<void>;
+    cancelarSalida(id: string, motivo?: string): Promise<void>;
     eliminarLote(id: string): Promise<void>;
   };
   clientes: {
@@ -133,6 +136,8 @@ export interface IpcApi {
     actualizar(id: string, input: CitaInput): Promise<CitaRow>;
     cambiarEstado(id: string, estado: string): Promise<CitaRow>;
     mantenimientosNoProgramados(): Promise<MantenimientoPendiente[]>;
+    reactivar(id: string): Promise<CitaRow>;
+    eliminar(id: string): Promise<void>;
     descartarMantenimiento(servicioRealizadoId: string): Promise<void>;
     resumenCliente(clienteId: string): Promise<ResumenClienteCitas>;
   };
@@ -228,6 +233,9 @@ export type IpcChannel =
   | "inventario:caducados"
   | "inventario:actualizarLote"
   | "inventario:cambiarEstadoLote"
+  | "inventario:darDeBajaLote"
+  | "inventario:cancelarEntrada"
+  | "inventario:cancelarSalida"
   | "inventario:eliminarLote"
   | "inventario:registrarEntrada"
   | "inventario:registrarSalida"
@@ -250,6 +258,8 @@ export type IpcChannel =
   | "citas:actualizar"
   | "citas:cambiarEstado"
   | "citas:mantenimientosNoProgramados"
+  | "citas:reactivar"
+  | "citas:eliminar"
   | "citas:descartarMantenimiento"
   | "citas:resumenCliente"
   | "serviciosRealizados:abrirCierre"

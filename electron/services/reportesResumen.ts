@@ -88,6 +88,7 @@ export function agregadosDelRango(desde: string, hasta: string): Agregados {
     .from(salidasInventario)
     .where(
       and(
+        eq(salidasInventario.estatus, "vigente"),
         inArray(salidasInventario.tipoSalida, ["merma", "devolucion"]),
         gte(salidasInventario.fecha, desde),
         lte(salidasInventario.fecha, hasta),
@@ -253,6 +254,7 @@ export function serieResumen(desde: string, hasta: string): PuntoSerieResumen[] 
     .from(salidasInventario)
     .where(
       and(
+        eq(salidasInventario.estatus, "vigente"),
         inArray(salidasInventario.tipoSalida, ["merma", "devolucion"]),
         gte(salidasInventario.fecha, desde),
         lte(salidasInventario.fecha, hasta),

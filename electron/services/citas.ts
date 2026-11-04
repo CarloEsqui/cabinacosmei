@@ -1,10 +1,19 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { getDb } from "../db";
-import { citas, clientes, serviciosCatalogo, serviciosRealizados, pagos } from "../db/schema";
+import {
+  archivos,
+  citas,
+  clientes,
+  serviciosCatalogo,
+  serviciosRealizados,
+  pagos,
+  salidasInventario,
+} from "../db/schema";
 import { registrarAccion } from "./bitacora";
 import { obtenerConfig } from "./config";
-import { fechaLocalIso, sumarDiasIso, diasEnRango } from "../../shared/fechas";
+import { fechaLocalIso, horaLocal, sumarDiasIso, diasEnRango } from "../../shared/fechas";
 import type { CitaInput, CitasFiltro } from "../../shared/schemas";
 import type { CitaRow, MantenimientoPendiente, ResumenClienteCitas } from "../../shared/types";
 
@@ -61,7 +70,12 @@ export async function listarCitas(filtro: CitasFiltro): Promise<CitaRow[]> {
     .from(citas)
     .innerJoin(clientes, eq(citas.clienteId, clientes.id))
     .leftJoin(serviciosCatalogo, eq(citas.servicioCatalogoId, serviciosCatalogo.id))
-    .leftJoin(serviciosRealizados, eq(serviciosRealizados.citaId, citas.id))
+    // Solo el servicio CERRADO cuenta: el borrador "abierto" que crea abrir el modal de cierre no
+    // es un cierre, y antes pintaba "Pago pendiente" en citas que nadie había cerrado (CIT-A1).
+    .leftJoin(
+      serviciosRealizados,
+      and(eq(serviciosRealizados.citaId, citas.id), eq(serviciosRealizados.estatus, "cerrado")),
+    )
     .where(condiciones.length ? and(...condiciones) : undefined)
     .orderBy(desc(citas.fecha), desc(citas.hora))
     .all();
@@ -109,26 +123,69 @@ export async function crearCita(input: CitaInput, usuarioId?: string) {
   return db.select().from(citas).where(eq(citas.id, id)).get();
 }
 
+/**
+ * Servicio ligado a la cita, si existe. OJO: abrir el modal de cierre ya crea un borrador con
+ * `estatus = "abierto"`; la cita solo está CERRADA cuando ese servicio está "cerrado" (CIT-A1).
+ */
+function servicioDeCita(citaId: string) {
+  return getDb().select().from(serviciosRealizados).where(eq(serviciosRealizados.citaId, citaId)).get();
+}
+
+/**
+ * Edita o reagenda una cita moviendo la MISMA fila (decisión de Carlos, 2026-11-03: conserva el
+ * historial en bitácora en vez de crear una cita nueva). Solo citas activas: una cita cerrada ya
+ * tiene servicio, pagos e inventario ligados a su fecha, y moverla descuadraría el corte.
+ */
 export async function actualizarCita(id: string, input: CitaInput, usuarioId?: string) {
   const db = getDb();
-  db.update(citas)
-    .set({
-      clienteId: input.clienteId,
-      servicioCatalogoId: input.servicioCatalogoId || null,
-      fecha: input.fecha,
-      hora: input.hora,
-      duracionMin: input.duracionMin,
-      notas: input.notas || null,
-      updatedAt: new Date(),
-    })
-    .where(eq(citas.id, id))
-    .run();
-  registrarAccion(db, {
-    usuarioId,
-    accion: "cita_actualizada",
-    entidadTipo: "cita",
-    entidadId: id,
-    detalle: `${input.fecha} ${input.hora}`,
+  const actual = db.select().from(citas).where(eq(citas.id, id)).get();
+  if (!actual) throw new Error("La cita no existe.");
+  const servicio = servicioDeCita(id);
+  if (servicio?.estatus === "cerrado" || (actual.estado !== "programada" && actual.estado !== "confirmada")) {
+    throw new Error("Solo se pueden reagendar citas programadas o confirmadas. Esta ya se cerró, se canceló o se marcó como no asistida.");
+  }
+  const cambiaHorario = actual.fecha !== input.fecha || actual.hora !== input.hora;
+  const servicioCat =
+    servicio && servicio.servicioCatalogoId !== input.servicioCatalogoId
+      ? db.select().from(serviciosCatalogo).where(eq(serviciosCatalogo.id, input.servicioCatalogoId)).get()
+      : undefined;
+
+  db.transaction((tx) => {
+    tx.update(citas)
+      .set({
+        clienteId: input.clienteId,
+        servicioCatalogoId: input.servicioCatalogoId || null,
+        fecha: input.fecha,
+        hora: input.hora,
+        duracionMin: input.duracionMin,
+        notas: input.notas || null,
+        // Si cambia la fecha u hora, la confirmación de la clienta era para el horario anterior.
+        ...(cambiaHorario ? { estado: "programada" } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(citas.id, id))
+      .run();
+    // Si ya se había abierto el cierre, el borrador guardó la fecha y el servicio de entonces; el
+    // cierre usa ESA fecha para el pago y el mantenimiento. Se sincroniza para que no queden con la
+    // fecha vieja (CIT-A1). Un borrador no tiene pagos ni salidas: solo cerrarCita los crea.
+    if (servicio) {
+      tx.update(serviciosRealizados)
+        .set({
+          fecha: input.fecha,
+          ...(servicioCat ? { servicioCatalogoId: servicioCat.id, precio: servicioCat.precioSugerido ?? 0 } : {}),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(serviciosRealizados.id, servicio.id), eq(serviciosRealizados.estatus, "abierto")))
+        .run();
+    }
+    registrarAccion(tx, {
+      usuarioId,
+      // "cita_reagendada" alimenta el KPI "Reagendadas" del reporte de agenda (reportesAgenda.ts).
+      accion: cambiaHorario ? "cita_reagendada" : "cita_actualizada",
+      entidadTipo: "cita",
+      entidadId: id,
+      detalle: `${actual.fecha} ${actual.hora} → ${input.fecha} ${input.hora}`,
+    });
   });
   return db.select().from(citas).where(eq(citas.id, id)).get();
 }
@@ -151,8 +208,20 @@ export async function cambiarEstadoCita(id: string, estado: string, usuarioId?: 
       `Estado de cita no válido: "${estado}". Debe ser uno de: ${ESTADOS_CITA_VALIDOS.join(", ")}.`,
     );
   }
-  const existe = db.select({ id: citas.id }).from(citas).where(eq(citas.id, id)).get();
-  if (!existe) throw new Error("La cita no existe.");
+  const actual = db.select().from(citas).where(eq(citas.id, id)).get();
+  if (!actual) throw new Error("La cita no existe.");
+  // Los botones (Confirmar, No asistió, Cancelar) solo aparecen en citas activas; el servidor lo
+  // exige igual. "asistio" lo pone únicamente el cierre (serviciosRealizados.ts), nunca esta vía.
+  const cerrada = servicioDeCita(id)?.estatus === "cerrado";
+  if (estado === "asistio") {
+    throw new Error("Una cita se marca como asistida al cerrarla con su servicio y pago.");
+  }
+  if (cerrada || (actual.estado !== "programada" && actual.estado !== "confirmada")) {
+    throw new Error("Solo se puede cambiar el estado de citas programadas o confirmadas.");
+  }
+  if (estado === "no_asistio" && `${actual.fecha} ${actual.hora}` > `${fechaLocalIso()} ${horaLocal()}`) {
+    throw new Error("Solo se puede marcar \"No asistió\" cuando la hora de la cita ya pasó.");
+  }
   db.update(citas).set({ estado, updatedAt: new Date() }).where(eq(citas.id, id)).run();
   registrarAccion(db, {
     usuarioId,
@@ -162,6 +231,96 @@ export async function cambiarEstadoCita(id: string, estado: string, usuarioId?: 
     detalle: `Nuevo estado: ${estado}`,
   });
   return db.select().from(citas).where(eq(citas.id, id)).get();
+}
+
+/**
+ * Deshace una cancelación o un "No asistió" marcado por error: la cita vuelve a programada
+ * (CIT-M1, decisión B de Carlos, 2026-11-04). Una cita cerrada nunca llega aquí: su reversa es
+ * "Cancelar servicio cerrado", que pasa por Gate 001 (CIT-C1).
+ */
+export async function reactivarCita(id: string, usuarioId?: string) {
+  const db = getDb();
+  const actual = db.select().from(citas).where(eq(citas.id, id)).get();
+  if (!actual) throw new Error("La cita no existe.");
+  if (actual.estado !== "cancelada" && actual.estado !== "no_asistio") {
+    throw new Error("Solo se puede reactivar una cita cancelada o marcada como no asistida.");
+  }
+  if (servicioDeCita(id)?.estatus === "cerrado") {
+    throw new Error("Esta cita ya tiene un servicio cerrado; no se puede reactivar.");
+  }
+  db.update(citas).set({ estado: "programada", updatedAt: new Date() }).where(eq(citas.id, id)).run();
+  registrarAccion(db, {
+    usuarioId,
+    accion: "cita_reactivada",
+    entidadTipo: "cita",
+    entidadId: id,
+    detalle: `${actual.estado} → programada`,
+  });
+  return db.select().from(citas).where(eq(citas.id, id)).get();
+}
+
+/**
+ * Borra una cita capturada por error (CIT-M1, decisión B de Carlos, 2026-11-04). Solo si NO tiene
+ * dinero ni inventario ligado: una cita así no es documentación contable (CFF art. 30 aplica a
+ * pagos, ventas y cortes — PROJECT.md "Marco legal"). Si se abrió el cierre, su borrador también se
+ * borra, salvo que ya tenga un comprobante subido. Todo se verifica DENTRO de la transacción.
+ * La bitácora guarda el código de la clienta, nunca su nombre (SEG-M5).
+ */
+export async function eliminarCita(id: string, usuarioId?: string): Promise<void> {
+  const db = getDb();
+  let carpetaBorrador: string | null = null;
+
+  db.transaction((tx) => {
+    const cita = tx.select().from(citas).where(eq(citas.id, id)).get();
+    if (!cita) throw new Error("La cita no existe.");
+    if (cita.estado === "asistio") {
+      throw new Error("Esta cita ya se cerró con su servicio y pago; no se puede eliminar.");
+    }
+    const borrador = tx.select().from(serviciosRealizados).where(eq(serviciosRealizados.citaId, id)).get();
+    if (borrador) {
+      if (borrador.estatus === "cerrado") {
+        throw new Error("Esta cita ya se cerró con su servicio y pago; no se puede eliminar.");
+      }
+      const conPago = tx.select({ id: pagos.id }).from(pagos).where(eq(pagos.servicioRealizadoId, borrador.id)).get();
+      const conSalida = tx
+        .select({ id: salidasInventario.id })
+        .from(salidasInventario)
+        .where(and(eq(salidasInventario.servicioRealizadoId, borrador.id), eq(salidasInventario.estatus, "vigente")))
+        .get();
+      if (conPago || conSalida) {
+        throw new Error("Esta cita tiene pagos o inventario registrados; no se puede eliminar.");
+      }
+      const conArchivo = tx
+        .select({ id: archivos.id })
+        .from(archivos)
+        .where(and(eq(archivos.entidadTipo, "servicio_realizado"), eq(archivos.entidadId, borrador.id)))
+        .get();
+      if (conArchivo) {
+        throw new Error("Esta cita tiene un comprobante subido; cancélala en lugar de eliminarla.");
+      }
+      tx.delete(serviciosRealizados).where(eq(serviciosRealizados.id, borrador.id)).run();
+      carpetaBorrador = borrador.carpetaPath;
+    }
+
+    const cliente = tx.select({ codigo: clientes.codigoCliente }).from(clientes).where(eq(clientes.id, cita.clienteId)).get();
+    tx.delete(citas).where(eq(citas.id, id)).run();
+    registrarAccion(tx, {
+      usuarioId,
+      accion: "cita_eliminada",
+      entidadTipo: "cita",
+      entidadId: id,
+      detalle: `${cita.fecha} ${cita.hora} · ${cliente?.codigo ?? "clienta"} · estado ${cita.estado}`,
+    });
+  });
+
+  // La carpeta del borrador solo se quita si quedó vacía (rmdir falla si tiene algo).
+  if (carpetaBorrador) {
+    try {
+      fs.rmdirSync(carpetaBorrador);
+    } catch {
+      // no vacía o ya no existe: se deja tal cual
+    }
+  }
 }
 
 /**

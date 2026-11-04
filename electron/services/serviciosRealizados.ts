@@ -316,6 +316,7 @@ export async function obtenerDetalle(servicioRealizadoId: string): Promise<Detal
     .where(
       and(
         eq(salidasInventario.servicioRealizadoId, servicioRealizadoId),
+        eq(salidasInventario.estatus, "vigente"),
         eq(salidasInventario.tipoSalida, "consumo_servicio"),
       ),
     )
@@ -326,7 +327,11 @@ export async function obtenerDetalle(servicioRealizadoId: string): Promise<Detal
     .from(salidasInventario)
     .innerJoin(productos, eq(salidasInventario.productoId, productos.id))
     .where(
-      and(eq(salidasInventario.servicioRealizadoId, servicioRealizadoId), eq(salidasInventario.tipoSalida, "venta")),
+      and(
+        eq(salidasInventario.servicioRealizadoId, servicioRealizadoId),
+        eq(salidasInventario.estatus, "vigente"),
+        eq(salidasInventario.tipoSalida, "venta"),
+      ),
     )
     .all();
 

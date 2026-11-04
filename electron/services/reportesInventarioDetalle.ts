@@ -41,6 +41,7 @@ function valorSalidas(desde: string, hasta: string, tipos: string[]): number {
     .from(salidasInventario)
     .where(
       and(
+        eq(salidasInventario.estatus, "vigente"),
         inArray(salidasInventario.tipoSalida, tipos),
         gte(salidasInventario.fecha, desde),
         lte(salidasInventario.fecha, hasta),
@@ -56,7 +57,7 @@ function totalCompras(desde: string, hasta: string): number {
   const filas = db
     .select({ total: entradasInventario.total })
     .from(entradasInventario)
-    .where(and(gte(entradasInventario.fecha, desde), lte(entradasInventario.fecha, hasta)))
+    .where(and(eq(entradasInventario.estatus, "vigente"), gte(entradasInventario.fecha, desde), lte(entradasInventario.fecha, hasta)))
     .all();
   return filas.reduce((acc, f) => acc + (f.total ?? 0), 0);
 }
@@ -136,7 +137,7 @@ export async function reporteInventarioDetalle(filtro: ResumenFiltro): Promise<R
       unidades: sql<number>`COALESCE(SUM(${salidasInventario.cantidad}), 0)`,
     })
     .from(salidasInventario)
-    .where(and(gte(salidasInventario.fecha, desde), lte(salidasInventario.fecha, hasta)))
+    .where(and(eq(salidasInventario.estatus, "vigente"), gte(salidasInventario.fecha, desde), lte(salidasInventario.fecha, hasta)))
     .groupBy(salidasInventario.tipoSalida)
     .all();
   const salidasPorTipo: SalidaTipoValor[] = salidasAgrupadas
@@ -154,6 +155,7 @@ export async function reporteInventarioDetalle(filtro: ResumenFiltro): Promise<R
     .innerJoin(productos, eq(salidasInventario.productoId, productos.id))
     .where(
       and(
+        eq(salidasInventario.estatus, "vigente"),
         eq(salidasInventario.tipoSalida, "consumo_servicio"),
         gte(salidasInventario.fecha, desde),
         lte(salidasInventario.fecha, hasta),
@@ -200,13 +202,13 @@ export async function reporteInventarioDetalle(filtro: ResumenFiltro): Promise<R
   for (const s of db
     .select({ productoId: salidasInventario.productoId })
     .from(salidasInventario)
-    .where(and(gte(salidasInventario.fecha, desde), lte(salidasInventario.fecha, hasta)))
+    .where(and(eq(salidasInventario.estatus, "vigente"), gte(salidasInventario.fecha, desde), lte(salidasInventario.fecha, hasta)))
     .all())
     productosConMovimiento.add(s.productoId);
   for (const e of db
     .select({ productoId: entradasInventario.productoId })
     .from(entradasInventario)
-    .where(and(gte(entradasInventario.fecha, desde), lte(entradasInventario.fecha, hasta)))
+    .where(and(eq(entradasInventario.estatus, "vigente"), gte(entradasInventario.fecha, desde), lte(entradasInventario.fecha, hasta)))
     .all())
     productosConMovimiento.add(e.productoId);
   const sinMovimiento = stockPorProducto.filter(

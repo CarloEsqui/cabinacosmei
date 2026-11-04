@@ -14,6 +14,7 @@ import { mensajeDeError } from "@/lib/errores";
 import { cn } from "@/lib/utils";
 import { fechaLocalIso, horaLocal } from "@shared/fechas";
 import { CitaDetalleModal, ESTADO_CITA } from "@/pages/agenda/CitaDetalleModal";
+import { NuevaCitaModal } from "@/pages/agenda/NuevaCitaModal";
 import type { ConfigValues } from "@shared/config";
 import type { CitaRow } from "@shared/types";
 
@@ -135,6 +136,7 @@ export function CalendarioTab({ onCerrarCita, onNuevaCita }: CalendarioTabProps)
   const [titulo, setTitulo] = useState("");
   const [configAbierta, setConfigAbierta] = useState(false);
   const [citaDetalle, setCitaDetalle] = useState<CitaRow | null>(null);
+  const [citaReagendar, setCitaReagendar] = useState<CitaRow | null>(null);
 
   const { data: citas = [] } = useQuery({
     queryKey: ["citas", {}],
@@ -309,8 +311,11 @@ export function CalendarioTab({ onCerrarCita, onNuevaCita }: CalendarioTabProps)
           cita={citaDetalle}
           onClose={() => setCitaDetalle(null)}
           onCerrarCita={onCerrarCita}
+          onReagendar={setCitaReagendar}
         />
       )}
+
+      <NuevaCitaModal open={!!citaReagendar} citaEditar={citaReagendar} onClose={() => setCitaReagendar(null)} />
     </div>
   );
 }
