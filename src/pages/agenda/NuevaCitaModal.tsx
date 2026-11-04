@@ -7,7 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
 import { ClienteFormModal } from "@/components/catalogos/ClienteFormModal";
+import { mensajeDeError } from "@/lib/errores";
 import type { CitaInput } from "@shared/schemas";
+import type { CitaRow } from "@shared/types";
 import { fechaLocalIso } from "@shared/fechas";
 
 interface NuevaCitaModalProps {
@@ -16,9 +18,18 @@ interface NuevaCitaModalProps {
   fechaInicial?: string;
   horaInicial?: string;
   clienteInicial?: string;
+  /** Si viene, el modal reagenda/edita esta cita (misma fila) en vez de crear una nueva. */
+  citaEditar?: CitaRow | null;
 }
 
-export function NuevaCitaModal({ open, onClose, fechaInicial, horaInicial, clienteInicial }: NuevaCitaModalProps) {
+export function NuevaCitaModal({
+  open,
+  onClose,
+  fechaInicial,
+  horaInicial,
+  clienteInicial,
+  citaEditar,
+}: NuevaCitaModalProps) {
   const queryClient = useQueryClient();
   const { data: clientes = [] } = useQuery({
     queryKey: ["clientes"],
@@ -30,6 +41,16 @@ export function NuevaCitaModal({ open, onClose, fechaInicial, horaInicial, clien
   });
 
   function vacio(): CitaInput {
+    if (citaEditar) {
+      return {
+        clienteId: citaEditar.clienteId,
+        servicioCatalogoId: citaEditar.servicioCatalogoId ?? "",
+        fecha: citaEditar.fecha,
+        hora: citaEditar.hora,
+        duracionMin: citaEditar.duracionMin ?? 60,
+        notas: citaEditar.notas ?? "",
+      };
+    }
     return {
       clienteId: clienteInicial ?? "",
       servicioCatalogoId: "",
@@ -52,22 +73,23 @@ export function NuevaCitaModal({ open, onClose, fechaInicial, horaInicial, clien
       setError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, fechaInicial, horaInicial, clienteInicial]);
+  }, [open, fechaInicial, horaInicial, clienteInicial, citaEditar]);
 
   const crear = useMutation({
-    mutationFn: () => window.api.citas.crear(form),
+    mutationFn: () => (citaEditar ? window.api.citas.actualizar(citaEditar.id, form) : window.api.citas.crear(form)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["citas"] });
       setForm(vacio());
       setError(null);
       onClose();
     },
-    onError: (e) => setError(e instanceof Error ? e.message : "No se pudo crear la cita."),
+    onError: (e) =>
+      setError(mensajeDeError(e, citaEditar ? "No se pudo reagendar la cita." : "No se pudo crear la cita.")),
   });
 
   return (
     <>
-      <Modal open={open} onClose={onClose} title="Nueva cita">
+      <Modal open={open} onClose={onClose} title={citaEditar ? "Reagendar cita" : "Nueva cita"}>
         <form
           className="flex flex-col gap-3"
           onSubmit={(e) => {
@@ -81,6 +103,7 @@ export function NuevaCitaModal({ open, onClose, fechaInicial, horaInicial, clien
               <Select
                 className="flex-1"
                 required
+                disabled={!!citaEditar}
                 value={form.clienteId}
                 onChange={(e) => setForm({ ...form, clienteId: e.target.value })}
               >
@@ -91,15 +114,17 @@ export function NuevaCitaModal({ open, onClose, fechaInicial, horaInicial, clien
                   </option>
                 ))}
               </Select>
-              <Button
-                type="button"
-                variant="secondary"
-                className="px-2.5"
-                title="Nueva clienta"
-                onClick={() => setNuevaClienta(true)}
-              >
-                <Plus size={16} />
-              </Button>
+              {!citaEditar && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="px-2.5"
+                  title="Nueva clienta"
+                  onClick={() => setNuevaClienta(true)}
+                >
+                  <Plus size={16} />
+                </Button>
+              )}
             </div>
           </div>
           <div>
@@ -118,7 +143,8 @@ export function NuevaCitaModal({ open, onClose, fechaInicial, horaInicial, clien
             >
               <option value="">Selecciona un servicio</option>
               {servicios
-                .filter((s) => s.activo)
+                // Al reagendar, el servicio actual se muestra aunque ya esté desactivado.
+                .filter((s) => s.activo || s.id === form.servicioCatalogoId)
                 .map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.nombre}
@@ -162,7 +188,7 @@ export function NuevaCitaModal({ open, onClose, fechaInicial, horaInicial, clien
           {error && <p className="text-sm text-danger-500">{error}</p>}
 
           <Button type="submit" disabled={crear.isPending} className="mt-2">
-            Agendar cita
+            {citaEditar ? "Guardar nueva fecha" : "Agendar cita"}
           </Button>
         </form>
       </Modal>

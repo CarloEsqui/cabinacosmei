@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Lock, XCircle, Search, X, ChevronDown, ChevronUp, SearchX } from "lucide-react";
+import { Lock, XCircle, Search, X, ChevronDown, ChevronUp, SearchX, CalendarClock, BadgeCheck, UserX } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -14,6 +14,8 @@ import { useToast } from "@/components/ui/toast";
 import { formatFecha, formatMoneda } from "@/lib/format";
 import { mensajeDeError } from "@/lib/errores";
 import { cn } from "@/lib/utils";
+import { NuevaCitaModal } from "@/pages/agenda/NuevaCitaModal";
+import { fechaLocalIso, horaLocal } from "@shared/fechas";
 import type { CitasFiltro } from "@shared/schemas";
 import type { Cliente, CitaRow } from "@shared/types";
 
@@ -61,6 +63,7 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
     () => searchParams.get("pago")?.split(",").filter(Boolean) ?? [],
   );
   const [expandido, setExpandido] = useState<string | null>(null);
+  const [citaReagendar, setCitaReagendar] = useState<CitaRow | null>(null);
 
   // Si se llega desde un enlace (ej. la tarjeta "Citas próximas" del Dashboard, o el flag de
   // "Pago pendiente" de una clienta) mientras esta pestaña ya estaba montada, el filtro debe
@@ -107,11 +110,14 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
     setFiltro((f) => ({ ...f, clienteId: c?.id }));
   }
 
-  const cancelar = useMutation({
-    mutationFn: (id: string) => window.api.citas.cambiarEstado(id, "cancelada"),
+  const cambiarEstado = useMutation({
+    mutationFn: ({ id, estado }: { id: string; estado: "cancelada" | "confirmada" | "no_asistio" }) =>
+      window.api.citas.cambiarEstado(id, estado),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["citas"] }),
     onError: (e) => toast.error(mensajeDeError(e)),
   });
+
+  const ahora = `${fechaLocalIso()} ${horaLocal()}`;
 
   const ordenadas = useMemo(() => {
     // Más recientes/próximas primero (orden descendente), no las más antiguas.
@@ -196,6 +202,7 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
           >
             {ordenadas.map((c) => {
               const activa = c.estado === "programada" || c.estado === "confirmada";
+              const yaPasoLaHora = `${c.fecha} ${c.hora}` <= ahora;
               const pago = estatusPagoCita(c);
               const expandible = !!c.servicioRealizadoId;
               return (
@@ -228,9 +235,42 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="text-ink-400 hover:text-jacaranda-700"
+                            onClick={() => setCitaReagendar(c)}
+                            title="Reagendar cita"
+                          >
+                            <CalendarClock size={14} />
+                          </Button>
+                          {c.estado === "programada" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-ink-400 hover:text-success-500"
+                              onClick={() => cambiarEstado.mutate({ id: c.id, estado: "confirmada" })}
+                              disabled={cambiarEstado.isPending}
+                              title="Confirmar cita (la clienta confirmó)"
+                            >
+                              <BadgeCheck size={14} />
+                            </Button>
+                          )}
+                          {yaPasoLaHora && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-ink-400 hover:text-danger-500"
+                              onClick={() => cambiarEstado.mutate({ id: c.id, estado: "no_asistio" })}
+                              disabled={cambiarEstado.isPending}
+                              title="Marcar que no asistió"
+                            >
+                              <UserX size={14} />
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             className="text-ink-400 hover:text-danger-500"
-                            onClick={() => cancelar.mutate(c.id)}
-                            disabled={cancelar.isPending}
+                            onClick={() => cambiarEstado.mutate({ id: c.id, estado: "cancelada" })}
+                            disabled={cambiarEstado.isPending}
                             title="Cancelar cita"
                           >
                             <XCircle size={14} />
@@ -278,6 +318,8 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
           </div>
         )}
       </Card>
+
+      <NuevaCitaModal open={!!citaReagendar} citaEditar={citaReagendar} onClose={() => setCitaReagendar(null)} />
     </div>
   );
 }

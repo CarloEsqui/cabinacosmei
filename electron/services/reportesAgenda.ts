@@ -1,8 +1,8 @@
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, lt, lte } from "drizzle-orm";
 import { getDb } from "../db";
-import { citas, serviciosCatalogo } from "../db/schema";
+import { bitacora, citas, serviciosCatalogo } from "../db/schema";
 import { obtenerConfig } from "./config";
-import { fechaLocalIso } from "../../shared/fechas";
+import { fechaLocalIso, sumarDiasIso } from "../../shared/fechas";
 import type { ResumenFiltro } from "../../shared/schemas";
 import type { CeldaDemanda, KPI, ReporteAgenda } from "../../shared/types";
 
@@ -84,7 +84,19 @@ export async function reporteAgenda(filtro: ResumenFiltro): Promise<ReporteAgend
   let asistio = 0;
   let noAsistio = 0;
   let canceladas = 0;
-  let reagendadas = 0;
+  // Reagendar mueve la MISMA cita (no la deja en estado "reagendada"), así que se cuentan los
+  // movimientos registrados en bitácora durante el periodo, por fecha en que se reagendó.
+  const reagendadas = db
+    .select({ id: bitacora.id })
+    .from(bitacora)
+    .where(
+      and(
+        eq(bitacora.accion, "cita_reagendada"),
+        gte(bitacora.createdAt, fechaDesdeIso(desde)),
+        lt(bitacora.createdAt, fechaDesdeIso(sumarDiasIso(hasta, 1))),
+      ),
+    )
+    .all().length;
   let pendientesPasadas = 0; // programada/confirmada cuya fecha ya pasó (no se marcó asistencia)
   let sumaDuracionOcupan = 0;
   let citasOcupanConteo = 0;
@@ -105,10 +117,7 @@ export async function reporteAgenda(filtro: ResumenFiltro): Promise<ReporteAgend
       canceladas += 1;
       continue;
     }
-    if (c.estado === "reagendada") {
-      reagendadas += 1;
-      continue;
-    }
+    if (c.estado === "reagendada") continue; // estado heredado: ya no se asigna, pero no ocupa agenda
     // A partir de aquí: la cita ocupa (programada | confirmada | asistio | no_asistio).
     const dur = c.duracionMin ?? 60;
     sumaDuracionOcupan += dur;
@@ -221,7 +230,7 @@ export async function reporteAgenda(filtro: ResumenFiltro): Promise<ReporteAgend
       titulo: "Reagendadas",
       valor: reagendadas,
       formato: "numero",
-      formula: "Citas con estado “reagendada” cuya fecha cae en el periodo.",
+      formula: "Veces que una cita se movió a otra fecha u hora, según la bitácora, dentro del periodo.",
       microexplicacion: "Movidas a otra fecha.",
     },
     {

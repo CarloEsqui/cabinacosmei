@@ -72,11 +72,20 @@ aparece "Desactivar en su lugar" y funciona; "Borrar datos de negocio" + 4 respa
 
 ## Phase 1 — ESTA SEMANA · Peticiones de la usuaria (Claude implementa, Carlos decide y commitea, ~1–2 días)
 
-1. [ ] **R1 Reagendar** — cablear `citas.actualizar` en `CitaDetalleModal` (botón "Reagendar" que
+1. [x] **R1 Reagendar** — cablear `citas.actualizar` en `CitaDetalleModal` (botón "Reagendar" que
        reutiliza `NuevaCitaModal` en modo edición). Sin migración, sin superficie crítica, sin Gate.
-       **Decisión de Carlos:** ¿se mueve la misma cita (recomendado: simple, conserva historial en
-       bitácora) o se marca la vieja `reagendada` y se crea otra? ¿Se bloquea para citas ya cerradas
-       (recomendado: sí)?
+       **Decidido (Carlos, 2026-11-03):** se mueve la misma cita (bitácora guarda "fecha vieja → nueva");
+       solo citas programadas/confirmadas, bloqueado en el servidor para cerradas. Botón en el
+       detalle del Calendario y en la Lista. Si cambia fecha u hora, una cita confirmada vuelve a
+       programada. *E2E en UI pendiente (Carlos).*
+   1b. [x] **Estados de cita sin uso** (hallado al implementar R1): "No asistió", "Confirmada" y
+       "Reagendada" no se asignaban en ningún lado, así que los KPIs No-show y Reagendadas marcaban 0.
+       **Decidido (Carlos):** botones "Confirmar" (programadas) y "No asistió" (solo si la hora ya
+       pasó) en detalle y Lista; el KPI "Reagendadas" cuenta `cita_reagendada` de la bitácora.
+       `cambiarEstadoCita` ahora rechaza cambios en citas cerradas o inactivas y nunca pone
+       "asistio" (eso solo lo hace el cierre). Prueba del servidor bajo el SQLite de Electron con BD de
+       prueba: 8/8 casos esperados (no-show futuro rechazado, confirmada→programada al mover,
+       no asistida no se reagenda ni cancela, KPI reagendadas = 1).
 2. [ ] **R3 Dos métodos de pago (DIN-A1)** — `pagos: [{metodoPago, monto}]` en el esquema de cierre,
        lista de filas en el modal, un `registrarPago` por fila **dentro de la transacción existente**,
        `estatusPago` derivado en el servidor de la suma (cierra DIN-A2 en el cierre) y el chequeo
@@ -85,6 +94,26 @@ aparece "Desactivar en su lugar" y funciona; "Borrar datos de negocio" + 4 respa
        **Decisión de Carlos:** ¿hace falta también "registrar abono" después del cierre (clienta que
        paga el resto otro día)? Recomendado: sí, en la misma entrega, porque hoy un saldo pendiente
        no se puede cobrar nunca.
+2b. [ ] **Ciclo de vida de la cita** — auditoría [auditoria-citas-2026-11-03.md](auditoria-citas-2026-11-03.md)
+       (CIT-C1, A1–A2, M1–M3, B1–B4), pedida por Carlos tras probar la app.
+       - [x] **CIT-A1** (regresión de R1, nunca publicada) corregida antes de commitear R1; evidencia
+         [evidencia-cit-a1-2026-11-04.md](evidencia-cit-a1-2026-11-04.md).
+       **Decisiones de Carlos (2026-11-04):**
+       - **A → quitar "cancelado" del cierre (CIT-A2, cierra DIN-B3).** El cierre solo registra
+         servicios que ocurrieron; la cita que no ocurrió se cancela o se marca no asistió desde la
+         agenda. SC Dinero: va junto con R3 (mismo esquema y modal).
+       - **B → "Eliminar cita" + "Deshacer cancelación" (CIT-M1).** Eliminar solo si no hay servicio
+         cerrado, pagos ni salidas (chequeo en la misma transacción, bitácora `cita_eliminada` con
+         código de clienta, nunca nombre); deshacer: cancelada → programada. Cancelar y No asistió
+         piden confirmación; Cancelar también en el detalle del Calendario.
+       - **C → solo la reversa completa (CIT-C1).** Sin "Reabrir" barato: "Cancelar servicio
+         cerrado" (pagos, salidas, cita y mantenimiento en una transacción) entra al **Gate 001**
+         de R2b/DIN-A4 (ítem 3) como requisito añadido.
+       - **D → se permite cerrar citas futuras; el pago lleva la fecha del día en que se cobra
+         (CIT-M3, resuelve el "Cobrado hoy" de DIN-M1).** Aplica también a cierres tardíos y a los
+         abonos de R3. Consumos y mantenimiento siguen con la fecha de la cita. SC Dinero: va con R3.
+       - Sin decisión pendiente: **CIT-M2** (Dashboard excluye servicios `cancelado`, una línea).
+         Backlog: CIT-B1–B4.
 3. [ ] **R2b Cancelar salidas/entradas (DAT-A2, DIN-A4)** — **Gate 001 primero** (cambio de BD
        significativo + dinero): diseño de cancelación/reversa (estado `cancelada` + motivo + fecha,
        devolver `cantidadDisponible` al lote, movimiento inverso, bitácora; ventas y pagos se

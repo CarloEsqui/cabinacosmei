@@ -1,9 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, Clock, CheckCircle2, StickyNote } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BadgeCheck, CalendarClock, CalendarDays, Clock, CheckCircle2, StickyNote, UserX } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/ui/toast";
 import { formatFecha, formatMoneda } from "@/lib/format";
+import { mensajeDeError } from "@/lib/errores";
+import { fechaLocalIso, horaLocal } from "@shared/fechas";
 import type { CitaRow } from "@shared/types";
 
 export const ESTADO_CITA: Record<string, { label: string; variant: "neutral" | "jacaranda" | "success" | "warning" | "danger" }> = {
@@ -28,14 +31,28 @@ export function CitaDetalleModal({
   cita,
   onClose,
   onCerrarCita,
+  onReagendar,
 }: {
   cita: CitaRow;
   onClose: () => void;
   onCerrarCita: (citaId: string) => void;
+  onReagendar: (cita: CitaRow) => void;
 }) {
   const estado = ESTADO_CITA[cita.estado] ?? { label: cita.estado, variant: "neutral" as const };
   const puedeCerrarse = cita.estado === "programada" || cita.estado === "confirmada";
   const estaCerrada = !!cita.servicioRealizadoId && cita.estado === "asistio";
+  const yaPasoLaHora = `${cita.fecha} ${cita.hora}` <= `${fechaLocalIso()} ${horaLocal()}`;
+
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const cambiarEstado = useMutation({
+    mutationFn: (estado: "confirmada" | "no_asistio") => window.api.citas.cambiarEstado(cita.id, estado),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["citas"] });
+      onClose();
+    },
+    onError: (e) => toast.error(mensajeDeError(e)),
+  });
 
   const { data: detalle } = useQuery({
     queryKey: ["detalleServicio", cita.servicioRealizadoId],
@@ -109,15 +126,53 @@ export function CitaDetalleModal({
           </div>
         )}
 
+        {puedeCerrarse && (cita.estado === "programada" || yaPasoLaHora) && (
+          <div className="flex gap-2">
+            {cita.estado === "programada" && (
+              <Button
+                variant="secondary"
+                className="flex-1"
+                disabled={cambiarEstado.isPending}
+                onClick={() => cambiarEstado.mutate("confirmada")}
+              >
+                <BadgeCheck size={16} /> Confirmar
+              </Button>
+            )}
+            {yaPasoLaHora && (
+              <Button
+                variant="secondary"
+                className="flex-1 text-danger-500"
+                disabled={cambiarEstado.isPending}
+                onClick={() => cambiarEstado.mutate("no_asistio")}
+              >
+                <UserX size={16} /> No asistió
+              </Button>
+            )}
+          </div>
+        )}
+
         {puedeCerrarse && (
-          <Button
-            onClick={() => {
-              onClose();
-              onCerrarCita(cita.id);
-            }}
-          >
-            <CheckCircle2 size={16} /> Cerrar cita
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              className="flex-1"
+              onClick={() => {
+                onClose();
+                onReagendar(cita);
+              }}
+            >
+              <CalendarClock size={16} /> Reagendar
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={() => {
+                onClose();
+                onCerrarCita(cita.id);
+              }}
+            >
+              <CheckCircle2 size={16} /> Cerrar cita
+            </Button>
+          </div>
         )}
       </div>
     </Modal>
