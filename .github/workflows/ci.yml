@@ -1,0 +1,68 @@
+# Atlas project-scaffold: CI — the guardrail that cannot be skipped with
+# --no-verify or from the GitHub web UI. Local hooks are convenience; this is
+# the actual defense.
+#
+# ADAPTED (arranque 2026-11-03): verify = PROJECT.md -> verification
+# (npm run typecheck, npm run build). No lint/tests exist yet (pending in PROJECT.md).
+# `npm ci --ignore-scripts`: skips the postinstall native rebuild of better-sqlite3
+# against Electron and the Electron binary download — neither is needed to typecheck
+# or bundle, and both are slow/fragile on a Linux runner.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: Secret scan (full history)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history: a secret in an old commit is still a leak
+      - name: Run gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"   # bump deliberately, not implicitly
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          ./gitleaks git --redact
+
+  verify:
+    name: Typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"               # same as build-windows.yml
+          cache: npm
+      - run: npm ci --ignore-scripts       # never `npm install` in CI (reproducibility)
+      - run: npm run typecheck             # PROJECT.md -> verification[0]
+      - run: npm run build                 # PROJECT.md -> verification[1]
+
+  notes-pii:
+    name: Notes PII sweep
+    # METHODOLOGY ENFORCEMENT — do not adapt (Gate 001 PR 3). Mirrors
+    # `githooks/validate-notes --all` on every push and PR. A PII hit on main means the
+    # local hook was bypassed AND this job was merged red (or absent) — rung-3 evidence,
+    # or the written residual in git.protections. Fails CLOSED on a missing contract
+    # (the hook's skip on a missing PROJECT.md is a hook decision; CI reproduces the
+    # audit's root cause if it skips). Legacy notes: see the arranque's adoption path.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sweep committed notes (validate-notes --all)
+        run: |
+          set -euo pipefail
+          if [ ! -f PROJECT.md ]; then
+            echo "::error title=Atlas notes::PROJECT.md missing. This repo armed the notes sweep without the Atlas contract — run the Atlas arranque, or remove the job deliberately."
+            exit 1
+          fi
+          bash githooks/validate-notes --all

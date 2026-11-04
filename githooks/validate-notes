@@ -1,0 +1,282 @@
+#!/usr/bin/env bash
+# Atlas project-scaffold: validate-notes — C8, the mechanical guard for VERSIONED notes.
+#
+# Gate 001 verdict: Atlas experiments/gate-001-c8-validator-2026-08-18.md
+# Binding design rules + known-answer corpus: experiments/2026-08-18-c8-retrocalibracion.md
+# Tested by: experiments/2026-08-18-c8-matrix.sh (runs THIS file, not a copy).
+#
+# BLOCKS the commit on PII co-occurrence inside <paths.notes>: a name-like
+# capitalized pair within ±1 line of a subject marker (#N standalone, the
+# project's pii.subject_pattern, or a role/labor keyword). Output is REDACTED:
+# file:line + pattern class, never the matched text.
+# WARNS (never blocks) on dead backticked repo refs, strictly scoped.
+#
+# Modes:
+#   (default)  staged .md files under paths.notes — content read from the INDEX
+#              (a staged leak cleaned from the worktree is still a leak).
+#   --all      every committed .md under paths.notes (read-only sweep used by the
+#              arranque closing report, the poda, and the CI job notes-pii on every
+#              push/PR; a hit on main means the local hook was bypassed AND CI was
+#              merged red or absent — rung-3 evidence, or the written residual in
+#              git.protections. Legacy notes are the arranque's adoption decision).
+#
+# LEDGER STRUCTURE (Gate 001 v0.4, C3-C5). KEEP IN SYNC with templates/atlas-log.md:
+# the entry THIS COMMIT ADDS to <paths.notes>/atlas-log.md (from the staged diff) must
+# carry the template's field labels — verified as LABELS, never as content (the poda
+# counts labels; humans judge content). Fail-closed on a ledger that has prose but no
+# parseable "## [YYYY-MM-DD]" section. --all reports legacy malformed entries as WARN.
+# Suppression for this check is a DISTINCT marker on the entry heading —
+# "<!-- atlas-structure-allow: <reason> -->" — never the PII hatch.
+#
+# Suppression model (owner-controlled, never silent):
+#   * term allowlist: .atlas-notes-allow at repo root (one term per line, # comments).
+#     NEVER add a real subject's name — the file is committed; it would become the
+#     very name<->pattern key this guard exists to block. The file itself is a
+#     critical surface (sensitive_globs + CODEOWNERS).
+#   * per-line escape hatch: append "<!-- atlas-allow: <written reason> -->" to the
+#     flagged line. A marker WITHOUT a reason does not suppress. The answer to a
+#     false block is never --no-verify (that also disables the secret scan).
+set -euo pipefail
+# Deterministic byte semantics everywhere (GUI clients ship C locales; [[:upper:]]
+# misses accented names there). Accented letters are matched as explicit UTF-8 bytes.
+export LC_ALL=C
+
+MODE="${1:-}"
+
+if [ ! -f PROJECT.md ]; then
+  echo "validate-notes: no PROJECT.md — repo not governed; skipping notes validation (the secret scan already ran)."
+  exit 0
+fi
+contract=$(tr -d '\r' < PROJECT.md)
+
+# KEEP IN SYNC: same nested-key parser as atlas-guard.yml (paths.migrations block).
+notes=$(printf '%s\n' "$contract" | awk '
+  /^---$/ { fm++; next }
+  fm==1 && /^paths:/ { inp=1; next }
+  fm==1 && inp && /^[A-Za-z_]/ { exit }
+  fm==1 && inp && /^[[:space:]]+notes:/ {
+    line=$0
+    sub(/^[[:space:]]+notes:[[:space:]]*"?/, "", line)
+    sub(/"[[:space:]]*(#.*)?$/, "", line)
+    sub(/[[:space:]]*#.*$/, "", line)
+    print line; exit
+  }
+')
+case "$notes" in
+  ""|*"["*)
+    echo "BLOCKED: PROJECT.md paths.notes is missing or still a placeholder (${notes:-absent})." >&2
+    echo "Fill it with the real notes directory (default: .notes/). An unreadable contract is red, never silently green." >&2
+    exit 1 ;;
+esac
+notes="${notes%/}"
+
+# Optional per-project subject pattern (the pilot's expediente format is the
+# documented example): pii.subject_pattern in PROJECT.md, quoted ERE.
+subject_re=$(printf '%s\n' "$contract" | awk '
+  /^---$/ { fm++; next }
+  fm==1 && /^pii:/ { inp=1; next }
+  fm==1 && inp && /^[A-Za-z_]/ { exit }
+  fm==1 && inp && /^[[:space:]]+subject_pattern:/ {
+    line=$0
+    sub(/^[[:space:]]+subject_pattern:[[:space:]]*"?/, "", line)
+    sub(/"[[:space:]]*(#.*)?$/, "", line)
+    sub(/[[:space:]]*#.*$/, "", line)
+    print line; exit
+  }
+')
+# An unfilled placeholder (contains a space or a leading "[o") is not a pattern;
+# a poisoned regex here would silently kill the whole PII check via awk failure.
+case "$subject_re" in *" "*) subject_re="" ;; esac
+
+if [ "$MODE" = "--all" ]; then
+  files=$(git ls-files -- "$notes" | grep -E '\.md$' || true)
+  read_content() { cat "$1"; }
+else
+  files=$(git diff --cached --name-only --no-renames -- "$notes" | grep -E '\.md$' || true)
+  read_content() { git show ":$1"; }
+fi
+[ -n "$files" ] || exit 0
+
+# Name-like pair, accented Spanish included, as UTF-8 bytes (works under LC_ALL=C
+# on both BSD and GNU): uppercase-start word, lowercase tail, twice.
+up=$(printf '([A-Z]|\303[\201\211\215\223\232\221\234])')
+lo=$(printf '([a-z]|\303[\241\251\255\263\272\261\274])')
+export NAME_PAIR="${up}${lo}+ ${up}${lo}+"
+# Mapping-key patterns — the catastrophic leak format (a SINGLE capitalized word
+# is enough here: "Nombre (#18)" / "EMP005 (Nombre)" is exactly the key that
+# retroactively de-anonymizes a corpus; measured in the retro-calibration).
+uw="${up}${lo}+"
+export MAP1="${uw}[[:space:]]*\((#[0-9]{1,3})\)"
+export MAP2="\(#[0-9]{1,3}\)[[:space:]]*\(?${uw}"
+if [ -n "$subject_re" ]; then
+  export MAP3="${uw}[[:space:]]*\(${subject_re}\)"
+  export MAP4="${subject_re}[[:space:]]*\(${uw}"
+else
+  export MAP3="" MAP4=""
+fi
+# Subject marker: standalone #N (1-3 digits). Excluded by construction/measured
+# collisions: hex colors (#1E40AF — letter follows), heading anchors (file.md#1 —
+# no separator before #), and PR/issue references (stripped first).
+export REF_STRIP='(PR|PRs|Issue|issue)[[:space:]]*#[0-9]+'
+export HASH_MARK='(^|[[:space:]("])#[0-9]{1,3}([^0-9A-Za-z]|$)'
+export KEYWORDS=$(printf '[Ee]ncargad|[Mm]anager|[Aa]dmin|[Dd]ue\303\261|n\303\263mina|[Ee]xpediente')
+export SUBJECT_RE="${subject_re}"
+
+# Term allowlist: builtin + optional .atlas-notes-allow (comments/empty stripped).
+ALLOW_FILE=".atlas-notes-allow"
+export ALLOW_TERMS="Claude Code"$'\n'"$( [ -f "$ALLOW_FILE" ] && grep -v '^[[:space:]]*#' "$ALLOW_FILE" | grep -v '^[[:space:]]*$' || true )"
+
+# --- ledger structure check (KEEP IN SYNC with templates/atlas-log.md) -----------
+LEDGER_LABELS=("- **Gates/audits run:**" "- **Contract:**" "- **Rule friction:**" "- **Assumptions this session worked under:**" "- **FAIL overrides:**" "- **Outcome annotations:**")
+# prints missing labels for one entry body (stdin), one per line
+ledger_missing() {
+  local body; body=$(sed 's/^[[:space:]]*//')
+  local l
+  for l in "${LEDGER_LABELS[@]}"; do
+    printf '%s\n' "$body" | grep -Fq -- "$l" || printf '%s\n' "$l"
+  done
+}
+# $1 = file; uses MODE. Sets ledger_fail=1 on BLOCK; bumps warn on --all findings.
+check_ledger_structure() {
+  local f="$1"
+  local labels; labels=$(printf '%s\n' "${LEDGER_LABELS[@]}")
+  if [ "$MODE" = "--all" ]; then
+    local report
+    export LEDGER_LABELS_STR="$labels"
+    report=$(tr -d '\r' < "$f" | awk -v fl="$f" '
+      BEGIN { n = split(ENVIRON["LEDGER_LABELS_STR"], L, "\n"); nsec = 0 }
+      function flush(   i, miss) {
+        if (h == "") return
+        if (h ~ /atlas-structure-allow:[[:space:]]*[^[:space:]]/) return
+        miss = ""
+        for (i = 1; i <= n; i++) if (length(L[i]) && index(body, L[i]) == 0) miss = miss L[i] " "
+        if (miss != "") printf "warn: %s entry \"%s\" lacks labels: %s(legacy — signal 1 evidence for the poda)\n", fl, substr(h, 1, 40), miss
+      }
+      /^## \[/ { flush(); h = $0; body = ""; nsec++; next }
+      { body = body "\n" $0; if (nsec == 0 && $0 !~ /^(#|Append-only|Newest entry|---|<!--|[[:space:]]*$)/) prose = 1 }
+      END { flush(); if (nsec == 0 && prose) printf "warn: %s has content but no parseable \"## [YYYY-MM-DD]\" entry section (legacy ledger)\n", fl }')
+    if [ -n "$report" ]; then
+      printf '%s\n' "$report"
+      warn=$((warn + $(printf '%s\n' "$report" | wc -l | tr -d ' ')))
+    fi
+    return 0
+  fi
+  # staged mode: the entry THIS COMMIT ADDS (from the staged diff), fail-closed on prose-without-sections
+  local added; added=$(git diff --cached -U0 --no-color -- "$f" | grep -E '^\+' | grep -vE '^\+\+\+' | sed 's/^+//' | tr -d '\r' || true)
+  local blob; blob=$(git show ":$f" 2>/dev/null | tr -d '\r' || true)
+  local nsec; nsec=$(printf '%s\n' "$blob" | grep -c '^## \[' || true)
+  if [ "$nsec" -eq 0 ]; then
+    local prose; prose=$(printf '%s\n' "$blob" | grep -vE '^(#|Append-only|Newest entry|---|<!--|[[:space:]]*$)' || true)
+    if [ -n "$prose" ]; then
+      echo "BLOCKED: $f has content but no parseable '## [YYYY-MM-DD] · …' entry section. A ledger that cannot be read is red, never silently green — use the section form of templates/atlas-log.md." >&2
+      ledger_fail=1
+    fi
+    return 0
+  fi
+  local starts; starts=$(printf '%s\n' "$added" | grep -n '^## \[' | cut -d: -f1 || true)
+  [ -n "$starts" ] || return 0     # touched without adding an entry
+  local total; total=$(printf '%s\n' "$added" | wc -l | tr -d ' ')
+  local s e h body miss
+  for s in $starts; do
+    e=$(printf '%s\n' "$starts" | awk -v s="$s" '$1>s{print $1; exit}'); [ -n "$e" ] || e=$((total+1))
+    h=$(printf '%s\n' "$added" | sed -n "${s}p")
+    if [[ "$h" =~ atlas-structure-allow:[[:space:]]*[^[:space:]] ]]; then continue; fi
+    body=$(printf '%s\n' "$added" | sed -n "$((s+1)),$((e-1))p")
+    miss=$(printf '%s\n' "$body" | ledger_missing)
+    if [ -n "$miss" ]; then
+      echo "BLOCKED: $f — the entry added by this commit ('${h:0:50}…') lacks labels: $(printf '%s' "$miss" | tr '\n' ' ')" >&2
+      echo "         Add each label with 'none' if nothing applies (templates/atlas-log.md). The poda counts labels; only humans judge content." >&2
+      ledger_fail=1
+    fi
+  done
+}
+ledger_fail=0
+
+fail=0
+warn=0
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  [ "$f" = "$notes/atlas-log.md" ] && check_ledger_structure "$f"
+  out=$(read_content "$f" 2>/dev/null | tr -d '\r' | awk '
+    BEGIN {
+      np   = ENVIRON["NAME_PAIR"]
+      strip= ENVIRON["REF_STRIP"]
+      hm   = ENVIRON["HASH_MARK"]
+      kw   = ENVIRON["KEYWORDS"]
+      sre  = ENVIRON["SUBJECT_RE"]
+      map1 = ENVIRON["MAP1"]; map2 = ENVIRON["MAP2"]
+      map3 = ENVIRON["MAP3"]; map4 = ENVIRON["MAP4"]
+      n_allow = split(ENVIRON["ALLOW_TERMS"], allow, "\n")
+    }
+    { raw[NR] = $0 }
+    END {
+      for (i = 1; i <= NR; i++) {
+        line = raw[i]
+        # per-line escape hatch: needs a WRITTEN reason
+        if (line ~ /<!-- atlas-allow:[[:space:]]*[^[:space:]][^>]*-->/) { sup[i] = 1 }
+        clean = line
+        for (a = 1; a <= n_allow; a++) if (length(allow[a])) gsub(allow[a], "", clean)
+        if (clean ~ np) pair[i] = 1
+        if (!sup[i]) {
+          if (clean ~ map1 || clean ~ map2) mapping[i] = "mapping "
+          if (length(map3) && (clean ~ map3 || clean ~ map4)) mapping[i] = mapping[i] "subject-mapping "
+        }
+        m = line
+        gsub(strip, "", m)
+        cls = ""
+        if (m ~ hm) cls = cls "#N "
+        if (length(sre) && m ~ sre) cls = cls "subject_pattern "
+        if (m ~ kw) cls = cls "keyword "
+        mark[i] = cls
+      }
+      for (i = 1; i <= NR; i++) {
+        if (sup[i]) continue
+        if (mapping[i] != "") { printf "%d\t%s\n", i, mapping[i]; continue }
+        if (!pair[i]) continue
+        cls = mark[i]
+        if (cls == "" && i > 1)  cls = mark[i-1]
+        if (cls == "" && i < NR) cls = mark[i+1]
+        if (cls != "") printf "%d\t%s\n", i, cls
+      }
+    }
+  ' || true)
+  if [ -n "$out" ]; then
+    fail=1
+    while IFS=$'\t' read -r ln cls; do
+      echo "BLOCKED: $f:$ln — PII co-occurrence (${cls% }) [content redacted]" >&2
+    done <<< "$out"
+  fi
+
+  # Dead backticked repo refs — WARN only, strict scoping (noise budget: see
+  # experiments/2026-08-18-c8-calibracion.md; cross-repo refs are accepted noise,
+  # suppress with the per-line escape hatch).
+  refs=$(read_content "$f" 2>/dev/null | tr -d '\r' \
+    | grep -vE 'atlas-allow:[[:space:]]*[^[:space:]]' \
+    | grep -oE '`[^`]+`' | sed 's/^`//; s/`$//' \
+    | grep -F '/' | grep -vE '^(@|\.\/|[a-z]+:\/\/)' \
+    | grep -vE '[{}*?]' | grep -vE '/$' \
+    | grep -vE '(^|/)(node_modules|\.next)(/|$)' \
+    | sed -E 's/:[0-9]+(-[0-9]+)?$//' | sort -u || true)
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+    base="${ref##*/}"; first="${ref%%/*}"
+    case "$base" in *.*) ;; *) continue ;; esac      # extensionless refs excluded
+    [ -d "$first" ] || continue                       # first segment must exist here
+    [ -e "$ref" ] && continue
+    warn=$((warn+1))
+    echo "warn: $f cites \`$ref\` which does not exist (moved file, typo, or cross-repo ref — fix the doc or add <!-- atlas-allow: reason -->)"
+  done <<< "$refs"
+done <<< "$files"
+
+[ "$warn" -gt 0 ] && echo "validate-notes: $warn warning(s) — drift to fix, not a block."
+[ "$ledger_fail" -ne 0 ] && exit 1
+if [ "$fail" -ne 0 ]; then
+  cat >&2 <<'EOF'
+Notes under paths.notes carry an unmasked-PII pattern. Fix it (subjects are
+"colaborador #N", never names), or — for a true false positive — append
+"<!-- atlas-allow: <reason> -->" to the flagged line. Do NOT reach for
+--no-verify: it also disables the secret scan.
+EOF
+  exit 1
+fi
+exit 0

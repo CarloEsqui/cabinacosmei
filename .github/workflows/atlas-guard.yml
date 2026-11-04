@@ -1,0 +1,336 @@
+# Atlas project-scaffold: atlas-guard — rung-2 imposition of the PR declarations
+# (ADR-0007). ci.yml is per-project ADAPT territory; this file is methodology
+# enforcement, identical across governed projects — update it from Atlas, never
+# adapt it per project.
+#
+# Gate 001 verdict for this design: Atlas experiments/gate-001-atlas-guard-2026-08-18.md
+# Pre-estreno audits that hardened it: Atlas experiments/2026-08-18-auditoria-scaffold-git.md
+# Test matrix (runs the ACTUAL run blocks below): Atlas experiments/2026-08-18-atlas-guard-matrix.sh
+#
+# COUPLING (load-bearing): the substrings this workflow greps come from
+# .github/pull_request_template.md, where each checkbox lives on ONE physical
+# line. Change wording there and here IN THE SAME PR, or the guard fails closed
+# with a misleading message.
+#
+# GOVERNING RULE (audit 2026-08-18, root cause of C1/C2): "could not read" is
+# NEVER treated as "nothing to read". An unparseable contract, an itemless list,
+# a placeholder glob, or a missing key is a RED with remediation — the only green
+# empty form is the explicit claim `sensitive_globs: []`.
+#
+# Scope decisions, written down:
+# - pull_request only: direct pushes to main carry no declarations and stay
+#   uncovered until rung 3 (branch protection) is bought — owner decision M1,
+#   2026-08-18 (Atlas docs/plan-v0.3.md). NOTE: without rung 3, a PR that DELETES
+#   this workflow produces no red — only absence. For a critical project, making
+#   these two jobs required checks is the highest-leverage purchase.
+# - Draft PRs are exempt; the guard runs when the PR is marked ready for review.
+# - The gate-trigger heuristic (job 2) deliberately under-approximates: it sees
+#   migrations and dependency manifests/lockfiles only. Sensitive code paths are
+#   job 1's territory via sensitive_globs; the checkbox (which reproduces the
+#   canonical trigger list of gates/architecture.md) remains the full-coverage layer.
+# - A checked declaration beats the heuristic (ADR-0007: the guard forces an
+#   attributable decision, it does not judge it) — but the disagreement is written
+#   to the run summary and a checks-page annotation, never silently green.
+# - Residual (accepted, now VISIBLE): a PR that edits PROJECT.md itself passes job 1 by
+#   construction (path a) — rung 2 cannot tell updating the contract from hollowing
+#   it. Since PR 3 the summary names it literally ("PROJECT.md edited — no declaration
+#   box checked") so a reviewer sees it; judging it is CODEOWNERS/rung-3 territory.
+# - Fourth declaration path (e) "applies a verdict or plan item": a declaration, not a
+#   judgment — domain code declared via (e) is green and attributable. Reopen/retire
+#   if: a poda finds (e) used once for domain code that applied no artifact.
+name: Atlas guard
+
+on:
+  pull_request:
+    # `edited` is NOT a default type: without it, checking a box in the PR
+    # description would never re-run the guard and red would be permanent.
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+# Contributor-controlled input is processed here; nothing beyond read is needed.
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  contract-drift:
+    name: Contract drift (critical surfaces)
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PR_BODY: ${{ github.event.pull_request.body }}
+      BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Sensitive paths require an explicit declaration
+        run: |
+          set -euo pipefail
+          # KEEP IN SYNC: glob_to_regex is extracted and unit-tested verbatim by
+          # Atlas experiments/2026-08-18-atlas-guard-matrix.sh.
+          # Glob dialect (documented next to sensitive_globs in PROJECT.md):
+          # anchored to repo root; * stops at /; ** crosses /; a leading **/ and an
+          # intermediate /**/ also match zero directories; "dir/" means dir/**.
+          # Pure awk: portable across GNU (CI) and BSD (the local matrix) — bash 3.2
+          # mishandles quoted patterns in ${var//…}, which bit the first version.
+          glob_to_regex() {
+            printf '%s' "$1" | awk '
+              { g=$0
+                if (g ~ /\/$/) g = g "**"
+                gsub(/[].^$+?(){}|[]/, "\\\\&", g)
+                gsub(/\*\*/, "\001", g)
+                gsub(/\*/, "[^/]*", g)
+                sub(/^\001\//, "(.*/)?", g)
+                gsub("/\001/", "/(.*/)?", g)
+                gsub("\001", ".*", g)
+                printf "^%s$", g
+              }'
+          }
+
+          if [ ! -f PROJECT.md ]; then
+            echo "::error title=Atlas guard::PROJECT.md missing. This repo armed atlas-guard without the Atlas contract — run the Atlas arranque, or remove the workflow deliberately."
+            exit 1
+          fi
+          contract=$(tr -d '\r' < PROJECT.md)   # CRLF-saved contracts must not unparse the frontmatter
+
+          set +e
+          globs=$(printf '%s\n' "$contract" | awk '
+            BEGIN { dq="\""; sq=sprintf("%c",39) }
+            /^---$/ { fm++; next }
+            fm==1 && /^sensitive_globs:/ {
+              found=1
+              if ($0 ~ /\[[[:space:]]*\]/) { print "__EMPTY__"; exit }
+              if ($0 ~ /\[/) { print "__FLOW__"; exit }
+              inlist=1; next
+            }
+            fm==1 && inlist && /^[A-Za-z_]/ { exit }
+            fm==1 && inlist && /^[[:space:]]*-/ {
+              line=$0
+              sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+              c=substr(line,1,1)
+              if (c==dq || c==sq) {
+                line=substr(line,2); i=index(line,c)
+                line = (i ? substr(line,1,i-1) : "")
+              } else {
+                sub(/[[:space:]]*#.*$/, "", line); sub(/[[:space:]]+$/, "", line)
+              }
+              if (length(line)) print line
+            }
+            END { if (!found) exit 3 }
+          ')
+          rc=$?
+          set -e
+          if [ "$rc" -eq 3 ]; then
+            echo "::error title=Atlas guard::PROJECT.md has no sensitive_globs key. Declare it (an empty list [] is an explicit claim that no path is sensitive); the guard cannot protect what the contract does not name."
+            exit 1
+          fi
+          [ "$rc" -eq 0 ] || exit "$rc"
+
+          if [ "$globs" = "__EMPTY__" ]; then
+            echo "sensitive_globs: [] — explicit empty claim; nothing to guard."
+            exit 0
+          fi
+          if [ "$globs" = "__FLOW__" ]; then
+            echo "::error title=Atlas guard::sensitive_globs uses a flow-style list ([...]). Use a block list — one entry per line, quoted — or the guard cannot read it. An unreadable contract is red, never silently green."
+            exit 1
+          fi
+          if [ -z "$globs" ]; then
+            echo "::error title=Atlas guard::sensitive_globs exists but no entry could be read. Use a block list, one entry per line (quotes optional; unclosed quotes are dropped). List the globs mirroring critical_surfaces, or make the empty claim explicit with sensitive_globs: []. An unreadable contract is red, never silently green."
+            exit 1
+          fi
+
+          changed=$(git diff --name-only --no-renames "origin/$BASE_REF...HEAD")
+          matched=""
+          while IFS= read -r g; do
+            [ -n "$g" ] || continue
+            case "$g" in
+              *"[pending"*|*"[e.g."*|*"[path"*|*"[one"*)
+                echo "::error title=Atlas guard::sensitive_globs still holds the template placeholder: $g — a placeholder glob matches nothing, so the guard would stay green over unprotected paths. Replace it with the real glob or remove it."
+                exit 1 ;;
+            esac
+            re=$(glob_to_regex "$g")
+            hits=$(printf '%s\n' "$changed" | grep -E "$re" || true)
+            if [ -n "$hits" ]; then
+              matched="${matched}$(printf '%s\n' "$hits" | awk -v g="$g" '{print $0 "  (glob: " g ")"}')"$'\n'
+            fi
+          done <<EOF_GLOBS
+          $globs
+          EOF_GLOBS
+
+          if [ -z "$matched" ]; then
+            echo "No sensitive path touched."
+            exit 0
+          fi
+
+          body=$(printf '%s' "${PR_BODY:-}" | tr -d '\r')
+          checked_line() { printf '%s\n' "$body" | grep -Ei '^[[:space:]]*-[[:space:]]\[x\]' | grep -Fi "$1" | head -1 || true; }
+          # Declaration VECTOR — every box's state is computed on every run (Gate 001 PR 3, C5):
+          # unchecked / valid / placeholder. The satisfying path is chosen by precedence AFTER
+          # the whole vector exists, so no path is unreachable and none is silent.
+          none_state=unchecked; line=$(checked_line 'creates no new critical surface')
+          if [ -n "$line" ]; then
+            case "$line" in *"[one line]"*) none_state=placeholder ;; *)
+              after="${line##*because:}"
+              if [ "$after" != "$line" ] && [ -n "$(printf '%s' "$after" | tr -d '[:space:]')" ]; then none_state=valid; else none_state=placeholder; fi ;;
+            esac
+          fi
+          touch_state=unchecked; line=$(checked_line 'here is the gate')
+          if [ -n "$line" ]; then
+            if printf '%s\n' "$body" | grep -F 'auditoria-' | grep -Fv 'link to' | grep -q . \
+            && printf '%s\n' "$body" | grep -F 'evidencia-' | grep -Fv 'link to' | grep -q .; then touch_state=valid; else touch_state=placeholder; fi
+          fi
+          creates_state=unchecked; [ -n "$(checked_line 'it **creates** one')" ] && creates_state=checked
+          applies_state=unchecked; applies_link=""; line=$(checked_line 'it **applies**')
+          if [ -n "$line" ]; then
+            case "$line" in *"[verdict or plan path]"*) applies_state=placeholder ;; *)
+              # decidable link rule (C6): a path-shaped token — contains "/" and ends in .md
+              applies_link=$(printf '%s' "$line" | grep -oE '[^[:space:]`]+/[^[:space:]`]*\.md' | head -1 || true)
+              if [ -n "$applies_link" ]; then applies_state=valid; else applies_state=placeholder; fi ;;
+            esac
+          fi
+          contract_edit=no; printf '%s\n' "$changed" | grep -qx 'PROJECT.md' && contract_edit=yes
+
+          via=""; declared=""
+          if   [ "$applies_state" = valid ];    then via="(e)"; declared="'applies a verdict/plan item' box → ${applies_link}"
+          elif [ "$none_state" = valid ];       then via="(b)"; declared="'creates no new critical surface' box, evaluated because:${after}"
+          elif [ "$touch_state" = valid ];      then via="(c)"; declared="'touches one, here is the gate' box with audit + evidence links (reviewer: verify them)"
+          elif [ "$creates_state" = checked ];  then via="(d)"; declared="'creates one' box (reviewer: verify the new surface entered the contract)"
+          elif [ "$contract_edit" = yes ];      then via="(a)"; declared="PROJECT.md edited — no declaration box checked"
+          fi
+          vector="boxes: none=${none_state} touches=${touch_state} creates=${creates_state} applies=${applies_state} · contract-edit=${contract_edit} · satisfied-by=${via:-none}"
+
+          if [ -z "$declared" ]; then
+            echo "::error title=Atlas guard::This PR touches sensitive paths and declares nothing. Silence is not an option."
+            printf 'Sensitive paths touched:\n%s\n' "$matched"
+            echo "Declaration vector: $vector"
+            [ "$touch_state" = placeholder ]   && echo "NOTE: the 'here is the gate' box IS checked, but its links are still the template placeholders — a keystroke is not a gate. Link the real auditoria-… and evidencia-… files."
+            [ "$applies_state" = placeholder ] && echo "NOTE: the 'applies' box IS checked, but its link is the placeholder or not a path — link the verdict/plan artifact (a path containing '/' and ending in .md)."
+            [ "$none_state" = placeholder ]    && echo "NOTE: the 'creates no new critical surface' box IS checked, but 'evaluated because:' is empty or the [one line] placeholder."
+            cat <<'EOF_MSG'
+          Four ways to go green (PR description):
+            1. check "- [x] ... creates no new critical surface — evaluated because: <your reason>", or
+            2. check the "…or it touches one, and here is the gate" box AND link the real
+               audit + evidence files, or
+            3. check the "…or it creates one" box (the surface enters the contract in this PR), or
+            4. check the "…or it applies a verdict or plan item" box AND link that artifact
+               (accepted forms: any path containing "/" and ending in .md — gate-001-…, a plan,
+               an ADR, an audit or evidence report, a poda).
+          Editing PROJECT.md in this PR also passes, and is reported as "no declaration box checked".
+          Checking a box in the description re-runs this check automatically.
+          EOF_MSG
+            exit 1
+          fi
+
+          {
+            echo "### Atlas guard — contract drift"
+            echo "Sensitive paths touched:"
+            echo '```'
+            printf '%s' "$matched"
+            echo '```'
+            echo "Declaration vector: ${vector}"
+            echo "Declaration that satisfied the guard: ${via} ${declared}"
+            [ "$touch_state" = placeholder ]   && echo "⚠️ 'here is the gate' is checked with placeholder links — reported even though another path satisfied the guard."
+            [ "$applies_state" = placeholder ] && echo "⚠️ 'applies' is checked with a placeholder or non-path link — reported even though another path satisfied the guard."
+            true
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Atlas guard::${vector}. Declared via ${via} ${declared}. Reviewer: the guard verified the declaration EXISTS, not that it is true."
+
+  gate-trigger:
+    name: Gate 001 trigger (verdict or exemption)
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PR_BODY: ${{ github.event.pull_request.body }}
+      BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gate triggers require a verdict artifact or a recorded exemption
+        run: |
+          set -euo pipefail
+          if [ ! -f PROJECT.md ]; then
+            echo "::error title=Atlas guard::PROJECT.md missing. This repo armed atlas-guard without the Atlas contract — run the Atlas arranque, or remove the workflow deliberately."
+            exit 1
+          fi
+          contract=$(tr -d '\r' < PROJECT.md)   # CRLF-saved contracts must not unparse the frontmatter
+
+          mig=$(printf '%s\n' "$contract" | awk '
+            /^---$/ { fm++; next }
+            fm==1 && /^paths:/ { inp=1; next }
+            fm==1 && inp && /^[A-Za-z_]/ { exit }
+            fm==1 && inp && /^[[:space:]]+migrations:/ {
+              line=$0
+              sub(/^[[:space:]]+migrations:[[:space:]]*"?/, "", line)
+              sub(/"[[:space:]]*(#.*)?$/, "", line)
+              sub(/[[:space:]]*#.*$/, "", line)
+              print line; exit
+            }
+          ')
+
+          case "$mig" in
+            *"["*)
+              echo "::error title=Atlas guard::paths.migrations in PROJECT.md is still the template placeholder. Fill it with the real path, or the literal none."
+              exit 1 ;;
+          esac
+          if [ -z "$mig" ]; then
+            echo "::error title=Atlas guard::paths.migrations is missing from PROJECT.md's frontmatter. Declare the real path, or the literal none — an absent key would silently disable the migrations heuristic while the guard looks armed."
+            exit 1
+          fi
+
+          changed=$(git diff --name-only --no-renames "origin/$BASE_REF...HEAD")
+          fired=""
+
+          if [ "$mig" != "none" ]; then
+            mig="${mig%/}"
+            mig_re=$(printf '%s' "$mig" | sed 's/[].^$+?(){}|[]/\\&/g')
+            hits=$(printf '%s\n' "$changed" | grep -E "^${mig_re}/" || true)
+            [ -n "$hits" ] && fired="${fired}migration change:"$'\n'"$hits"$'\n'
+          fi
+
+          hits=$(printf '%s\n' "$changed" \
+            | grep -E '(^|/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|pyproject\.toml|requirements\.txt|poetry\.lock|go\.mod|go\.sum|Cargo\.toml|Cargo\.lock|Gemfile|Gemfile\.lock|composer\.json|composer\.lock|pom\.xml|build\.gradle|build\.gradle\.kts)$|\.csproj$|\.tf$' || true)
+          [ -n "$hits" ] && fired="${fired}dependency manifest change:"$'\n'"$hits"$'\n'
+
+          if [ -z "$fired" ]; then
+            echo "No Gate 001 heuristic fired (heuristics are a deliberate under-approximation; the PR checkbox covers the rest)."
+            exit 0
+          fi
+
+          body=$(printf '%s' "${PR_BODY:-}" | tr -d '\r')
+          declared=""
+          if printf '%s\n' "$body" | grep -F 'gate-001-' | grep -Fv 'link to' | grep -Fv '<paths.' | grep -q .; then
+            declared="gate verdict artifact referenced in the PR body"
+          elif printf '%s\n' "$body" | grep -Ei '^[[:space:]]*-[[:space:]]\[x\]' | grep -Fiq 'No Gate 001 trigger applies'; then
+            declared="'No Gate 001 trigger applies' box — the heuristic fired, but trivial/reversible changes are exempt by the gate spec; this exemption is recorded and attributable"
+          fi
+
+          if [ -z "$declared" ]; then
+            echo "::error title=Atlas guard::This PR meets a Gate 001 trigger heuristic and declares nothing. Silence is not an option."
+            printf 'Triggers fired:\n%s\n' "$fired"
+            cat <<'EOF_MSG'
+          Two ways to go green (PR description, Architecture Gate section):
+            1. Run Gate 001 on the design and link its verdict artifact
+               (<paths.notes>/gate-001-...) in the checkbox line — a half-edited
+               placeholder does not count, or
+            2. check "- [x] No Gate 001 trigger applies (...)" — your recorded,
+               attributable claim that the change is trivial or reversible.
+          Checking a box in the description re-runs this check automatically.
+          EOF_MSG
+            exit 1
+          fi
+
+          {
+            echo "### Atlas guard — gate trigger"
+            echo "Heuristics fired:"
+            echo '```'
+            printf '%s' "$fired"
+            echo '```'
+            echo "Declaration that satisfied the guard: ${declared}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Atlas guard::Gate 001 heuristic fired; declared via ${declared}. Reviewer: the guard verified the declaration EXISTS, not that it is true."

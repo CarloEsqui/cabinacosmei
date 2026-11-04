@@ -1,0 +1,46 @@
+# Atlas: CODEOWNERS — seeded from PROJECT.md -> critical_surfaces (arranque 2026-11-03).
+# Keep in sync with sensitive_globs: a new critical surface enters here in the same PR.
+# State (git.protections): public repo, branch protection NOT configured -> this file
+# gives visibility only; enforcement needs branch protection (rung 3).
+# LOCATION: must stay at the repo root.
+
+*                                         @CarloEsqui
+
+# --- the contract protects itself ---
+PROJECT.md                                @CarloEsqui
+CODEOWNERS                                @CarloEsqui
+.github/                                  @CarloEsqui
+.atlas-notes-allow                        @CarloEsqui
+githooks/                                 @CarloEsqui
+
+# --- migraciones y arranque de BD ---
+drizzle/                                  @CarloEsqui
+electron/db/                              @CarloEsqui
+
+# --- dinero ---
+electron/services/pagos.ts                @CarloEsqui
+electron/services/corte.ts                @CarloEsqui
+electron/services/serviciosRealizados.ts  @CarloEsqui
+electron/services/reportesFinanzas.ts     @CarloEsqui
+src/pages/agenda/CierreCitaModal.tsx      @CarloEsqui
+src/pages/Corte.tsx                       @CarloEsqui
+
+# --- respaldos, restauración, reinicio ---
+electron/services/respaldos.ts            @CarloEsqui
+electron/services/reinicio.ts             @CarloEsqui
+electron/services/migracionCarpetas.ts    @CarloEsqui
+
+# --- licencias y releases ---
+electron/services/licencia.ts             @CarloEsqui
+electron/services/matricula.ts            @CarloEsqui
+electron/services/actualizaciones.ts      @CarloEsqui
+scripts/generar-llaves.mjs                @CarloEsqui
+scripts/firmar-licencia.mjs               @CarloEsqui
+keys/                                     @CarloEsqui
+package.json                              @CarloEsqui
+
+# --- PII de clientas ---
+electron/services/clientes.ts             @CarloEsqui
+electron/services/archivos.ts             @CarloEsqui
+electron/services/folders.ts              @CarloEsqui
+electron/services/exportarCsv.ts          @CarloEsqui

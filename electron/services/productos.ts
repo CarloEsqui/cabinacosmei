@@ -116,7 +116,7 @@ export async function eliminarProducto(id: string, usuarioId?: string): Promise<
   const db = getDb();
   eliminarOFallarConHistorial(
     () => db.delete(productos).where(eq(productos.id, id)).run(),
-    "Este producto tiene lotes, entradas o salidas asociadas. Desactívalo en su lugar.",
+    "Este producto tiene lotes, entradas, salidas o servicios que lo usan. Desactívalo en su lugar.",
   );
   registrarAccion(db, {
     usuarioId,

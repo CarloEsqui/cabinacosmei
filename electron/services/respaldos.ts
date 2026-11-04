@@ -17,8 +17,15 @@ import type { RespaldoRow } from "../../shared/types";
 const PREFIJO_AUTO = "cabina_auto_";
 const PREFIJO_MANUAL = "cabina_respaldo_";
 
-// Cuántos respaldos AUTOMÁTICOS se conservan; los más viejos se borran solos. Los respaldos
-// MANUALES nunca se podan (se hicieron a propósito). Cambia este número si quieres guardar más.
+// Motivo del respaldo diario. SOLO estos se podan: los automáticos "de seguridad" (antes de
+// borrar datos, restablecer, restaurar o migrar) son la única red tras una acción irreversible y
+// la UI promete que "siempre podrás restaurarlo" — antes compartían la poda y desaparecían tras
+// 3 respaldos diarios (auditoría DAT-C1, 2026-11-03).
+const MOTIVO_DIARIO = "diario";
+const PREFIJO_DIARIO = `${PREFIJO_AUTO}${MOTIVO_DIARIO}_`;
+
+// Cuántos respaldos DIARIOS se conservan; los más viejos se borran solos. Los MANUALES y los
+// automáticos de seguridad nunca se podan. Cambia este número si quieres guardar más.
 const MAX_RESPALDOS_AUTO = 3;
 
 function carpetaRespaldos(carpetaRaiz: string): string {
@@ -110,10 +117,11 @@ export async function crearRespaldo(usuarioId?: string, motivoAuto?: string): Pr
 }
 
 /**
- * Conserva solo los MAX_RESPALDOS_AUTO respaldos automáticos más recientes y borra los más viejos
- * (el archivo .zip y su registro en la base). Los respaldos manuales se ignoran por completo: se
- * quedan hasta que la usuaria los borre a mano. Si un archivo no se puede borrar (p. ej. está
- * abierto), se deja su registro para reintentar en la próxima limpieza.
+ * Conserva solo los MAX_RESPALDOS_AUTO respaldos DIARIOS más recientes y borra los más viejos
+ * (el archivo .zip y su registro en la base). Los manuales y los automáticos de seguridad
+ * (`antes_de_*`) se ignoran por completo: se quedan hasta que la usuaria los borre a mano. Si un
+ * archivo no se puede borrar (p. ej. está abierto), se deja su registro para reintentar en la
+ * próxima limpieza.
  */
 function podarRespaldosAutomaticos(): void {
   const db = getDb();
@@ -122,7 +130,7 @@ function podarRespaldosAutomaticos(): void {
     .from(respaldosLog)
     .orderBy(desc(respaldosLog.createdAt))
     .all()
-    .filter((r) => path.basename(r.rutaArchivo).startsWith(PREFIJO_AUTO));
+    .filter((r) => path.basename(r.rutaArchivo).startsWith(PREFIJO_DIARIO));
 
   for (const viejo of automaticos.slice(MAX_RESPALDOS_AUTO)) {
     try {
@@ -261,7 +269,7 @@ export async function asegurarRespaldoAutomaticoDiario(): Promise<void> {
   const hoy = fechaLocalIso();
   const ultimo = db.select().from(respaldosLog).orderBy(desc(respaldosLog.createdAt)).limit(1).get();
   if (!ultimo || fechaLocalIso(ultimo.createdAt) !== hoy) {
-    await crearRespaldo(undefined, "diario"); // crearRespaldo ya poda los viejos al terminar
+    await crearRespaldo(undefined, MOTIVO_DIARIO); // crearRespaldo ya poda los viejos al terminar
     return;
   }
   // Aunque hoy ya haya respaldo, limpiamos por si quedaron acumulados de antes de esta mejora.
