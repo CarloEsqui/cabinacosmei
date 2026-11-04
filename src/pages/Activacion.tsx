@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import type { EstadoLicencia } from "@shared/types";
+import { AlertaError } from "@/components/ui/alerta-error";
+import { mensajeDeError } from "@/lib/errores";
 
 interface ActivacionScreenProps {
   estado: EstadoLicencia;
@@ -46,7 +48,7 @@ export function ActivacionScreen({ estado, onActivada }: ActivacionScreenProps) 
       const nuevo = await window.api.licencia.instalarToken(token.trim());
       onActivada(nuevo);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo activar la licencia.");
+      setError(mensajeDeError(err, "No se pudo activar la licencia."));
     } finally {
       setProcesando(false);
     }
@@ -96,7 +98,7 @@ export function ActivacionScreen({ estado, onActivada }: ActivacionScreenProps) 
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
               />
-              {error && <p className="text-sm text-danger-500">{error}</p>}
+              {error && <AlertaError mensaje={error} />}
               <Button type="submit" disabled={procesando || !token.trim()} className="mt-1">
                 <KeyRound size={16} /> Activar
               </Button>

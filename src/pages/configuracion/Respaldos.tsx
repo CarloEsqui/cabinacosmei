@@ -10,6 +10,7 @@ import { IlustracionDocumento } from "@/components/ui/ilustraciones";
 import { useToast } from "@/components/ui/toast";
 import { mensajeDeError } from "@/lib/errores";
 import { formatFechaHoraMs } from "@/lib/format";
+import { AlertaError } from "@/components/ui/alerta-error";
 
 function formatearTamanio(bytes: number | null): string {
   if (!bytes) return "—";
@@ -129,7 +130,7 @@ export function RespaldosTab() {
                   Cancelar
                 </Button>
               </div>
-              {errorArchivo && <p className="mt-2 text-sm text-danger-500">{errorArchivo}</p>}
+              {errorArchivo && <AlertaError mensaje={errorArchivo} className="mt-2" />}
             </div>
           )}
         </CardContent>
@@ -231,7 +232,7 @@ export function RespaldosTab() {
               Cancelar
             </Button>
           </div>
-          {error && <p className="mt-2 text-sm text-danger-500">{error}</p>}
+          {error && <AlertaError mensaje={error} className="mt-2" />}
         </div>
       )}
 
@@ -334,7 +335,7 @@ function ZonaDePeligro() {
                 Cancelar
               </Button>
             </div>
-            {error && <p className="mt-2 text-sm text-danger-500">{error}</p>}
+            {error && <AlertaError mensaje={error} className="mt-2" />}
           </div>
         )}
       </CardContent>

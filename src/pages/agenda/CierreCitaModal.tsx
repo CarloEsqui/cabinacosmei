@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { formatFecha } from "@/lib/format";
 import type { Producto } from "@shared/types";
+import { AlertaError } from "@/components/ui/alerta-error";
+import { mensajeDeError } from "@/lib/errores";
 
 interface FilaProducto {
   productoId: string;
@@ -133,7 +135,7 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
         }
       }
     },
-    onError: (e) => setError(e instanceof Error ? e.message : "No se pudo cerrar la cita."),
+    onError: (e) => setError(mensajeDeError(e, "No se pudo cerrar la cita.")),
   });
 
   function agregarFila(lista: FilaProducto[], setLista: (f: FilaProducto[]) => void) {
@@ -298,7 +300,7 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
           )}
         </div>
 
-        {error && <p className="text-sm text-danger-500">{error}</p>}
+        {error && <AlertaError mensaje={error} />}
         {!error && motivoBloqueo && <p className="text-xs text-ink-500">{motivoBloqueo}</p>}
 
         <Button disabled={!listoParaCerrar || cerrar.isPending} onClick={() => cerrar.mutate()}>

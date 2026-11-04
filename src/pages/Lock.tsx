@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { ManchaOrganica, PetalosAlVuelo, RamitaEnFlor } from "@/components/ui/decoracion";
+import { AlertaError } from "@/components/ui/alerta-error";
+import { mensajeDeError } from "@/lib/errores";
 
 interface LockScreenProps {
   onUnlock: () => void;
@@ -61,7 +63,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
       await window.api.usuarios.actualizarNombre(nombreLimpio);
       onUnlock();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo crear el PIN.");
+      setError(mensajeDeError(err, "No se pudo crear el PIN."));
     } finally {
       setProcesando(false);
     }
@@ -161,7 +163,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
                   onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
                   placeholder="••••"
                 />
-                {error && <p className="text-sm text-danger-500">{error}</p>}
+                {error && <AlertaError mensaje={error} />}
                 <Button type="submit" disabled={procesando || pin.length < 4} className="mt-1">
                   <LockIcon size={16} /> Entrar
                 </Button>
@@ -200,7 +202,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
                   value={confirmarPin}
                   onChange={(e) => setConfirmarPin(e.target.value.replace(/\D/g, ""))}
                 />
-                {error && <p className="text-sm text-danger-500">{error}</p>}
+                {error && <AlertaError mensaje={error} />}
                 <Button type="submit" disabled={procesando || nombre.trim().length < 2 || pin.length < 4} className="mt-1">
                   Crear PIN y continuar
                 </Button>

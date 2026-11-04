@@ -11,6 +11,7 @@ import { mensajeDeError } from "@/lib/errores";
 import type { CitaInput } from "@shared/schemas";
 import type { CitaRow } from "@shared/types";
 import { fechaLocalIso } from "@shared/fechas";
+import { AlertaError } from "@/components/ui/alerta-error";
 
 interface NuevaCitaModalProps {
   open: boolean;
@@ -185,7 +186,7 @@ export function NuevaCitaModal({
             <Input value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} />
           </div>
 
-          {error && <p className="text-sm text-danger-500">{error}</p>}
+          {error && <AlertaError mensaje={error} />}
 
           <Button type="submit" disabled={crear.isPending} className="mt-2">
             {citaEditar ? "Guardar nueva fecha" : "Agendar cita"}
