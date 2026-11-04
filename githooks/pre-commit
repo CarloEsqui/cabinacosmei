@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Atlas project-scaffold: pre-commit secret scan — FAIL-CLOSED.
+#
+# Ancestry: the RHESQUIVEL pilot's hook did `exit 0` when gitleaks was missing,
+# i.e. it failed silently open. This version blocks the commit instead: a machine
+# without the scanner does not get to commit unscanned.
+#
+# Install (versioned, survives clones — do NOT copy into .git/hooks):
+#   git config core.hooksPath githooks
+set -euo pipefail
+
+# GUI git clients (and some IDEs) run hooks with a trimmed PATH that misses
+# Homebrew; without this line the hook blocks EVERY commit on those clients
+# even with gitleaks installed (audit 2026-08-18, M10).
+PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "BLOCKED: gitleaks is not installed and this hook fails CLOSED." >&2
+  echo "Install it:  brew install gitleaks   (or https://github.com/gitleaks/gitleaks)" >&2
+  echo "True emergency, on your own responsibility:  git commit --no-verify" >&2
+  echo "(CI scans the full history anyway; --no-verify only delays the finding.)" >&2
+  exit 1
+fi
+
+# -v: name the offending file and rule (redacted) — a block that doesn't say
+# where forces a manual re-run to find the leak (estreno rehearsal, F1).
+gitleaks git --pre-commit --staged --redact -v || exit 1
+
+# C8 notes guard (Gate 001 condition 3: a missing validator is RED, not absent).
+# Invoked via bash so a lost exec bit cannot silently disarm it.
+VN="$(dirname "$0")/validate-notes"
+if [ ! -f "$VN" ]; then
+  echo "BLOCKED: githooks/validate-notes is missing — the notes guard was removed or the scaffold is incomplete. Restore it from the Atlas scaffold." >&2
+  exit 1
+fi
+bash "$VN"

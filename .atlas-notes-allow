@@ -1,0 +1,13 @@
+# Atlas project-scaffold: .atlas-notes-allow — term allowlist for validate-notes.
+# One term per line. Terms listed here stop counting as "name-like pairs" in the
+# notes PII check. This file WEAKENS a PII control: it is a critical surface
+# (sensitive_globs + CODEOWNERS) and every addition should survive review.
+#
+# RULE (non-negotiable): NEVER add a real subject's name. This file is committed —
+# a name here becomes exactly the name<->pattern key the guard exists to block.
+# For a one-off false positive on a single line, use the per-line escape hatch
+# instead:  <!-- atlas-allow: <written reason> -->
+#
+# Examples of legitimate entries: product names, company names, tool names.
+Grupo SOAL
+Pull Request
