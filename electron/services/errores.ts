@@ -9,8 +9,19 @@ export class ErrorConHistorial extends Error {
   }
 }
 
+/**
+ * SQLite reporta las violaciones de llave foránea con DOS códigos extendidos distintos:
+ *  - `SQLITE_CONSTRAINT_FOREIGNKEY` para FKs sin acción (NO ACTION / chequeo diferido).
+ *  - `SQLITE_CONSTRAINT_TRIGGER` para `ON DELETE RESTRICT`, que SQLite implementa internamente como
+ *    un trigger con RAISE(ABORT, 'FOREIGN KEY constraint failed'). Todas las FKs de historial del
+ *    esquema son `restrict`, así que este es el caso real al borrar (auditoría DAT-A1, 2026-11-03).
+ * El segundo código también lo usaría un trigger propio, por eso se exige además el mensaje de FK.
+ */
 function esErrorForeignKey(error: unknown): boolean {
-  return error instanceof Error && (error as { code?: string }).code === "SQLITE_CONSTRAINT_FOREIGNKEY";
+  if (!(error instanceof Error)) return false;
+  const code = (error as { code?: string }).code;
+  if (code === "SQLITE_CONSTRAINT_FOREIGNKEY") return true;
+  return code === "SQLITE_CONSTRAINT_TRIGGER" && error.message.includes("FOREIGN KEY constraint failed");
 }
 
 /**

@@ -5,7 +5,9 @@ export function mensajeDeError(error: unknown, fallback = "Ocurrió un error ine
   if (error instanceof Error) {
     const limpio = error.message
       .replace(/^Error invoking remote method '[^']*':\s*/, "")
-      .replace(/^Error:\s*/, "")
+      // Quita el nombre de la clase de error que antepone IPC ("Error:", "SqliteError:",
+      // "ErrorConHistorial:"...) — la usuaria no debe ver nombres técnicos (DAT-B1).
+      .replace(/^\w*Error\w*:\s*/, "")
       .replace(MARCADOR_HISTORIAL, "");
     return limpio || fallback;
   }
