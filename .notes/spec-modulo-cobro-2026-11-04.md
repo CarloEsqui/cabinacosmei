@@ -577,3 +577,13 @@ revierte solo, pero el respaldo previo a migrar lo cubre. **Reversible con costo
   servicios poco tomados.** La Parte B entrega cupones acumulables con requisitos y alcance personal.
   La segmentación y asignación automática es la Parte C (propuesta de secuencia A → B → C, comunicada
   a Carlos el 2026-11-04).
+
+## Addendum 2026-11-04 — numeración de migraciones (Gate de cancelación de inventario, condición 8)
+La cancelación de entradas y salidas de inventario se implementó primero (decisión de Carlos:
+inventario antes que cobro) y ocupa **`0004_cancelacion_inventario`**. Por eso las migraciones de
+este diseño pasan a **`0005`** (Parte A) y **`0006`** (Parte B), con el mismo contenido. Las
+condiciones 1 y 2 del [Gate del cobro](gate-001-modulo-cobro-2026-11-04.md) aplican a esos
+números (`drizzle/0005_*.sql`, `drizzle/0006_*.sql`); el veredicto no se reescribe. La `0005` del
+cobro se genera **solo** en una rama que ya contenga `0004_cancelacion_inventario.sql` y
+`meta/0004_snapshot.json`. Nota heredada de ese Gate: drizzle-kit 0.31 emite las FK de `ADD
+COLUMN` sin `ON DELETE`; las FK nuevas de `pagos` deben declararlo en la cabecera de la `0005`.

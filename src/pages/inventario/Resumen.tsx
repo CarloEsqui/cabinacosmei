@@ -279,12 +279,18 @@ function ProductoFila({
   const toast = useToast();
   const darDeBaja = useDarDeBajaLote();
   const [editando, setEditando] = useState<Lote | null>(null);
+  const [verAgotados, setVerAgotados] = useState(false);
 
   const { data: lotes = [] } = useQuery({
     queryKey: ["lotesPorProducto", producto.id],
     queryFn: () => window.api.inventario.lotesPorProducto(producto.id),
     enabled: expandido,
   });
+
+  // Los lotes en 0 (consumidos, dados de baja o cancelados) no aportan nada aquí: su historia vive
+  // en Movimientos. Se ocultan para que la lista no crezca para siempre (pedido de Carlos).
+  const agotados = lotes.filter((l) => l.cantidadDisponible <= 0).length;
+  const lotesVisibles = verAgotados ? lotes : lotes.filter((l) => l.cantidadDisponible > 0);
 
   function invalidar() {
     queryClient.invalidateQueries({ queryKey: ["lotesPorProducto", producto.id] });
@@ -338,8 +344,10 @@ function ProductoFila({
         <tr>
           <td colSpan={7} className="bg-beige-100 px-4 py-3">
             <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: "easeOut" }}>
-            {lotes.length === 0 ? (
-              <p className="py-2 text-center text-xs text-ink-500">Sin lotes registrados.</p>
+            {lotesVisibles.length === 0 ? (
+              <p className="py-2 text-center text-xs text-ink-500">
+                {lotes.length === 0 ? "Sin lotes registrados." : "Sin existencias. El historial de este producto está en Movimientos."}
+              </p>
             ) : (
               <div className="overflow-hidden rounded-xl border border-beige-200 bg-beige-50">
                 <table className="w-full text-xs">
@@ -353,7 +361,7 @@ function ProductoFila({
                     </tr>
                   </thead>
                   <tbody>
-                    {lotes.map((l) => (
+                    {lotesVisibles.map((l) => (
                       <tr key={l.id} className="border-t border-beige-200 transition-colors hover:bg-beige-100/60">
                         <td className="px-3 py-2 text-ink-700">{l.numeroLote || l.id.slice(0, 8)}</td>
                         <td className="px-3 py-2 text-ink-700">{formatFecha(l.fechaCaducidad)}</td>
@@ -419,6 +427,18 @@ function ProductoFila({
                   </tbody>
                 </table>
               </div>
+            )}
+            {agotados > 0 && (
+              <button
+                type="button"
+                className="mt-2 text-xs text-ink-400 hover:text-jacaranda-700"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setVerAgotados((v) => !v);
+                }}
+              >
+                {verAgotados ? "Ocultar lotes agotados" : `Ver ${agotados} ${agotados === 1 ? "lote agotado" : "lotes agotados"}`}
+              </button>
             )}
             </motion.div>
           </td>

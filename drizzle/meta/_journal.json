@@ -29,6 +29,13 @@
       "when": 1784900000000,
       "tag": "0003_presentacion_producto",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793818692609,
+      "tag": "0004_cancelacion_inventario",
+      "breakpoints": true
     }
   ]
 }

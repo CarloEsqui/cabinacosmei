@@ -93,6 +93,8 @@ const ETIQUETA_MOVIMIENTO: Record<string, string> = {
   devolucion: "Devolución",
   uso_interno: "Uso interno",
   ajuste: "Ajuste",
+  cancelacion_entrada: "Cancelación de entrada",
+  cancelacion_salida: "Cancelación de salida",
 };
 
 function sufijoRango(f: ResumenFiltro): string {

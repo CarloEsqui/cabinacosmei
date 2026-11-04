@@ -285,7 +285,7 @@ export async function eliminarCita(id: string, usuarioId?: string): Promise<void
       const conSalida = tx
         .select({ id: salidasInventario.id })
         .from(salidasInventario)
-        .where(eq(salidasInventario.servicioRealizadoId, borrador.id))
+        .where(and(eq(salidasInventario.servicioRealizadoId, borrador.id), eq(salidasInventario.estatus, "vigente")))
         .get();
       if (conPago || conSalida) {
         throw new Error("Esta cita tiene pagos o inventario registrados; no se puede eliminar.");

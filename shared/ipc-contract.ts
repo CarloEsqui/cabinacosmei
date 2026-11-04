@@ -109,6 +109,8 @@ export interface IpcApi {
     actualizarLote(id: string, input: LoteInput): Promise<Lote | undefined>;
     cambiarEstadoLote(id: string, estado: "activo" | "bloqueado"): Promise<Lote | undefined>;
     darDeBajaLote(id: string, motivo?: string): Promise<unknown>;
+    cancelarEntrada(id: string, motivo?: string): Promise<void>;
+    cancelarSalida(id: string, motivo?: string): Promise<void>;
     eliminarLote(id: string): Promise<void>;
   };
   clientes: {
@@ -232,6 +234,8 @@ export type IpcChannel =
   | "inventario:actualizarLote"
   | "inventario:cambiarEstadoLote"
   | "inventario:darDeBajaLote"
+  | "inventario:cancelarEntrada"
+  | "inventario:cancelarSalida"
   | "inventario:eliminarLote"
   | "inventario:registrarEntrada"
   | "inventario:registrarSalida"

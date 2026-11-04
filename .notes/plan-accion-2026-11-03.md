@@ -122,7 +122,13 @@ aparece "Desactivar en su lugar" y funciona; "Borrar datos de negocio" + 4 respa
        lo caducado. Un lote caduca al día siguiente de su fecha. Evidencia
        [evidencia-dat-a5-m7-b7-2026-11-04.md](evidencia-dat-a5-m7-b7-2026-11-04.md). *E2E en UI
        pendiente (Carlos).*
-3. [ ] **R2b Cancelar salidas/entradas (DAT-A2, DIN-A4)** — **Gate 001 primero** (cambio de BD
+3. [~] **R2b, parte de inventario: HECHA (2026-11-04).** Cancelar entradas y salidas sueltas con
+       motivo, sin PIN (decisión de Carlos), migración `0004_cancelacion_inventario`. Gate
+       [gate-001-cancelacion-inventario-2026-11-04.md](gate-001-cancelacion-inventario-2026-11-04.md),
+       evidencia [evidencia-cancelacion-inventario-2026-11-04.md](evidencia-cancelacion-inventario-2026-11-04.md).
+       Queda pendiente la reversa de servicios cerrados (CIT-C1) y de pagos (DIN-A4), que van con el
+       cobro v2.
+   **Diseño original:** R2b Cancelar salidas/entradas (DAT-A2, DIN-A4) — **Gate 001 primero** (cambio de BD
        significativo + dinero): diseño de cancelación/reversa (estado `cancelada` + motivo + fecha,
        devolver `cantidadDisponible` al lote, movimiento inverso, bitácora; ventas y pagos se
        cancelan, nunca se borran). Implementar solo con veredicto PASS, después de DAT-A4.

@@ -41,6 +41,7 @@ import {
   clienteInputSchema,
   servicioCatalogoInputSchema,
   citaInputSchema,
+  cancelacionInventarioSchema,
   citasFiltroSchema,
   cierreCitaInputSchema,
   guardarRecetaInputSchema,
@@ -174,6 +175,14 @@ export function registrarIpc(): void {
   ipcMain.handle("inventario:actualizarLote", (_e, id: string, input) =>
     inventarioService.actualizarLote(id, loteInputSchema.parse(input), usuarioActualId() ?? undefined),
   );
+  ipcMain.handle("inventario:cancelarEntrada", (_e, id: string, motivo?: string) => {
+    const input = cancelacionInventarioSchema.parse({ id, motivo });
+    return inventarioService.cancelarEntrada(input.id, input.motivo, usuarioActualId() ?? undefined);
+  });
+  ipcMain.handle("inventario:cancelarSalida", (_e, id: string, motivo?: string) => {
+    const input = cancelacionInventarioSchema.parse({ id, motivo });
+    return inventarioService.cancelarSalida(input.id, input.motivo, usuarioActualId() ?? undefined);
+  });
   ipcMain.handle("inventario:darDeBajaLote", (_e, id: string, motivo?: string) =>
     inventarioService.darDeBajaLote(id, typeof motivo === "string" ? motivo : undefined, usuarioActualId() ?? undefined),
   );

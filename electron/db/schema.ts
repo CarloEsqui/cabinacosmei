@@ -164,6 +164,12 @@ export const entradasInventario = sqliteTable("entradas_inventario", {
   metodoPago: text("metodo_pago"),
   usuarioId: text("usuario_id").references(() => usuarios.id, { onDelete: "set null" }),
   observaciones: text("observaciones"),
+  // Cancelación (DAT-A2, migración 0004): nunca se borra un documento; se marca "cancelada" con
+  // fecha, motivo y usuaria, y un movimiento de reversa deja el rastro. Valores: vigente | cancelada.
+  estatus: text("estatus").notNull().default("vigente"),
+  canceladaAt: integer("cancelada_at", { mode: "timestamp" }),
+  canceladaMotivo: text("cancelada_motivo"),
+  canceladaPorUsuarioId: text("cancelada_por_usuario_id").references(() => usuarios.id, { onDelete: "set null" }),
   createdAt: createdAt(),
 });
 
@@ -187,13 +193,22 @@ export const salidasInventario = sqliteTable("salidas_inventario", {
   }),
   usuarioId: text("usuario_id").references(() => usuarios.id, { onDelete: "set null" }),
   observaciones: text("observaciones"),
+  // Cancelación (DAT-A2, migración 0004): nunca se borra un documento; se marca "cancelada" con
+  // fecha, motivo y usuaria, y un movimiento de reversa deja el rastro. Valores: vigente | cancelada.
+  estatus: text("estatus").notNull().default("vigente"),
+  canceladaAt: integer("cancelada_at", { mode: "timestamp" }),
+  canceladaMotivo: text("cancelada_motivo"),
+  canceladaPorUsuarioId: text("cancelada_por_usuario_id").references(() => usuarios.id, { onDelete: "set null" }),
   createdAt: createdAt(),
 });
 
 export const movimientos = sqliteTable("movimientos", {
   id: id(),
   fecha: text("fecha").notNull(),
-  tipo: text("tipo").notNull(), // entrada | salida | ajuste | merma | devolucion | consumo_servicio
+  // entrada | salida | ajuste | merma | devolucion | consumo_servicio | cancelacion_entrada | cancelacion_salida
+  // Convención: `cantidad` SIEMPRE positiva; la dirección la da `tipo` (una cancelacion_entrada resta
+  // stock, una cancelacion_salida lo devuelve). `referencia_id` apunta al documento original.
+  tipo: text("tipo").notNull(),
   productoId: text("producto_id").references(() => productos.id, { onDelete: "set null" }),
   loteId: text("lote_id").references(() => lotes.id, { onDelete: "set null" }),
   cantidad: real("cantidad").notNull(),

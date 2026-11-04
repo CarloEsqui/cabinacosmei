@@ -485,6 +485,14 @@ export interface MovimientoRow {
   proveedorId: string | null;
   observaciones: string | null;
   createdAt: number;
+  /** entrada_inventario | salida_inventario: el documento que originó el movimiento. */
+  referenciaTipo: string | null;
+  referenciaId: string | null;
+  /** vigente | cancelada (estatus del documento original, migración 0004). */
+  documentoEstatus: string | null;
+  documentoMotivoCancelacion: string | null;
+  /** La salida viene del cierre de una cita: no se cancela desde Movimientos. */
+  ligadoAServicio: boolean;
 }
 
 export type EstadoLicenciaTipo = "no_activada" | "activa" | "por_vencer" | "vencida" | "invalida";

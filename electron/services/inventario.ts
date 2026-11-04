@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, like, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, lte, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import {
   productos,
@@ -46,6 +46,13 @@ interface DbConSelect {
 // (leer lotes, descontar stock, insertar salidas/movimientos). Permite que `registrarSalida` opere
 // tanto sobre `db` (abriendo su propia transacción) como sobre el `tx` de una transacción externa
 // —p. ej. el cierre de cita— sin abrir una transacción anidada (better-sqlite3 no las soporta).
+// Cantidades de stock en piezas (pueden ser fracciones: 1/3 de ampolleta). Se comparan con tolerancia
+// EPS y se redondean a 9 decimales al escribir en el lote: suficiente para que tres tercios vuelvan a
+// sumar 1 (redondear a 6 decimales dejaba 0.999999) y para que no queden residuos tipo 1e-16 que
+// dejaban un lote "activo" con nada (DAT-M2; Gate 001 de cancelación, condición 3).
+const EPS = 1e-6;
+const redondear = (x: number) => Math.round(x * 1e9) / 1e9;
+
 interface DbOTx {
   select: ReturnType<typeof getDb>["select"];
   insert: ReturnType<typeof getDb>["insert"];
@@ -509,7 +516,8 @@ export function registrarSalidaEnTx(
   for (const lote of candidatos) {
     if (restante <= 0) break;
     const tomar = Math.min(restante, lote.cantidadDisponible);
-    const nuevaDisponible = lote.cantidadDisponible - tomar;
+    const restanteLote = redondear(lote.cantidadDisponible - tomar);
+    const nuevaDisponible = restanteLote <= EPS ? 0 : restanteLote;
 
     tx.update(lotes)
       .set({
@@ -611,6 +619,178 @@ export async function registrarSalida(input: SalidaInput, usuarioId?: string) {
   return db.transaction((tx) => registrarSalidaEnTx(tx, input, config.criterioSalidaLotes, hoy, usuarioId));
 }
 
+
+// ---------------------------------------------------------------------------
+// Cancelación de entradas y salidas (DAT-A2, migración 0004, Gate 001 2026-11-04)
+// ---------------------------------------------------------------------------
+// Nunca se borra un documento: se marca "cancelada" (fecha, motivo, usuaria) y un movimiento
+// nuevo `cancelacion_entrada` / `cancelacion_salida` deja el rastro, con cantidad POSITIVA (el tipo
+// da la dirección, igual que el resto de `movimientos`). Tolerancia y redondeo: ver EPS arriba.
+
+
+// Motivo OPCIONAL: decisión de Carlos (2026-11-04), "solo confirmar y listo". Si viene, se guarda.
+function motivoOpcional(motivo?: string): string | null {
+  const limpio = motivo?.trim();
+  return limpio ? limpio : null;
+}
+
+/**
+ * Cancela una entrada dentro de una transacción existente. Solo si TODA su cantidad sigue
+ * disponible en el lote (nada de ella se ha usado). Exportada para que la reversa de un servicio
+ * cerrado (CIT-C1, su propio Gate) pueda reutilizarla en su transacción.
+ */
+export function cancelarEntradaEnTx(tx: DbOTx, entradaId: string, motivo: string | undefined, hoy: string, usuarioId?: string) {
+  const razon = motivoOpcional(motivo);
+  const entrada = tx.select().from(entradasInventario).where(eq(entradasInventario.id, entradaId)).get();
+  if (!entrada) throw new Error("La entrada no existe.");
+  if (entrada.estatus === "cancelada") throw new Error("Esta entrada ya estaba cancelada.");
+  const lote = tx.select().from(lotes).where(eq(lotes.id, entrada.loteId)).get();
+  if (!lote) throw new Error("El lote de esta entrada no existe.");
+  if (lote.cantidadDisponible + EPS < entrada.cantidad) {
+    throw new Error(
+      "Ya se usó parte de lo que entró en este lote. Cancela primero esas salidas, o registra una merma por lo que sobra.",
+    );
+  }
+
+  const disponible = redondear(lote.cantidadDisponible - entrada.cantidad);
+  const inicial = redondear(Math.max(0, lote.cantidadInicial - entrada.cantidad));
+  tx.update(lotes)
+    .set({
+      cantidadDisponible: disponible <= EPS ? 0 : disponible,
+      cantidadInicial: inicial,
+      estado: disponible <= EPS ? "agotado" : lote.estado,
+      updatedAt: new Date(),
+    })
+    .where(eq(lotes.id, lote.id))
+    .run();
+
+  tx.update(entradasInventario)
+    .set({ estatus: "cancelada", canceladaAt: new Date(), canceladaMotivo: razon, canceladaPorUsuarioId: usuarioId || null })
+    .where(eq(entradasInventario.id, entrada.id))
+    .run();
+
+  tx.insert(movimientos)
+    .values({
+      id: randomUUID(),
+      fecha: hoy,
+      tipo: "cancelacion_entrada",
+      productoId: entrada.productoId,
+      loteId: entrada.loteId,
+      cantidad: entrada.cantidad,
+      referenciaTipo: "entrada_inventario",
+      referenciaId: entrada.id,
+      proveedorId: entrada.proveedorId,
+      usuarioId: usuarioId || null,
+      observaciones: razon ?? "Captura cancelada",
+    })
+    .run();
+
+  registrarAccion(tx, {
+    usuarioId,
+    accion: "entrada_cancelada",
+    entidadTipo: "entrada",
+    entidadId: entrada.id,
+    detalle: `${entrada.folio ?? "sin folio"} · -${entrada.cantidad}${razon ? ` · ${razon}` : ""}`,
+  });
+}
+
+/**
+ * Cancela una salida dentro de una transacción existente. Una salida que se repartió en varios
+ * lotes son varias filas con el MISMO folio: se cancelan todas juntas o ninguna. Por defecto rechaza
+ * las salidas ligadas a un servicio realizado (BR-004); la reversa de un servicio cerrado (CIT-C1)
+ * pasará `permitirLigadasAServicio`.
+ */
+export function cancelarSalidaEnTx(
+  tx: DbOTx,
+  salidaId: string,
+  motivo: string | undefined,
+  hoy: string,
+  usuarioId?: string,
+  opciones: { permitirLigadasAServicio?: boolean } = {},
+) {
+  const razon = motivoOpcional(motivo);
+  const base = tx.select().from(salidasInventario).where(eq(salidasInventario.id, salidaId)).get();
+  if (!base) throw new Error("La salida no existe.");
+
+  const grupo = base.folio
+    ? tx
+        .select()
+        .from(salidasInventario)
+        .where(
+          and(
+            eq(salidasInventario.folio, base.folio),
+            base.servicioRealizadoId
+              ? eq(salidasInventario.servicioRealizadoId, base.servicioRealizadoId)
+              : isNull(salidasInventario.servicioRealizadoId),
+          ),
+        )
+        .all()
+    : [base];
+
+  if (grupo.some((s) => s.estatus === "cancelada")) throw new Error("Esta salida ya estaba cancelada.");
+  if (!opciones.permitirLigadasAServicio && grupo.some((s) => s.servicioRealizadoId)) {
+    throw new Error("Esta salida viene del cierre de una cita; se corrige desde la cita, no desde Movimientos.");
+  }
+
+  for (const s of grupo) {
+    const lote = tx.select().from(lotes).where(eq(lotes.id, s.loteId)).get();
+    if (!lote) throw new Error("El lote de esta salida no existe.");
+    tx.update(lotes)
+      .set({
+        cantidadDisponible: redondear(lote.cantidadDisponible + s.cantidad),
+        // Un lote agotado vuelve a activo; uno bloqueado se queda bloqueado.
+        estado: lote.estado === "agotado" ? "activo" : lote.estado,
+        updatedAt: new Date(),
+      })
+      .where(eq(lotes.id, lote.id))
+      .run();
+
+    tx.update(salidasInventario)
+      .set({ estatus: "cancelada", canceladaAt: new Date(), canceladaMotivo: razon, canceladaPorUsuarioId: usuarioId || null })
+      .where(eq(salidasInventario.id, s.id))
+      .run();
+
+    tx.insert(movimientos)
+      .values({
+        id: randomUUID(),
+        fecha: hoy,
+        tipo: "cancelacion_salida",
+        productoId: s.productoId,
+        loteId: s.loteId,
+        cantidad: s.cantidad,
+        referenciaTipo: "salida_inventario",
+        referenciaId: s.id,
+        clienteId: s.clienteId,
+        usuarioId: usuarioId || null,
+        observaciones: razon ?? "Captura cancelada",
+      })
+      .run();
+  }
+
+  const total = redondear(grupo.reduce((acc, s) => acc + s.cantidad, 0));
+  registrarAccion(tx, {
+    usuarioId,
+    accion: "salida_cancelada",
+    entidadTipo: "producto",
+    entidadId: base.productoId,
+    detalle: `${base.folio ?? "sin folio"} · ${base.tipoSalida} · +${total}${razon ? ` · ${razon}` : ""}`,
+  });
+}
+
+/** Cancela una entrada capturada por error (IPC `inventario:cancelarEntrada`). Sin PIN ni motivo obligatorio: decisión de Carlos. */
+export async function cancelarEntrada(entradaId: string, motivo?: string, usuarioId?: string): Promise<void> {
+  const db = getDb();
+  const hoy = fechaLocalIso();
+  db.transaction((tx) => cancelarEntradaEnTx(tx, entradaId, motivo, hoy, usuarioId));
+}
+
+/** Cancela una salida suelta (no ligada a una cita) capturada por error (IPC `inventario:cancelarSalida`). */
+export async function cancelarSalida(salidaId: string, motivo?: string, usuarioId?: string): Promise<void> {
+  const db = getDb();
+  const hoy = fechaLocalIso();
+  db.transaction((tx) => cancelarSalidaEnTx(tx, salidaId, motivo, hoy, usuarioId));
+}
+
 // ---------------------------------------------------------------------------
 // Movimientos consolidados
 // ---------------------------------------------------------------------------
@@ -635,6 +815,9 @@ export async function listarMovimientos(filtro: MovimientosFiltro): Promise<Movi
       productoNombre: productos.nombre,
       numeroLote: lotes.numeroLote,
       folio: sql<string | null>`COALESCE(${entradasInventario.folio}, ${salidasInventario.folio})`,
+      docEstatus: sql<string | null>`COALESCE(${entradasInventario.estatus}, ${salidasInventario.estatus})`,
+      docMotivo: sql<string | null>`COALESCE(${entradasInventario.canceladaMotivo}, ${salidasInventario.canceladaMotivo})`,
+      docServicioRealizadoId: salidasInventario.servicioRealizadoId,
     })
     .from(movimientos)
     .leftJoin(productos, eq(movimientos.productoId, productos.id))
@@ -660,5 +843,10 @@ export async function listarMovimientos(filtro: MovimientosFiltro): Promise<Movi
     proveedorId: f.mov.proveedorId,
     observaciones: f.mov.observaciones,
     createdAt: f.mov.createdAt.getTime(),
+    referenciaTipo: f.mov.referenciaTipo,
+    referenciaId: f.mov.referenciaId,
+    documentoEstatus: f.docEstatus,
+    documentoMotivoCancelacion: f.docMotivo,
+    ligadoAServicio: !!f.docServicioRealizadoId,
   }));
 }
