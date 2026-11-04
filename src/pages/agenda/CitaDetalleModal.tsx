@@ -1,13 +1,23 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BadgeCheck, CalendarClock, CalendarDays, Clock, CheckCircle2, StickyNote, UserX } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  BadgeCheck,
+  CalendarClock,
+  CalendarDays,
+  Clock,
+  CheckCircle2,
+  RotateCcw,
+  StickyNote,
+  Trash2,
+  UserX,
+  XCircle,
+} from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/components/ui/toast";
 import { formatFecha, formatMoneda } from "@/lib/format";
-import { mensajeDeError } from "@/lib/errores";
 import { fechaLocalIso, horaLocal } from "@shared/fechas";
 import type { CitaRow } from "@shared/types";
+import { useAccionesCita } from "@/pages/agenda/useAccionesCita";
 
 export const ESTADO_CITA: Record<string, { label: string; variant: "neutral" | "jacaranda" | "success" | "warning" | "danger" }> = {
   programada: { label: "Programada", variant: "jacaranda" },
@@ -43,16 +53,8 @@ export function CitaDetalleModal({
   const estaCerrada = !!cita.servicioRealizadoId && cita.estado === "asistio";
   const yaPasoLaHora = `${cita.fecha} ${cita.hora}` <= `${fechaLocalIso()} ${horaLocal()}`;
 
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const cambiarEstado = useMutation({
-    mutationFn: (estado: "confirmada" | "no_asistio") => window.api.citas.cambiarEstado(cita.id, estado),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["citas"] });
-      onClose();
-    },
-    onError: (e) => toast.error(mensajeDeError(e)),
-  });
+  const inactiva = cita.estado === "cancelada" || cita.estado === "no_asistio";
+  const { ejecutar, ocupado } = useAccionesCita();
 
   const { data: detalle } = useQuery({
     queryKey: ["detalleServicio", cita.servicioRealizadoId],
@@ -132,8 +134,8 @@ export function CitaDetalleModal({
               <Button
                 variant="secondary"
                 className="flex-1"
-                disabled={cambiarEstado.isPending}
-                onClick={() => cambiarEstado.mutate("confirmada")}
+                disabled={ocupado}
+                onClick={() => ejecutar(cita, "confirmada", onClose)}
               >
                 <BadgeCheck size={16} /> Confirmar
               </Button>
@@ -142,8 +144,8 @@ export function CitaDetalleModal({
               <Button
                 variant="secondary"
                 className="flex-1 text-danger-500"
-                disabled={cambiarEstado.isPending}
-                onClick={() => cambiarEstado.mutate("no_asistio")}
+                disabled={ocupado}
+                onClick={() => ejecutar(cita, "no_asistio", onClose)}
               >
                 <UserX size={16} /> No asistió
               </Button>
@@ -171,6 +173,30 @@ export function CitaDetalleModal({
               }}
             >
               <CheckCircle2 size={16} /> Cerrar cita
+            </Button>
+          </div>
+        )}
+
+        {(puedeCerrarse || inactiva) && (
+          <div className="flex justify-center gap-1 border-t border-beige-200 pt-3">
+            {puedeCerrarse && (
+              <Button variant="ghost" size="sm" disabled={ocupado} onClick={() => ejecutar(cita, "cancelada", onClose)}>
+                <XCircle size={14} /> Cancelar cita
+              </Button>
+            )}
+            {inactiva && (
+              <Button variant="ghost" size="sm" disabled={ocupado} onClick={() => ejecutar(cita, "reactivar", onClose)}>
+                <RotateCcw size={14} /> Reactivar
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-ink-400 hover:text-danger-500"
+              disabled={ocupado}
+              onClick={() => ejecutar(cita, "eliminar", onClose)}
+            >
+              <Trash2 size={14} /> Eliminar
             </Button>
           </div>
         )}

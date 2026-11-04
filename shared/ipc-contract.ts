@@ -133,6 +133,8 @@ export interface IpcApi {
     actualizar(id: string, input: CitaInput): Promise<CitaRow>;
     cambiarEstado(id: string, estado: string): Promise<CitaRow>;
     mantenimientosNoProgramados(): Promise<MantenimientoPendiente[]>;
+    reactivar(id: string): Promise<CitaRow>;
+    eliminar(id: string): Promise<void>;
     descartarMantenimiento(servicioRealizadoId: string): Promise<void>;
     resumenCliente(clienteId: string): Promise<ResumenClienteCitas>;
   };
@@ -250,6 +252,8 @@ export type IpcChannel =
   | "citas:actualizar"
   | "citas:cambiarEstado"
   | "citas:mantenimientosNoProgramados"
+  | "citas:reactivar"
+  | "citas:eliminar"
   | "citas:descartarMantenimiento"
   | "citas:resumenCliente"
   | "serviciosRealizados:abrirCierre"

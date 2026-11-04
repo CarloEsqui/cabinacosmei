@@ -112,7 +112,10 @@ aparece "Desactivar en su lugar" y funciona; "Borrar datos de negocio" + 4 respa
        - **D → se permite cerrar citas futuras; el pago lleva la fecha del día en que se cobra
          (CIT-M3, resuelve el "Cobrado hoy" de DIN-M1).** Aplica también a cierres tardíos y a los
          abonos de R3. Consumos y mantenimiento siguen con la fecha de la cita. SC Dinero: va con R3.
-       - Sin decisión pendiente: **CIT-M2** (Dashboard excluye servicios `cancelado`, una línea).
+       - [x] **CIT-M1** (Decisión B) y **CIT-M2** implementados; evidencia
+         [evidencia-cit-m1-m2-2026-11-04.md](evidencia-cit-m1-m2-2026-11-04.md). "Reactivar" cubre
+         también "No asistió". *E2E en UI pendiente (Carlos).*
+       - [ ] **A + D** van con R3 (ítem 2). [ ] **C** va al Gate 001 del ítem 3.
          Backlog: CIT-B1–B4.
 3. [ ] **R2b Cancelar salidas/entradas (DAT-A2, DIN-A4)** — **Gate 001 primero** (cambio de BD
        significativo + dinero): diseño de cancelación/reversa (estado `cancelada` + motivo + fecha,

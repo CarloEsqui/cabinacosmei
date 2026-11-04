@@ -1,4 +1,4 @@
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, lte, ne } from "drizzle-orm";
 import { getDb } from "../db";
 import { pagos, clientes, serviciosRealizados } from "../db/schema";
 import { resumenPendiente } from "./corte";
@@ -24,6 +24,8 @@ export async function resumenDashboard(): Promise<ResumenDashboard> {
     .where(
       and(
         eq(serviciosRealizados.estatus, "cerrado"),
+        // Igual que Reportes: un servicio "cancelado" no es venta (CIT-M2).
+        ne(serviciosRealizados.estatusPago, "cancelado"),
         gte(serviciosRealizados.fecha, inicioMes),
         lte(serviciosRealizados.fecha, hoy),
       ),

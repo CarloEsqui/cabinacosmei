@@ -240,6 +240,12 @@ export function registrarIpc(): void {
     citasService.cambiarEstadoCita(id, estado, usuarioActualId() ?? undefined),
   );
   ipcMain.handle("citas:mantenimientosNoProgramados", () => citasService.listarMantenimientosNoProgramados());
+  ipcMain.handle("citas:reactivar", (_e, id: string) =>
+    citasService.reactivarCita(id, usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("citas:eliminar", (_e, id: string) =>
+    citasService.eliminarCita(id, usuarioActualId() ?? undefined),
+  );
   ipcMain.handle("citas:descartarMantenimiento", (_e, servicioRealizadoId: string) =>
     citasService.descartarMantenimiento(servicioRealizadoId, usuarioActualId() ?? undefined),
   );

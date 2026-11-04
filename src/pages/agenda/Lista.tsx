@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Lock, XCircle, Search, X, ChevronDown, ChevronUp, SearchX, CalendarClock, BadgeCheck, UserX } from "lucide-react";
+import { Lock, XCircle, Search, X, ChevronDown, ChevronUp, SearchX, CalendarClock, BadgeCheck, UserX, RotateCcw, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -10,11 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { IlustracionCalendario } from "@/components/ui/ilustraciones";
-import { useToast } from "@/components/ui/toast";
 import { formatFecha, formatMoneda } from "@/lib/format";
-import { mensajeDeError } from "@/lib/errores";
 import { cn } from "@/lib/utils";
 import { NuevaCitaModal } from "@/pages/agenda/NuevaCitaModal";
+import { useAccionesCita } from "@/pages/agenda/useAccionesCita";
 import { fechaLocalIso, horaLocal } from "@shared/fechas";
 import type { CitasFiltro } from "@shared/schemas";
 import type { Cliente, CitaRow } from "@shared/types";
@@ -51,8 +50,6 @@ interface ListaTabProps {
 }
 
 export function ListaTab({ onCerrarCita }: ListaTabProps) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
   const [searchParams] = useSearchParams();
   const [filtro, setFiltro] = useState<CitasFiltro>(() => ({
     fechaDesde: searchParams.get("desde") ?? undefined,
@@ -110,12 +107,7 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
     setFiltro((f) => ({ ...f, clienteId: c?.id }));
   }
 
-  const cambiarEstado = useMutation({
-    mutationFn: ({ id, estado }: { id: string; estado: "cancelada" | "confirmada" | "no_asistio" }) =>
-      window.api.citas.cambiarEstado(id, estado),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["citas"] }),
-    onError: (e) => toast.error(mensajeDeError(e)),
-  });
+  const { ejecutar, ocupado } = useAccionesCita();
 
   const ahora = `${fechaLocalIso()} ${horaLocal()}`;
 
@@ -203,6 +195,7 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
             {ordenadas.map((c) => {
               const activa = c.estado === "programada" || c.estado === "confirmada";
               const yaPasoLaHora = `${c.fecha} ${c.hora}` <= ahora;
+              const inactiva = c.estado === "cancelada" || c.estado === "no_asistio";
               const pago = estatusPagoCita(c);
               const expandible = !!c.servicioRealizadoId;
               return (
@@ -246,8 +239,8 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
                               variant="ghost"
                               size="sm"
                               className="text-ink-400 hover:text-success-500"
-                              onClick={() => cambiarEstado.mutate({ id: c.id, estado: "confirmada" })}
-                              disabled={cambiarEstado.isPending}
+                              onClick={() => ejecutar(c, "confirmada")}
+                              disabled={ocupado}
                               title="Confirmar cita (la clienta confirmó)"
                             >
                               <BadgeCheck size={14} />
@@ -258,8 +251,8 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
                               variant="ghost"
                               size="sm"
                               className="text-ink-400 hover:text-danger-500"
-                              onClick={() => cambiarEstado.mutate({ id: c.id, estado: "no_asistio" })}
-                              disabled={cambiarEstado.isPending}
+                              onClick={() => ejecutar(c, "no_asistio")}
+                              disabled={ocupado}
                               title="Marcar que no asistió"
                             >
                               <UserX size={14} />
@@ -269,12 +262,28 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
                             variant="ghost"
                             size="sm"
                             className="text-ink-400 hover:text-danger-500"
-                            onClick={() => cambiarEstado.mutate({ id: c.id, estado: "cancelada" })}
-                            disabled={cambiarEstado.isPending}
+                            onClick={() => ejecutar(c, "cancelada")}
+                            disabled={ocupado}
                             title="Cancelar cita"
                           >
                             <XCircle size={14} />
                           </Button>
+                          <BotonEliminar onClick={() => ejecutar(c, "eliminar")} disabled={ocupado} />
+                        </div>
+                      )}
+                      {inactiva && (
+                        <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-ink-400 hover:text-jacaranda-700"
+                            onClick={() => ejecutar(c, "reactivar")}
+                            disabled={ocupado}
+                            title="Reactivar (vuelve a quedar programada)"
+                          >
+                            <RotateCcw size={14} />
+                          </Button>
+                          <BotonEliminar onClick={() => ejecutar(c, "eliminar")} disabled={ocupado} />
                         </div>
                       )}
                     </td>
@@ -321,6 +330,21 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
 
       <NuevaCitaModal open={!!citaReagendar} citaEditar={citaReagendar} onClose={() => setCitaReagendar(null)} />
     </div>
+  );
+}
+
+function BotonEliminar({ onClick, disabled }: { onClick: () => void; disabled: boolean }) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="text-ink-400 hover:text-danger-500"
+      onClick={onClick}
+      disabled={disabled}
+      title="Eliminar cita (solo si se capturó por error)"
+    >
+      <Trash2 size={14} />
+    </Button>
   );
 }
 

@@ -1,7 +1,16 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { getDb } from "../db";
-import { citas, clientes, serviciosCatalogo, serviciosRealizados, pagos } from "../db/schema";
+import {
+  archivos,
+  citas,
+  clientes,
+  serviciosCatalogo,
+  serviciosRealizados,
+  pagos,
+  salidasInventario,
+} from "../db/schema";
 import { registrarAccion } from "./bitacora";
 import { obtenerConfig } from "./config";
 import { fechaLocalIso, horaLocal, sumarDiasIso, diasEnRango } from "../../shared/fechas";
@@ -222,6 +231,96 @@ export async function cambiarEstadoCita(id: string, estado: string, usuarioId?: 
     detalle: `Nuevo estado: ${estado}`,
   });
   return db.select().from(citas).where(eq(citas.id, id)).get();
+}
+
+/**
+ * Deshace una cancelación o un "No asistió" marcado por error: la cita vuelve a programada
+ * (CIT-M1, decisión B de Carlos, 2026-11-04). Una cita cerrada nunca llega aquí: su reversa es
+ * "Cancelar servicio cerrado", que pasa por Gate 001 (CIT-C1).
+ */
+export async function reactivarCita(id: string, usuarioId?: string) {
+  const db = getDb();
+  const actual = db.select().from(citas).where(eq(citas.id, id)).get();
+  if (!actual) throw new Error("La cita no existe.");
+  if (actual.estado !== "cancelada" && actual.estado !== "no_asistio") {
+    throw new Error("Solo se puede reactivar una cita cancelada o marcada como no asistida.");
+  }
+  if (servicioDeCita(id)?.estatus === "cerrado") {
+    throw new Error("Esta cita ya tiene un servicio cerrado; no se puede reactivar.");
+  }
+  db.update(citas).set({ estado: "programada", updatedAt: new Date() }).where(eq(citas.id, id)).run();
+  registrarAccion(db, {
+    usuarioId,
+    accion: "cita_reactivada",
+    entidadTipo: "cita",
+    entidadId: id,
+    detalle: `${actual.estado} → programada`,
+  });
+  return db.select().from(citas).where(eq(citas.id, id)).get();
+}
+
+/**
+ * Borra una cita capturada por error (CIT-M1, decisión B de Carlos, 2026-11-04). Solo si NO tiene
+ * dinero ni inventario ligado: una cita así no es documentación contable (CFF art. 30 aplica a
+ * pagos, ventas y cortes — PROJECT.md "Marco legal"). Si se abrió el cierre, su borrador también se
+ * borra, salvo que ya tenga un comprobante subido. Todo se verifica DENTRO de la transacción.
+ * La bitácora guarda el código de la clienta, nunca su nombre (SEG-M5).
+ */
+export async function eliminarCita(id: string, usuarioId?: string): Promise<void> {
+  const db = getDb();
+  let carpetaBorrador: string | null = null;
+
+  db.transaction((tx) => {
+    const cita = tx.select().from(citas).where(eq(citas.id, id)).get();
+    if (!cita) throw new Error("La cita no existe.");
+    if (cita.estado === "asistio") {
+      throw new Error("Esta cita ya se cerró con su servicio y pago; no se puede eliminar.");
+    }
+    const borrador = tx.select().from(serviciosRealizados).where(eq(serviciosRealizados.citaId, id)).get();
+    if (borrador) {
+      if (borrador.estatus === "cerrado") {
+        throw new Error("Esta cita ya se cerró con su servicio y pago; no se puede eliminar.");
+      }
+      const conPago = tx.select({ id: pagos.id }).from(pagos).where(eq(pagos.servicioRealizadoId, borrador.id)).get();
+      const conSalida = tx
+        .select({ id: salidasInventario.id })
+        .from(salidasInventario)
+        .where(eq(salidasInventario.servicioRealizadoId, borrador.id))
+        .get();
+      if (conPago || conSalida) {
+        throw new Error("Esta cita tiene pagos o inventario registrados; no se puede eliminar.");
+      }
+      const conArchivo = tx
+        .select({ id: archivos.id })
+        .from(archivos)
+        .where(and(eq(archivos.entidadTipo, "servicio_realizado"), eq(archivos.entidadId, borrador.id)))
+        .get();
+      if (conArchivo) {
+        throw new Error("Esta cita tiene un comprobante subido; cancélala en lugar de eliminarla.");
+      }
+      tx.delete(serviciosRealizados).where(eq(serviciosRealizados.id, borrador.id)).run();
+      carpetaBorrador = borrador.carpetaPath;
+    }
+
+    const cliente = tx.select({ codigo: clientes.codigoCliente }).from(clientes).where(eq(clientes.id, cita.clienteId)).get();
+    tx.delete(citas).where(eq(citas.id, id)).run();
+    registrarAccion(tx, {
+      usuarioId,
+      accion: "cita_eliminada",
+      entidadTipo: "cita",
+      entidadId: id,
+      detalle: `${cita.fecha} ${cita.hora} · ${cliente?.codigo ?? "clienta"} · estado ${cita.estado}`,
+    });
+  });
+
+  // La carpeta del borrador solo se quita si quedó vacía (rmdir falla si tiene algo).
+  if (carpetaBorrador) {
+    try {
+      fs.rmdirSync(carpetaBorrador);
+    } catch {
+      // no vacía o ya no existe: se deja tal cual
+    }
+  }
 }
 
 /**

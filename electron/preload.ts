@@ -84,6 +84,8 @@ const api: IpcApi = {
     actualizar: (id, input) => ipcRenderer.invoke("citas:actualizar", id, input),
     cambiarEstado: (id, estado) => ipcRenderer.invoke("citas:cambiarEstado", id, estado),
     mantenimientosNoProgramados: () => ipcRenderer.invoke("citas:mantenimientosNoProgramados"),
+    reactivar: (id) => ipcRenderer.invoke("citas:reactivar", id),
+    eliminar: (id) => ipcRenderer.invoke("citas:eliminar", id),
     descartarMantenimiento: (servicioRealizadoId) =>
       ipcRenderer.invoke("citas:descartarMantenimiento", servicioRealizadoId),
     resumenCliente: (clienteId) => ipcRenderer.invoke("citas:resumenCliente", clienteId),
