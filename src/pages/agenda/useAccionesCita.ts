@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import { formatFecha } from "@/lib/format";
+import { formatFecha, formatMoneda } from "@/lib/format";
 import { mensajeDeError } from "@/lib/errores";
 import type { CitaRow } from "@shared/types";
 
@@ -33,11 +33,24 @@ export function useAccionesCita() {
 
   const describir = (c: CitaRow) => `${c.clienteNombre} del ${formatFecha(c.fecha)} a las ${c.hora}`;
 
+  // FR-009: si la cita tiene un anticipo, avisar antes de cancelarla o marcar "No asistió", para
+  // que el dinero no quede huérfano. Se resuelve después desde el detalle de la cita.
+  async function avisoAnticipo(cita: CitaRow): Promise<string> {
+    try {
+      const { anticipos } = await window.api.cobros.estadoCuentaCita(cita.id);
+      return anticipos > 0
+        ? ` Tiene un anticipo de ${formatMoneda(anticipos)}: después, desde el detalle de la cita, devuélvelo (cancelar el pago) o déjalo para cuando la reactives y reagendes.`
+        : "";
+    } catch {
+      return "";
+    }
+  }
+
   async function ejecutar(cita: CitaRow, accion: Accion, onHecho?: () => void) {
     if (accion === "cancelada") {
       const r = await confirm({
         titulo: "Cancelar cita",
-        mensaje: `¿Cancelar la cita de ${describir(cita)}? Seguirá en la agenda como "Cancelada" y contará en el reporte de cancelaciones. Si fue un error, podrás reactivarla.`,
+        mensaje: `¿Cancelar la cita de ${describir(cita)}? Seguirá en la agenda como "Cancelada" y contará en el reporte de cancelaciones. Si fue un error, podrás reactivarla.${await avisoAnticipo(cita)}`,
         confirmarLabel: "Cancelar cita",
         cancelarLabel: "Volver",
         destructivo: true,
@@ -47,7 +60,7 @@ export function useAccionesCita() {
     if (accion === "no_asistio") {
       const r = await confirm({
         titulo: "Marcar que no asistió",
-        mensaje: `¿Marcar que ${cita.clienteNombre} no asistió a su cita del ${formatFecha(cita.fecha)} a las ${cita.hora}? Contará en el reporte de inasistencias. Si fue un error, podrás reactivarla.`,
+        mensaje: `¿Marcar que ${cita.clienteNombre} no asistió a su cita del ${formatFecha(cita.fecha)} a las ${cita.hora}? Contará en el reporte de inasistencias. Si fue un error, podrás reactivarla.${await avisoAnticipo(cita)}`,
         confirmarLabel: "No asistió",
         cancelarLabel: "Volver",
         destructivo: true,

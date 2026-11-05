@@ -8,10 +8,10 @@ import {
   clientes,
   serviciosCatalogo,
   serviciosRealizados,
-  pagos,
   salidasInventario,
 } from "../db/schema";
 import { registrarAccion } from "./bitacora";
+import { citaTienePagos, cobradoPorServicio, saldoServicio, saldosPorCliente } from "./cobros";
 import { obtenerConfig } from "./config";
 import { fechaLocalIso, horaLocal, sumarDiasIso, diasEnRango } from "../../shared/fechas";
 import type { CitaInput, CitasFiltro } from "../../shared/schemas";
@@ -24,14 +24,17 @@ function mapear(
     servicioNombre: string | null;
     servicioRealizadoId: string | null;
     precio: number | null;
+    totalProductos: number | null;
     estatusPagoServicio: string | null;
   },
   pagosPorServicio: Map<string, number>,
 ): CitaRow {
   let saldoPendiente = 0;
-  if (fila.servicioRealizadoId && fila.estatusPagoServicio !== "cancelado") {
-    const cobrado = pagosPorServicio.get(fila.servicioRealizadoId) ?? 0;
-    saldoPendiente = Math.max(0, (fila.precio ?? 0) - cobrado);
+  if (fila.servicioRealizadoId && fila.estatusPagoServicio) {
+    saldoPendiente = saldoServicio(
+      { precio: fila.precio, totalProductos: fila.totalProductos, estatusPago: fila.estatusPagoServicio },
+      pagosPorServicio.get(fila.servicioRealizadoId) ?? 0,
+    );
   }
   return {
     id: fila.cita.id,
@@ -65,6 +68,7 @@ export async function listarCitas(filtro: CitasFiltro): Promise<CitaRow[]> {
       servicioNombre: serviciosCatalogo.nombre,
       servicioRealizadoId: serviciosRealizados.id,
       precio: serviciosRealizados.precio,
+      totalProductos: serviciosRealizados.totalProductos,
       estatusPagoServicio: serviciosRealizados.estatusPago,
     })
     .from(citas)
@@ -81,18 +85,7 @@ export async function listarCitas(filtro: CitasFiltro): Promise<CitaRow[]> {
     .all();
 
   const servicioIds = filas.map((f) => f.servicioRealizadoId).filter((id): id is string => !!id);
-  const pagosPorServicio = new Map<string, number>();
-  if (servicioIds.length > 0) {
-    const pagosFilas = db
-      .select({ servicioRealizadoId: pagos.servicioRealizadoId, monto: pagos.monto })
-      .from(pagos)
-      .where(and(eq(pagos.estatus, "cobrado"), inArray(pagos.servicioRealizadoId, servicioIds)))
-      .all();
-    for (const p of pagosFilas) {
-      if (!p.servicioRealizadoId) continue;
-      pagosPorServicio.set(p.servicioRealizadoId, (pagosPorServicio.get(p.servicioRealizadoId) ?? 0) + p.monto);
-    }
-  }
+  const pagosPorServicio = cobradoPorServicio(db, servicioIds);
 
   return filas.map((f) => mapear(f, pagosPorServicio));
 }
@@ -276,12 +269,17 @@ export async function eliminarCita(id: string, usuarioId?: string): Promise<void
     if (cita.estado === "asistio") {
       throw new Error("Esta cita ya se cerró con su servicio y pago; no se puede eliminar.");
     }
+    // FR-009: un anticipo (aunque ya se haya cancelado) es documento contable; la cita se cancela,
+    // no se borra. La FK pagos.cita_id (RESTRICT, 0005) lo impide de todos modos.
+    if (citaTienePagos(tx, id)) {
+      throw new Error("Esta cita tiene un anticipo registrado; cancélala en lugar de eliminarla.");
+    }
     const borrador = tx.select().from(serviciosRealizados).where(eq(serviciosRealizados.citaId, id)).get();
     if (borrador) {
       if (borrador.estatus === "cerrado") {
         throw new Error("Esta cita ya se cerró con su servicio y pago; no se puede eliminar.");
       }
-      const conPago = tx.select({ id: pagos.id }).from(pagos).where(eq(pagos.servicioRealizadoId, borrador.id)).get();
+      const conPago = citaTienePagos(tx, id, borrador.id);
       const conSalida = tx
         .select({ id: salidasInventario.id })
         .from(salidasInventario)
@@ -413,24 +411,12 @@ export async function descartarMantenimiento(servicioRealizadoId: string, usuari
 export async function resumenCliente(clienteId: string): Promise<ResumenClienteCitas> {
   const db = getDb();
 
-  const servicios = db
-    .select({ precio: serviciosRealizados.precio, estatusPago: serviciosRealizados.estatusPago })
-    .from(serviciosRealizados)
-    .where(and(eq(serviciosRealizados.clienteId, clienteId), eq(serviciosRealizados.estatus, "cerrado")))
-    .all();
-  const serviciosFacturables = servicios.filter((s) => s.estatusPago !== "cancelado");
-  const totalServicios = serviciosFacturables.reduce((suma, s) => suma + (s.precio ?? 0), 0);
-
-  const cobros = db
-    .select({ monto: pagos.monto })
-    .from(pagos)
-    .where(and(eq(pagos.clienteId, clienteId), eq(pagos.estatus, "cobrado")))
-    .all();
-  const totalCobrado = cobros.reduce((suma, p) => suma + p.monto, 0);
-
+  // Definición única (cobros.saldosPorCliente, FR-008): cobrado = pagos ligados a sus servicios
+  // cerrados; un anticipo de una cita aún sin cerrar no cuenta todavía.
+  const s = saldosPorCliente(db, [clienteId]).get(clienteId);
   return {
-    serviciosCerrados: serviciosFacturables.length,
-    totalCobrado,
-    saldoPendiente: Math.max(0, totalServicios - totalCobrado),
+    serviciosCerrados: s?.serviciosCerrados ?? 0,
+    totalCobrado: s?.totalCobrado ?? 0,
+    saldoPendiente: s?.saldo ?? 0,
   };
 }

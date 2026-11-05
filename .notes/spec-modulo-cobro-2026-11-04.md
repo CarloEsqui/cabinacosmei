@@ -587,3 +587,108 @@ números (`drizzle/0005_*.sql`, `drizzle/0006_*.sql`); el veredicto no se reescr
 cobro se genera **solo** en una rama que ya contenga `0004_cancelacion_inventario.sql` y
 `meta/0004_snapshot.json`. Nota heredada de ese Gate: drizzle-kit 0.31 emite las FK de `ADD
 COLUMN` sin `ON DELETE`; las FK nuevas de `pagos` deben declararlo en la cabecera de la `0005`.
+
+## Addendum 2026-11-04 — implementación de la Parte A (rama `atlas/cobro-a`)
+Lo que el código hace distinto o más concreto que §22, para que nadie lo "corrija" por accidente:
+- **Anticipo solo con PIN** (BR-008 decía "comprobante o PIN"). Una cita sin cerrar no tiene
+  servicio ni carpeta donde subir el comprobante. **Pendiente de confirmar por Carlos**; si quiere
+  comprobante, se sube a la carpeta de la clienta como `archivos.entidad_tipo = 'cita'`.
+- **IPC de lectura:** en lugar de `cobros:listarPagos(servicioId | citaId)` existe
+  `cobros:estadoCuentaCita(citaId)`, que devuelve pagos (anticipos y del servicio), total, cobrado,
+  saldo y anticipos sin aplicar. El detalle de la cita trabaja siempre con la cita.
+- **Ventas incluye productos; el margen también incluye su costo.** `totalTicket` alimenta ventas,
+  ticket promedio y valor por clienta. Para que el margen no salga inflado, el costo de los
+  productos vendidos *en el ticket* (`salidas_inventario.precio_unitario_venta IS NOT NULL`) entra
+  al costo (`cobros.costoProductosVendidos`). Las ventas anteriores a la `0005` no cuentan ni
+  ingreso ni costo, igual que antes.
+- **Reporte por tipo de servicio** (`reportesServiciosDetalle`): mide el ingreso del *servicio*
+  sin productos (`cobros.ingresoDelServicio`); una crema vendida no es ingreso del facial.
+- **`pagos.ts` se elimina** (lo absorbe `cobros.ts`, §22.1). Las FK nuevas de `pagos` llevan
+  `ON DELETE restrict` agregado a mano en la `0005` (cabecera, decisión 2).
+- **Dónde vive el detalle de la cita (corregido tras la prueba de Carlos, 2026-11-04):** "abonos
+  solo desde el detalle de la cita" (§23) se cumple con **un solo componente de detalle**
+  (`CitaDetalleModal`) que se abre desde los tres lugares donde se trabaja: el Calendario, la lista
+  de Citas (clic en la tarjeta, o el botón "Cobrar" que lo abre directo en registrar pago) y la
+  ficha de la clienta en Clientes. La primera versión solo lo abría desde el Calendario y obligaba
+  a salir de Citas para cobrar; Carlos lo rechazó.
+
+## Addendum 2026-11-05 — decisiones del dueño para la Parte B y orden de trabajo
+Respuestas de Carlos por escrito (chat del 2026-11-05) a las condiciones 9, 10 y 16 del
+[Gate del cobro](gate-001-modulo-cobro-2026-11-04.md):
+
+- **Condición 9 — venta a quien no es clienta: opción (b).**
+  - Se puede vender una tarjeta de regalo sin registrar a la compradora.
+  - Tarjetas y cupones van **seriados** (folio único). Se registra la tarjeta, no a la persona.
+  - Consecuencia técnica: `pagos.cliente_id` pasa a nullable solo para la venta de tarjeta. Eso
+    recrea `pagos` y lleva su propia radiografía en la migración de la Parte B.
+- **Condición 10 — PIN por acción.** Así se interpretó la respuesta; Carlos la confirma al arrancar la
+  Parte B:
+
+  | Acción | PIN |
+  |---|---|
+  | Vender o emitir tarjeta | Sin PIN (se registra el folio) |
+  | Canjear | Sin PIN (basta el folio) |
+  | Cancelar un canje | **Con PIN** |
+  | Extender vigencia | **Con PIN** |
+  | Dar de alta tarjetas existentes (`alta_migracion`) | **Con PIN** |
+  | Cancelar una venta | **Con PIN** (es cancelar un pago, regla de la Parte A) |
+  | `ajuste` de saldo | Pendiente |
+
+  El texto de riesgo de §23 con SEG-A1 sigue pendiente de reescribirse.
+- **Condición 16 / Q-001 — contadora: sin respuesta.** La cabina aún no está registrada
+  correctamente ante el SAT. La condición 16 sigue abierta: la Parte B se puede construir, pero su
+  release queda bloqueado hasta resolverla o hasta que Carlos acepte el riesgo por escrito.
+- **Orden de trabajo.** Primero se cierra la Parte A (commit, auditoría y PR), luego la ficha clínica
+  ([spec](spec-ficha-clinica-2026-11-05.md)) y después la Parte B.
+- **Numeración.** La ficha ocupa la migración **`0006`**, así que la Parte B pasa a la **`0007`**. Las
+  condiciones 1 y 2 del Gate aplican a ese número; el veredicto no se reescribe.
+
+## Addendum 2026-11-05 — el comprobante deja de ser candado (decisión del dueño; reemplaza BR-008)
+Decisión de Carlos, por escrito en el chat del 2026-11-05. Una regla que siempre se brinca con el
+PIN no protege nada; el comprobante pasa a ser una herramienta para guardar evidencia.
+
+- **Efectivo:** no se pide comprobante ni PIN.
+- **Otro método sin comprobante** (tarjeta, transferencia…): la app pide una confirmación
+  explícita: "Si continúas sin comprobante, no tendrás evidencia de este pago". Aplica al cierre, al
+  abono y al anticipo. Un anticipo no tiene servicio ni carpeta, así que siempre la pide si no es en
+  efectivo.
+- **Control en el servidor:** sin comprobante, si alguna línea no es efectivo, el main exige
+  `sinComprobanteAceptado = true`; si falta, rechaza. La bitácora anota "sin comprobante (aceptado)".
+  Efectivo se reconoce por nombre: el método empieza con "efectivo", sin importar mayúsculas.
+- **El PIN deja de pedirse** en cierre, abono y anticipo. Sigue en **cancelar un pago** (BR-009) y
+  en las demás acciones que ya lo piden.
+- **"Subir comprobante"** queda disponible en el cierre y en el panel de pago de la cita cerrada.
+- Esto **reemplaza BR-008** y la decisión de §23 "Control de abono y anticipo: igual que el cierre
+  (comprobante o PIN)", y cierra la duda "anticipo solo con PIN" del addendum de implementación.
+- Superficie Dinero: el cambio se integra con la evidencia de la Parte A (COB-A1), que cubre este
+  delta.
+
+## Addendum 2026-11-05 — comprobantes: anticipos, carpetas faltantes y vista previa
+Pedido de Carlos tras probar con datos ficticios. Las piezas siguen el mecanismo que el
+[Gate de la ficha clínica](gate-001-ficha-clinica-2026-11-05.md) aprobó para fotos (condiciones 7 y 8):
+rutas resueltas en el main, miniaturas como data URL, sin `file:` ni protocolo propio.
+
+- **Módulo dueño:** `electron/services/comprobantes.ts`, nuevo.
+  - Lo usan solo `ipc` y su propio flujo.
+  - Escribe `archivos` y `pagos.comprobante_archivo_id`.
+  - Las carpetas las crean sus dueños: `clientes.asegurarCarpetaCliente` y
+    `serviciosRealizados.asegurarCarpetaServicio`.
+- **`archivos:subirComprobante(servicioRealizadoId)`:** el renderer ya no manda la carpeta destino.
+  - El main la resuelve y la crea si falta.
+  - Esto corrige el botón bloqueado cuando la clienta no tenía carpeta en disco.
+- **Comprobante de un anticipo:**
+  - `archivos:elegirComprobante` devuelve un token y el nombre, nunca la ruta.
+  - `registrarAnticipo` acepta `comprobanteToken`; con él no pide la confirmación de "sin evidencia".
+  - Al registrar, el archivo se copia a la carpeta "Pagos" de la clienta (`archivos.entidad_tipo =
+    'cita'`) y se liga a los pagos que no son en efectivo. Si la copia falla, el anticipo queda
+    registrado y el error lo dice.
+- **Vista previa en el detalle de la cita:**
+  - `archivos:comprobantesCita`, `archivos:vistaPrevia(id, mini|grande)` (miniatura del sistema
+    con `nativeImage.createThumbnailFromPath`, asíncrona y con PDFs en macOS/Windows),
+    `archivos:abrirComprobante` (visor del sistema) y `archivos:guardarCopiaComprobante` (diálogo
+    para guardar).
+  - Todos validan que el archivo esté dentro de la carpeta del negocio.
+  - Guardar copia deja rastro en la bitácora sin contenido.
+- **Superficies:** PII de clientas (`comprobantes.ts`, `clientes.ts`, IPC de archivos) y Dinero
+  (`cobros.ts`, `serviciosRealizados.ts`). Entra en la auditoría y la evidencia junto con la Parte A.
+  `comprobantes.ts` debe agregarse a `sensitive_globs` (lo edita Carlos).

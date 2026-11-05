@@ -100,9 +100,20 @@ const api: IpcApi = {
       ipcRenderer.invoke("serviciosRealizados:obtenerDetalle", servicioRealizadoId),
   },
   archivos: {
-    subirComprobante: (entidadTipo, entidadId, carpetaDestino) =>
-      ipcRenderer.invoke("archivos:subirComprobante", entidadTipo, entidadId, carpetaDestino),
+    subirComprobante: (servicioRealizadoId) => ipcRenderer.invoke("archivos:subirComprobante", servicioRealizadoId),
+    elegirComprobante: () => ipcRenderer.invoke("archivos:elegirComprobante"),
+    descartarComprobante: (token) => ipcRenderer.invoke("archivos:descartarComprobante", token),
+    comprobantesCita: (citaId) => ipcRenderer.invoke("archivos:comprobantesCita", citaId),
+    vistaPrevia: (archivoId, tamano) => ipcRenderer.invoke("archivos:vistaPrevia", archivoId, tamano),
+    abrirComprobante: (archivoId) => ipcRenderer.invoke("archivos:abrirComprobante", archivoId),
+    guardarCopiaComprobante: (archivoId) => ipcRenderer.invoke("archivos:guardarCopiaComprobante", archivoId),
     listar: (entidadTipo, entidadId) => ipcRenderer.invoke("archivos:listar", entidadTipo, entidadId),
+  },
+  cobros: {
+    registrarAbono: (input) => ipcRenderer.invoke("cobros:registrarAbono", input),
+    registrarAnticipo: (input) => ipcRenderer.invoke("cobros:registrarAnticipo", input),
+    cancelarPago: (input) => ipcRenderer.invoke("cobros:cancelarPago", input),
+    estadoCuentaCita: (citaId) => ipcRenderer.invoke("cobros:estadoCuentaCita", citaId),
   },
   corte: {
     resumenPendiente: () => ipcRenderer.invoke("corte:resumenPendiente"),

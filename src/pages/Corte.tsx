@@ -51,7 +51,7 @@ export function CortePage() {
     onError: (e) => toast.error(mensajeDeError(e)),
   });
 
-  const hayPendiente = !!resumen && resumen.cantidadPagos > 0;
+  const hayPendiente = !!resumen && (resumen.cantidadPagos > 0 || resumen.cantidadAjustes > 0);
 
   return (
     <div className="relative isolate flex h-full flex-col overflow-y-auto">
@@ -68,7 +68,11 @@ export function CortePage() {
       {resumen && (
         <div className="grid grid-cols-1 gap-3 px-8 pt-6 sm:grid-cols-3">
           <StatChip icon={Wallet} valor={formatMoneda(resumen.total)} label="Pendiente de cortar" />
-          <StatChip icon={Receipt} valor={resumen.cantidadPagos} label="Pagos por cortar" />
+          <StatChip
+            icon={Receipt}
+            valor={resumen.cantidadPagos + resumen.cantidadAjustes}
+            label={resumen.cantidadAjustes > 0 ? "Pagos y ajustes por cortar" : "Pagos por cortar"}
+          />
           <StatChip
             icon={CalendarClock}
             valor={resumen.desdeFecha ? formatFecha(resumen.desdeFecha) : "Sin cortes aún"}
@@ -95,20 +99,44 @@ export function CortePage() {
               />
             ) : (
               <>
-                <div className="flex flex-col">
-                  {resumen!.desglosePorMetodo.map((d) => (
-                    <div
-                      key={d.metodoPago}
-                      className="flex items-center justify-between border-b border-beige-200 py-2.5 text-sm last:border-b-0"
-                    >
-                      <span className="text-ink-700">{d.metodoPago}</span>
-                      <span className="font-medium tabular-nums text-ink-900">{formatMoneda(d.monto)}</span>
-                    </div>
-                  ))}
-                </div>
+                {resumen!.desglosePorMetodo.length > 0 && (
+                  <div className="flex flex-col">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-500">Cobros</h3>
+                    {resumen!.desglosePorMetodo.map((d) => (
+                      <div
+                        key={d.metodoPago}
+                        className="flex items-center justify-between border-b border-beige-200 py-2.5 text-sm last:border-b-0"
+                      >
+                        <span className="text-ink-700">{d.metodoPago}</span>
+                        <span className="font-medium tabular-nums text-ink-900">{formatMoneda(d.monto)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Cobro v2: pagos que ya se habían cortado y se cancelaron después (BR-006). */}
+                {resumen!.ajustesPorMetodo.length > 0 && (
+                  <div className="flex flex-col">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                      Ajustes por cancelaciones
+                    </h3>
+                    {resumen!.ajustesPorMetodo.map((d) => (
+                      <div
+                        key={d.metodoPago}
+                        className="flex items-center justify-between border-b border-beige-200 py-2.5 text-sm last:border-b-0"
+                      >
+                        <span className="text-ink-700">{d.metodoPago}</span>
+                        <span className="font-medium tabular-nums text-danger-500">{formatMoneda(d.monto)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="flex items-baseline justify-between border-t border-beige-300 pt-3">
                   <span className="text-sm font-semibold text-ink-900">
-                    Total <span className="font-normal text-ink-500">({resumen!.cantidadPagos} pagos)</span>
+                    {resumen!.cantidadAjustes > 0 ? "Total neto" : "Total"}{" "}
+                    <span className="font-normal text-ink-500">
+                      ({resumen!.cantidadPagos} pagos
+                      {resumen!.cantidadAjustes > 0 ? `, ${resumen!.cantidadAjustes} ajustes` : ""})
+                    </span>
                   </span>
                   <span className="metric-value text-xl text-ink-900">{formatMoneda(resumen!.total)}</span>
                 </div>
@@ -134,6 +162,16 @@ export function CortePage() {
                   </div>
                 )}
               </>
+            )}
+            {/* Gate del cobro, condición 14: un anticipo de una cita cancelada y nunca resuelta no
+                se vuelve dinero invisible. Informativo: ya se contó en el corte del día que entró. */}
+            {resumen && resumen.anticiposSinAplicar.cantidad > 0 && (
+              <p className="rounded-xl bg-beige-100 p-3 text-xs text-ink-500">
+                Hay {resumen.anticiposSinAplicar.cantidad}{" "}
+                {resumen.anticiposSinAplicar.cantidad === 1 ? "anticipo" : "anticipos"} por{" "}
+                {formatMoneda(resumen.anticiposSinAplicar.total)} de citas que aún no se cierran. Ya se cuentan en
+                el corte del día en que entraron; se aplican solos al cerrar la cita.
+              </p>
             )}
           </CardContent>
         </Card>
@@ -179,6 +217,12 @@ export function CortePage() {
                   <td>{formatFechaHora(c.fecha, c.hora)}</td>
                   <td className="text-ink-500">
                     {c.desglosePorMetodo.map((d) => `${d.metodoPago}: ${formatMoneda(d.monto)}`).join(" · ")}
+                    {c.ajustesPorMetodo.length > 0 && (
+                      <span className="text-danger-500">
+                        {" · Ajustes: "}
+                        {c.ajustesPorMetodo.map((d) => `${d.metodoPago} ${formatMoneda(d.monto)}`).join(" · ")}
+                      </span>
+                    )}
                   </td>
                   <td className="num font-medium text-ink-900">{formatMoneda(c.total)}</td>
                 </tr>

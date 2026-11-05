@@ -1,16 +1,31 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import { and, eq, like } from "drizzle-orm";
 import { getDb } from "../db";
-import { serviciosRealizados, citas, clientes, serviciosCatalogo, productos, salidasInventario, pagos } from "../db/schema";
-import { crearCarpetaServicio } from "./folders";
+import { serviciosRealizados, citas, clientes, serviciosCatalogo, productos, salidasInventario } from "../db/schema";
+import { crearCarpetaServicio, rutaDentroDe } from "./folders";
+import { asegurarCarpetaCliente } from "./clientes";
 import { tieneComprobante } from "./archivos";
 import { registrarSalidaEnTx, verificarStockSuficiente } from "./inventario";
 import { obtenerConfig } from "./config";
-import { registrarPago } from "./pagos";
-import { verificarPin } from "./auth";
+import {
+  TOLERANCIA,
+  aplicarAnticiposEnTx,
+  anticiposSinAplicar,
+  cobradoPorServicio,
+  ingresoDelServicio,
+  pagosCobradosDeServicio,
+  recalcularEstatusEnTx,
+  redondearDinero,
+  registrarPagosEnTx,
+  saldoServicio,
+  sumaLineas,
+  totalTicket,
+} from "./cobros";
 import { registrarAccion } from "./bitacora";
 import { sumarDiasIso, fechaLocalIso } from "../../shared/fechas";
 import type { CierreCitaInput } from "../../shared/schemas";
+import { requiereEvidencia } from "../../shared/schemas";
 import type { ServicioRealizado, DetalleServicioRealizado } from "../../shared/types";
 
 /**
@@ -134,6 +149,31 @@ export async function abrirCierre(citaId: string): Promise<ServicioRealizado> {
   return mapear(creado);
 }
 
+/**
+ * Carpeta del servicio en disco; la crea (y la de la clienta) si falta. Solo cambia `carpeta_path`.
+ * El main decide la ruta: el renderer nunca la manda.
+ */
+export async function asegurarCarpetaServicio(servicioId: string): Promise<string> {
+  const db = getDb();
+  const s = db.select().from(serviciosRealizados).where(eq(serviciosRealizados.id, servicioId)).get();
+  if (!s) throw new Error("El servicio realizado no existe.");
+  if (s.carpetaPath && fs.existsSync(s.carpetaPath)) return s.carpetaPath;
+  // Comprueba la carpeta del negocio y la de la clienta (COB-M4: rechaza si el disco no está).
+  const carpetaCliente = await asegurarCarpetaCliente(s.clienteId);
+  if (s.carpetaPath && rutaDentroDe(s.carpetaPath, carpetaCliente)) {
+    fs.mkdirSync(s.carpetaPath, { recursive: true });
+    return s.carpetaPath;
+  }
+  const cat = db
+    .select({ nombre: serviciosCatalogo.nombre })
+    .from(serviciosCatalogo)
+    .where(eq(serviciosCatalogo.id, s.servicioCatalogoId))
+    .get();
+  const ruta = crearCarpetaServicio(carpetaCliente, s.codigoServicio, s.fecha, cat?.nombre ?? "Servicio");
+  db.update(serviciosRealizados).set({ carpetaPath: ruta }).where(eq(serviciosRealizados.id, servicioId)).run();
+  return ruta;
+}
+
 export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Promise<ServicioRealizado> {
   const db = getDb();
 
@@ -144,20 +184,18 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
     .get();
   if (!servicio) throw new Error("El servicio realizado no existe.");
   if (servicio.estatus === "cerrado") throw new Error("Esta cita ya fue cerrada.");
+  const citaId = servicio.citaId;
 
-  const tieneComp = await tieneComprobante(servicio.id);
-  let cerradoConPinOverride = false;
-  if (!tieneComp) {
-    if (!input.pinOverride) {
-      throw new Error("Debes subir el comprobante de pago, o cerrar con el PIN de acceso.");
-    }
-    const pinValido = await verificarPin(input.pinOverride);
-    if (!pinValido) throw new Error("El PIN de acceso no es correcto.");
-    cerradoConPinOverride = true;
+  // Addendum 2026-11-05 (reemplaza BR-008): el comprobante es evidencia opcional. Efectivo no pide
+  // nada; un cobro con otro método y sin comprobante exige la confirmación explícita de la usuaria.
+  const sinEvidencia = !(await tieneComprobante(servicio.id)) && requiereEvidencia(input.pagos);
+  if (sinEvidencia && !input.sinComprobanteAceptado) {
+    throw new Error("Este cobro no es en efectivo y no tiene comprobante. Súbelo o confirma que continúas sin evidencia.");
   }
 
-  // Misma fecha que se guardó al abrir el cierre (la de la cita), para que consumos, pago y el
-  // cálculo de "próxima cita sugerida" queden consistentes con cuándo ocurrió el servicio.
+  // Misma fecha que se guardó al abrir el cierre (la de la cita), para que consumos y el cálculo de
+  // "próxima cita sugerida" queden consistentes con cuándo ocurrió el servicio. Los PAGOS no: llevan
+  // el día en que se cobra (Decisión D, BR-003; DIN-M1).
   const fecha = servicio.fecha;
 
   // El stock SIEMPRE se cuenta en piezas. Para un insumo en modo "contenido" el renderer manda la
@@ -199,12 +237,26 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
   const config = await obtenerConfig();
   const hoy = fechaLocalIso();
 
+  // Total del ticket = servicio + productos vendidos a su precio de venta (FR-002, DIN-A5).
+  const totalProductos = redondearDinero(
+    input.productosVendidos.reduce((acc, p) => acc + redondearDinero(p.cantidad * p.precioUnitario), 0),
+  );
+  const total = totalTicket({ precio: input.precio, totalProductos });
+
   // TODO el cierre en UNA sola transacción: si algo falla a mitad (una salida, registrarPago o
   // cualquier update), better-sqlite3 revierte la transacción completa y el stock NO queda
   // descontado. Antes cada salida abría su propia transacción y el pago iba en otra separada, así
   // que un fallo tras descontar dejaba stock descontado + cita abierta → doble descuento al
   // reintentar. Nada async aquí dentro.
   db.transaction((tx) => {
+    // "Ya cerrada" se verifica DENTRO de la transacción (DIN-M2): un doble clic no cierra dos veces.
+    const actual = tx
+      .select({ estatus: serviciosRealizados.estatus })
+      .from(serviciosRealizados)
+      .where(eq(serviciosRealizados.id, servicio.id))
+      .get();
+    if (actual?.estatus === "cerrado") throw new Error("Esta cita ya fue cerrada.");
+
     for (const p of consumidosEnPiezas) {
       registrarSalidaEnTx(
         tx,
@@ -231,6 +283,7 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
           cantidad: p.cantidad,
           clienteId: servicio.clienteId,
           servicioRealizadoId: servicio.id,
+          precioUnitarioVenta: redondearDinero(p.precioUnitario),
         },
         config.criterioSalidaLotes,
         hoy,
@@ -238,22 +291,35 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
       );
     }
 
-    if (input.monto > 0 && input.metodoPago) {
-      registrarPago(tx, {
+    // Cobro v2: anticipos ya pagados + N líneas nuevas, sin pasarse del total (BR-002, AC-005).
+    const anticipos = citaId ? anticiposSinAplicar(tx, citaId) : 0;
+    const porCobrar = redondearDinero(total - anticipos);
+    if (porCobrar < -TOLERANCIA) {
+      throw new Error(
+        `Los anticipos de esta cita ($${anticipos.toFixed(2)}) superan el total ($${total.toFixed(2)}). Cancela el anticipo sobrante antes de cerrar.`,
+      );
+    }
+    if (sumaLineas(input.pagos) > Math.max(0, porCobrar) + TOLERANCIA) {
+      throw new Error(`El pago excede lo que se debe ($${Math.max(0, porCobrar).toFixed(2)}).`);
+    }
+    if (citaId) aplicarAnticiposEnTx(tx, citaId, servicio.id, usuarioId);
+    registrarPagosEnTx(
+      tx,
+      {
         clienteId: servicio.clienteId,
         servicioRealizadoId: servicio.id,
-        fecha,
-        monto: input.monto,
-        metodoPago: input.metodoPago,
-        estatus: "cobrado",
+        concepto: "servicio",
+        lineas: input.pagos,
+        fecha: hoy,
         usuarioId,
-      });
-    }
+      },
+      config.metodosPago,
+    );
 
     tx.update(serviciosRealizados)
       .set({
         precio: input.precio,
-        estatusPago: input.estatusPago,
+        totalProductos,
         estatus: "cerrado",
         observaciones: input.observaciones || null,
         proximaCitaSugerida,
@@ -262,6 +328,9 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
       })
       .where(eq(serviciosRealizados.id, servicio.id))
       .run();
+
+    // El estatus de pago lo deriva el servidor (FR-003, BR-005); el cliente ya no lo manda.
+    const cuenta = recalcularEstatusEnTx(tx, servicio.id);
 
     if (servicio.citaId) {
       tx.update(citas)
@@ -275,15 +344,17 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
       accion: "cita_cerrada",
       entidadTipo: "servicio_realizado",
       entidadId: servicio.id,
-      detalle: `${servicio.codigoServicio} · $${input.precio.toFixed(2)}`,
+      detalle:
+        `${servicio.codigoServicio} · total $${total.toFixed(2)} · cobrado $${cuenta.cobrado.toFixed(2)} · ${cuenta.estatusPago}` +
+        (anticipos > 0 ? ` (incluye anticipo $${anticipos.toFixed(2)})` : ""),
     });
-    if (cerradoConPinOverride) {
+    if (sinEvidencia) {
       registrarAccion(tx, {
         usuarioId,
-        accion: "cierre_con_pin_override",
+        accion: "cobro_sin_comprobante",
         entidadTipo: "servicio_realizado",
         entidadId: servicio.id,
-        detalle: "Cerrado sin comprobante de pago, usando el PIN de acceso.",
+        detalle: `${servicio.codigoServicio} · cierre: cobro sin efectivo y sin comprobante (aceptado).`,
       });
     }
   });
@@ -323,7 +394,11 @@ export async function obtenerDetalle(servicioRealizadoId: string): Promise<Detal
     .all();
 
   const productosVendidos = db
-    .select({ productoNombre: productos.nombre, cantidad: salidasInventario.cantidad })
+    .select({
+      productoNombre: productos.nombre,
+      cantidad: salidasInventario.cantidad,
+      precioUnitario: salidasInventario.precioUnitarioVenta,
+    })
     .from(salidasInventario)
     .innerJoin(productos, eq(salidasInventario.productoId, productos.id))
     .where(
@@ -335,18 +410,14 @@ export async function obtenerDetalle(servicioRealizadoId: string): Promise<Detal
     )
     .all();
 
-  const pagosFilas = db
-    .select({ fecha: pagos.fecha, monto: pagos.monto, metodoPago: pagos.metodoPago })
-    .from(pagos)
-    .where(and(eq(pagos.servicioRealizadoId, servicioRealizadoId), eq(pagos.estatus, "cobrado")))
-    .all();
+  const pagosFilas = pagosCobradosDeServicio(db, servicioRealizadoId);
 
-  const precio = servicio.precio ?? 0;
-  const totalCobrado = pagosFilas.reduce((acc, p) => acc + p.monto, 0);
-  const saldoPendiente = servicio.estatusPago === "cancelado" ? 0 : Math.max(0, precio - totalCobrado);
+  const totalCobrado = cobradoPorServicio(db, [servicio.id]).get(servicio.id) ?? 0;
 
   return {
-    precio,
+    precio: ingresoDelServicio(servicio),
+    totalProductos: servicio.totalProductos,
+    total: totalTicket(servicio),
     estatusPago: servicio.estatusPago,
     estatus: servicio.estatus,
     observaciones: servicio.observaciones,
@@ -354,6 +425,6 @@ export async function obtenerDetalle(servicioRealizadoId: string): Promise<Detal
     productosVendidos,
     pagos: pagosFilas,
     totalCobrado,
-    saldoPendiente,
+    saldoPendiente: saldoServicio(servicio, totalCobrado),
   };
 }

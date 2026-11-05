@@ -7,6 +7,8 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  /** Ancho máximo. "lg" (por defecto) para formularios; "2xl" para fichas con más contenido. */
+  ancho?: "lg" | "2xl";
 }
 
 // Pila global de modales abiertos. Permite que modales apilados (ej. Nueva entrada → Nuevo
@@ -14,7 +16,7 @@ interface ModalProps {
 // de más arriba (el último en la pila) reacciona al Escape.
 const pilaModales: symbol[] = [];
 
-export function Modal({ open, onClose, title, children }: ModalProps) {
+export function Modal({ open, onClose, title, children, ancho = "lg" }: ModalProps) {
   const contenidoRef = useRef<HTMLDivElement>(null);
   // Guardamos el onClose más reciente en un ref para que el listener de Escape no dependa de él
   // (se recrea en cada tecleo del padre); así el efecto solo corre al abrir/cerrar y no re-suscribe
@@ -70,7 +72,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
             exit={{ opacity: 0, scale: 0.97, y: 8 }}
             transition={{ duration: 0.15 }}
             onClick={(e) => e.stopPropagation()}
-            className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-beige-300 bg-beige-50 shadow-lg"
+            className={`max-h-[85vh] w-full ${ancho === "2xl" ? "max-w-2xl" : "max-w-lg"} overflow-y-auto rounded-2xl border border-beige-300 bg-beige-50 shadow-lg`}
           >
             <div className="flex items-center justify-between border-b border-beige-300 px-5 py-4">
               <h2 className="font-semibold text-jacaranda-700">{title}</h2>

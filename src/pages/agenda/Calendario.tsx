@@ -4,7 +4,12 @@ import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
-import type { EventClickArg, DatesSetArg, EventContentArg, DayHeaderContentArg } from "@fullcalendar/core";
+import type {
+  EventClickArg,
+  DatesSetArg,
+  EventContentArg,
+  DayHeaderContentArg,
+} from "@fullcalendar/core";
 import type { DateClickArg } from "@fullcalendar/interaction";
 import { ChevronLeft, ChevronRight, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,7 +18,7 @@ import { useToast } from "@/components/ui/toast";
 import { mensajeDeError } from "@/lib/errores";
 import { cn } from "@/lib/utils";
 import { fechaLocalIso, horaLocal } from "@shared/fechas";
-import { CitaDetalleModal, ESTADO_CITA } from "@/pages/agenda/CitaDetalleModal";
+import { CitaDetalleModal, ESTADOS_VIGENTES, colorEstadoCita } from "@/pages/agenda/CitaDetalleModal";
 import { NuevaCitaModal } from "@/pages/agenda/NuevaCitaModal";
 import type { ConfigValues } from "@shared/config";
 import type { CitaRow } from "@shared/types";
@@ -27,14 +32,20 @@ function horaOFallback(hora: string, fallback: string): string {
   return HORA_VALIDA.test(hora) ? hora : fallback;
 }
 
-const COLOR_POR_ESTADO: Record<string, string> = {
-  programada: "#7549b3",
-  confirmada: "#603a95",
-  asistio: "#6f9767",
-  no_asistio: "#b8543f",
-  cancelada: "#9a8f81",
-  reagendada: "#c98a3a",
-};
+const MAX_CITAS_POR_DIA = 3;
+
+/** Lunes de la semana de `fecha` (el mes empieza en lunes: firstDay=1), como clave de la fila. */
+function parseFechaLocal(fechaIso: string): Date {
+  const [a, m, d] = fechaIso.split("-").map(Number);
+  return new Date(a, m - 1, d);
+}
+
+function claveSemana(fecha: Date): string {
+  const d = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
+  const desdeLunes = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - desdeLunes);
+  return fechaLocalIso(d);
+}
 
 const VISTAS = [
   { value: "dayGridMonth", label: "Mes" },
@@ -85,7 +96,7 @@ function ChipEvento({ arg }: { arg: EventContentArg }) {
     servicioNombre: string | null;
     hora: string;
   };
-  const color = COLOR_POR_ESTADO[estado] ?? "#7549b3";
+  const color = colorEstadoCita(estado);
   const atenuada = estado === "cancelada";
   return (
     <div
@@ -134,6 +145,10 @@ export function CalendarioTab({ onCerrarCita, onNuevaCita }: CalendarioTabProps)
   const calendarRef = useRef<FullCalendar>(null);
   const [vista, setVista] = useState<Vista>("dayGridMonth");
   const [titulo, setTitulo] = useState("");
+  // Mes compacto: 3 citas por día y "+N más". Al picarlo se abre SOLO esa semana (su fila crece);
+  // "Ver menos" la cierra. FullCalendar solo sabe limitar todo el mes a la vez, así que el límite se
+  // aplica a los eventos que se le pasan (ver `eventos`): él acomoda solo lo que ve.
+  const [semanasAbiertas, setSemanasAbiertas] = useState<Set<string>>(() => new Set());
   const [configAbierta, setConfigAbierta] = useState(false);
   const [citaDetalle, setCitaDetalle] = useState<CitaRow | null>(null);
   const [citaReagendar, setCitaReagendar] = useState<CitaRow | null>(null);
@@ -153,29 +168,72 @@ export function CalendarioTab({ onCerrarCita, onNuevaCita }: CalendarioTabProps)
     onError: (e) => toast.error(mensajeDeError(e)),
   });
 
-  const eventos = useMemo(
-    () =>
-      citas.map((c) => ({
-        id: c.id,
-        title: `${c.hora} · ${c.clienteNombre}${c.servicioNombre ? ` — ${c.servicioNombre}` : ""}`,
-        start: `${c.fecha}T${c.hora}`,
-        // Con hora de fin real, el bloque en semana/día mide lo que dura la cita.
-        end: horaFin(c.fecha, c.hora, c.duracionMin ?? 60),
-        backgroundColor: COLOR_POR_ESTADO[c.estado] ?? "#7549b3",
-        borderColor: COLOR_POR_ESTADO[c.estado] ?? "#7549b3",
-        extendedProps: {
-          estado: c.estado,
-          clienteNombre: c.clienteNombre,
-          servicioNombre: c.servicioNombre,
-          hora: c.hora,
-        },
-      })),
-    [citas],
-  );
+  const eventos = useMemo(() => {
+    const aEvento = (c: CitaRow) => ({
+      id: c.id,
+      title: `${c.hora} · ${c.clienteNombre}${c.servicioNombre ? ` — ${c.servicioNombre}` : ""}`,
+      start: `${c.fecha}T${c.hora}`,
+      // Con hora de fin real, el bloque en semana/día mide lo que dura la cita.
+      end: horaFin(c.fecha, c.hora, c.duracionMin ?? 60),
+      backgroundColor: colorEstadoCita(c.estado),
+      borderColor: colorEstadoCita(c.estado),
+      extendedProps: {
+        estado: c.estado,
+        clienteNombre: c.clienteNombre,
+        servicioNombre: c.servicioNombre,
+        hora: c.hora,
+      },
+    });
+    if (vista !== "dayGridMonth") return citas.map(aEvento);
+
+    // Mes: por día, las primeras MAX_CITAS_POR_DIA (en orden de hora) y un renglón "+N más" que abre
+    // la semana; en una semana abierta, todas y "Ver menos" al final del día.
+    const porDia = new Map<string, CitaRow[]>();
+    for (const c of citas) {
+      const lista = porDia.get(c.fecha);
+      if (lista) lista.push(c);
+      else porDia.set(c.fecha, [c]);
+    }
+    const salida = [];
+    for (const [fecha, delDia] of porDia) {
+      delDia.sort((a, b) => a.hora.localeCompare(b.hora));
+      const semana = claveSemana(parseFechaLocal(fecha));
+      const abierta = semanasAbiertas.has(semana);
+      const extra = delDia.length - MAX_CITAS_POR_DIA;
+      const visibles = abierta || extra <= 0 ? delDia : delDia.slice(0, MAX_CITAS_POR_DIA);
+      salida.push(...visibles.map(aEvento));
+      if (extra > 0) {
+        salida.push({
+          id: `mas-${fecha}`,
+          title: abierta ? "Ver menos" : `+${extra} más`,
+          // Al final del día: FullCalendar ordena por hora de inicio.
+          start: `${fecha}T23:58`,
+          end: `${fecha}T23:59`,
+          display: "block",
+          classNames: ["fc-renglon-mas"],
+          backgroundColor: "transparent",
+          borderColor: "transparent",
+          extendedProps: { tipo: "mas", semana },
+        });
+      }
+    }
+    return salida;
+  }, [citas, vista, semanasAbiertas]);
 
   // Cualquier cita abre su detalle (antes las canceladas o pasadas no reaccionaban al clic);
   // desde ahí se puede cerrar una pendiente o consultar el expediente de una ya cerrada.
   function alHacerClicEnEvento(info: EventClickArg) {
+    // Renglón "+N más" / "Ver menos": abre o cierra solo esa semana.
+    if (info.event.extendedProps.tipo === "mas") {
+      const semana = info.event.extendedProps.semana as string;
+      setSemanasAbiertas((prev) => {
+        const sig = new Set(prev);
+        if (sig.has(semana)) sig.delete(semana);
+        else sig.add(semana);
+        return sig;
+      });
+      return;
+    }
     const cita = citas.find((c) => c.id === info.event.id);
     if (cita) setCitaDetalle(cita);
   }
@@ -265,9 +323,13 @@ export function CalendarioTab({ onCerrarCita, onNuevaCita }: CalendarioTabProps)
           events={eventos}
           eventClick={alHacerClicEnEvento}
           dateClick={alHacerClicEnFecha}
-          datesSet={(arg: DatesSetArg) => setTitulo(arg.view.title)}
-          dayMaxEvents={3}
-          moreLinkText={(n) => `${n} más`}
+          datesSet={(arg: DatesSetArg) => {
+            setTitulo(arg.view.title);
+            // Al cambiar de mes o de vista, todas las semanas vuelven a compactas.
+            setSemanasAbiertas((prev) => (prev.size > 0 ? new Set() : prev));
+          }}
+          dayMaxEvents={false}
+          firstDay={1}
           nowIndicator
           allDaySlot={false}
           slotDuration="00:30:00"
@@ -282,6 +344,8 @@ export function CalendarioTab({ onCerrarCita, onNuevaCita }: CalendarioTabProps)
           }}
           // Solo semana/día llevan el rediseño (chips + encabezados); la vista mensual queda igual.
           views={{
+            // El título ya trae la hora: sin esto el mes mostraba "9 09:00 · …".
+            dayGridMonth: { displayEventTime: false },
             timeGridWeek: {
               eventContent: (arg: EventContentArg) => <ChipEvento arg={arg} />,
               dayHeaderContent: (arg: DayHeaderContentArg) => <EncabezadoDia arg={arg} />,
@@ -295,11 +359,11 @@ export function CalendarioTab({ onCerrarCita, onNuevaCita }: CalendarioTabProps)
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 px-1">
-        {Object.entries(ESTADO_CITA).map(([estado, { label }]) => (
+        {ESTADOS_VIGENTES.map(([estado, { label }]) => (
           <span key={estado} className="flex items-center gap-1.5 text-xs text-ink-500">
             <span
               className="h-2 w-2 rounded-full"
-              style={{ backgroundColor: COLOR_POR_ESTADO[estado] ?? "#7549b3" }}
+              style={{ backgroundColor: colorEstadoCita(estado) }}
             />
             {label}
           </span>

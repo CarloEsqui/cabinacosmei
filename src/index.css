@@ -32,6 +32,8 @@
   --color-success-500: #6f9767;
   --color-warning-500: #c98a3a;
   --color-danger-500: #b8543f;
+  /* Azul pizarra para estados informativos (ej. cita reagendada); no compite con el ámbar. */
+  --color-info-500: #5b7c99;
 
   /* Combinación tipográfica de marca: Playfair Display para títulos/elementos de marca
      (serif editorial de alto contraste, con bold de verdad), Manrope para toda la interfaz
@@ -225,6 +227,24 @@
 
 .fc .fc-day-today .fc-daygrid-day-number {
   @apply font-semibold text-jacaranda-700;
+}
+
+/* Renglón "+N más" / "Ver menos" del mes (Calendario.tsx): un evento sintético con aspecto de
+   enlace, sin fondo ni sombra. Abre o cierra solo la semana. */
+.fc .fc-daygrid-event.fc-renglon-mas {
+  @apply bg-transparent px-1.5 py-0 shadow-none;
+}
+.fc .fc-daygrid-event.fc-renglon-mas .fc-event-title,
+.fc .fc-daygrid-event.fc-renglon-mas .fc-event-main {
+  @apply text-xs font-medium text-jacaranda-700;
+}
+.fc .fc-daygrid-event.fc-renglon-mas:hover {
+  @apply bg-jacaranda-50;
+}
+
+/* El popover de "N más" usaba --fc-page-bg-color (transparente) y se encimaba sobre el mes. */
+.fc .fc-popover {
+  @apply rounded-xl border-beige-300 bg-beige-50 shadow-lg;
 }
 
 .fc .fc-daygrid-event {

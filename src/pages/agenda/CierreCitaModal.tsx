@@ -9,8 +9,16 @@ import { NumberInput } from "@/components/ui/number-input";
 import { MoneyInput } from "@/components/ui/money-input";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { formatFecha } from "@/lib/format";
+import { formatFecha, formatMoneda } from "@/lib/format";
+import {
+  LINEA_INICIAL,
+  LineasPago,
+  evaluarCobro,
+  lineasParaEnviar,
+  type LineaPagoCaptura,
+} from "@/components/cobros/LineasPago";
 import type { Producto } from "@shared/types";
+import { requiereEvidencia } from "@shared/schemas";
 import { AlertaError } from "@/components/ui/alerta-error";
 import { mensajeDeError } from "@/lib/errores";
 
@@ -19,12 +27,21 @@ interface FilaProducto {
   // null = aún sin capturar: al elegir un producto en modo "contenido" el campo queda vacío a
   // propósito, para que los ml/g se escriban conscientemente y no se confundan con "1 pieza".
   cantidad: number | null;
+  // Solo en productos vendidos: precio unitario de venta, editable, con default el precio de
+  // venta del producto (cobro v2, FR-002).
+  precioUnitario?: number | null;
 }
 
 function filasValidas(lista: FilaProducto[]): { productoId: string; cantidad: number }[] {
   return lista
     .filter((f) => f.productoId && f.cantidad !== null && f.cantidad > 0)
     .map((f) => ({ productoId: f.productoId, cantidad: f.cantidad! }));
+}
+
+function ventasValidas(lista: FilaProducto[]): { productoId: string; cantidad: number; precioUnitario: number }[] {
+  return lista
+    .filter((f) => f.productoId && f.cantidad !== null && f.cantidad > 0)
+    .map((f) => ({ productoId: f.productoId, cantidad: f.cantidad!, precioUnitario: f.precioUnitario ?? 0 }));
 }
 
 interface CierreCitaModalProps {
@@ -50,6 +67,11 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
     queryKey: ["config"],
     queryFn: () => window.api.config.obtener(),
   });
+  // Anticipos ya pagados de esta cita (FR-005): el cierre pide solo el resto.
+  const { data: cuenta } = useQuery({
+    queryKey: ["estadoCuentaCita", citaId],
+    queryFn: () => window.api.cobros.estadoCuentaCita(citaId),
+  });
   const { data: receta = [] } = useQuery({
     queryKey: ["recetaServicio", servicio?.servicioCatalogoId],
     queryFn: () => window.api.serviciosCatalogo.listarReceta(servicio!.servicioCatalogoId),
@@ -67,52 +89,46 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
     setConsumidos(receta.map((r) => ({ productoId: r.productoId, cantidad: r.cantidadSugerida })));
   }, [receta]);
   const [vendidos, setVendidos] = useState<FilaProducto[]>([]);
-  const [metodoPago, setMetodoPago] = useState("");
-  const [monto, setMonto] = useState<number | null>(null);
-  const [estatusPago, setEstatusPago] = useState<"pagado" | "parcial" | "pendiente" | "cancelado">(
-    "pendiente",
-  );
+  const [lineas, setLineas] = useState<LineaPagoCaptura[]>(LINEA_INICIAL);
   const [observaciones, setObservaciones] = useState("");
-  const [usarPin, setUsarPin] = useState(false);
-  const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const precioEfectivo = precio ?? servicio?.precio ?? 0;
-  // El monto NUNCA debe asumir "precio completo" por defecto salvo cuando el estatus es
-  // "pagado": si no, un cierre con estatus "parcial" o "pendiente" en el que nadie tocó el campo
-  // Monto terminaba registrando un pago por el precio completo (esto es lo que distorsionaba
-  // "cobrado hoy" y el corte con los pagos parciales).
-  const montoPorDefecto = estatusPago === "pagado" ? precioEfectivo : 0;
-  const montoEfectivo = monto ?? montoPorDefecto;
-
-  function elegirEstatusPago(op: typeof estatusPago) {
-    setEstatusPago(op);
-    setMonto(null);
-  }
+  // Cobro v2: total = servicio + productos vendidos; se cobra el total menos los anticipos. El
+  // estatus (pagado / parcial / pendiente) lo deriva el servidor de estos números (FR-003).
+  const totalProductos = ventasValidas(vendidos).reduce(
+    (acc, v) => acc + Math.round(v.cantidad * v.precioUnitario * 100) / 100,
+    0,
+  );
+  const total = Math.round((precioEfectivo + totalProductos) * 100) / 100;
+  const anticipos = cuenta?.anticipos ?? 0;
+  const porCobrar = Math.round((total - anticipos) * 100) / 100;
+  const cobro = evaluarCobro(lineas, porCobrar);
 
   const subirComprobante = useMutation({
+    // El main resuelve la carpeta del servicio y la crea si falta (clientas sin carpeta en disco).
     mutationFn: () => {
-      if (!servicio?.carpetaPath) throw new Error("Aún no existe la carpeta del servicio.");
-      return window.api.archivos.subirComprobante("servicio_realizado", servicio.id, servicio.carpetaPath);
+      if (!servicio) throw new Error("No se pudo abrir el servicio.");
+      return window.api.archivos.subirComprobante(servicio.id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["abrirCierre", citaId] });
+      queryClient.invalidateQueries({ queryKey: ["comprobantesCita", citaId] });
     },
+    onError: (e) => setError(mensajeDeError(e, "No se pudo subir el comprobante.")),
   });
 
   const cerrar = useMutation({
-    mutationFn: () => {
+    mutationFn: (sinComprobanteAceptado: boolean) => {
       if (!servicio) throw new Error("No se pudo abrir el servicio.");
       return window.api.serviciosRealizados.cerrarCita({
         servicioRealizadoId: servicio.id,
         precio: precioEfectivo,
         productosConsumidos: filasValidas(consumidos),
-        productosVendidos: filasValidas(vendidos),
-        metodoPago,
-        monto: montoEfectivo,
-        estatusPago,
+        productosVendidos: ventasValidas(vendidos),
+        pagos: lineasParaEnviar(lineas, porCobrar),
         observaciones,
-        pinOverride: usarPin ? pin : undefined,
+        sinComprobanteAceptado,
       });
     },
     onSuccess: async (actualizado) => {
@@ -121,6 +137,10 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
       queryClient.invalidateQueries({ queryKey: ["movimientos"] });
       queryClient.invalidateQueries({ queryKey: ["clientes"] });
       queryClient.invalidateQueries({ queryKey: ["mantenimientosNoProgramados"] });
+      queryClient.invalidateQueries({ queryKey: ["estadoCuentaCita"] });
+      queryClient.invalidateQueries({ queryKey: ["corteResumenPendiente"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboardResumen"] });
+      queryClient.invalidateQueries({ queryKey: ["resumenCliente"] });
       onClose();
 
       if (actualizado.proximaCitaSugerida) {
@@ -161,16 +181,31 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
     );
   }
 
-  const puedeSubirComprobante = !!servicio.carpetaPath;
-  const requiereMetodoPago = montoEfectivo > 0;
-  const comprobanteResuelto = servicio.tieneComprobante || (usarPin && pin.length >= 4);
-  const listoParaCerrar = comprobanteResuelto && (!requiereMetodoPago || !!metodoPago);
+  const listoParaCerrar = !cobro.error && porCobrar >= -0.005;
 
-  const motivoBloqueo = !comprobanteResuelto
-    ? "Sube el comprobante de pago o usa el PIN de acceso para continuar."
-    : requiereMetodoPago && !metodoPago
-      ? "Selecciona un método de pago para registrar el cobro."
-      : null;
+  // Addendum 2026-11-05: el comprobante es evidencia opcional. Efectivo no pide nada; si algún
+  // pago es con otro método y no hay comprobante, se confirma una vez antes de cerrar.
+  async function alCerrar() {
+    const sinEvidencia = !servicio!.tieneComprobante && requiereEvidencia(lineasParaEnviar(lineas, porCobrar));
+    if (sinEvidencia) {
+      const r = await confirm({
+          titulo: "¿Continuar sin comprobante?",
+          mensaje:
+            "Este cobro no es en efectivo y no tiene comprobante. Si continúas, no tendrás evidencia de este pago.",
+          confirmarLabel: "Continuar sin comprobante",
+          cancelarLabel: "Volver",
+        });
+      if (r !== "confirmado") return;
+    }
+    cerrar.mutate(sinEvidencia);
+  }
+
+  const motivoBloqueo =
+    porCobrar < -0.005
+      ? `Los anticipos (${formatMoneda(anticipos)}) superan el total. Cancela el anticipo sobrante desde el detalle de la cita.`
+      : cobro.error
+        ? cobro.error
+        : null;
 
   return (
     <Modal open onClose={onClose} title={`Cerrar cita · ${servicio.clienteNombre}`}>
@@ -205,6 +240,7 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
           titulo="Productos vendidos (venta adicional)"
           filas={vendidos}
           productos={productos}
+          conPrecio
           onAgregar={() => agregarFila(vendidos, setVendidos)}
           onActualizar={(i, c) => actualizarFila(vendidos, setVendidos, i, c)}
           onQuitar={(i) => quitarFila(vendidos, setVendidos, i)}
@@ -212,41 +248,38 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
 
         <div>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Pago</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-ink-500">
-                Método de pago {requiereMetodoPago && "*"}
-              </label>
-              <Select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)}>
-                <option value="">Selecciona</option>
-                {(config?.metodosPago ?? []).map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </Select>
+          <div className="mb-3 flex flex-col gap-1 rounded-xl bg-beige-100 p-3 text-sm">
+            <div className="flex justify-between text-ink-700">
+              <span>Servicio</span>
+              <span className="tabular-nums">{formatMoneda(precioEfectivo)}</span>
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-ink-500">Monto</label>
-              <MoneyInput placeholder="0.00" value={montoEfectivo} onValueChange={setMonto} />
+            {totalProductos > 0 && (
+              <div className="flex justify-between text-ink-700">
+                <span>Productos vendidos</span>
+                <span className="tabular-nums">{formatMoneda(totalProductos)}</span>
+              </div>
+            )}
+            <div className="flex justify-between font-medium text-ink-900">
+              <span>Total</span>
+              <span className="tabular-nums">{formatMoneda(total)}</span>
             </div>
-          </div>
-          <div className="mt-3">
-            <label className="mb-1 block text-xs font-medium text-ink-500">Estatus de pago</label>
-            <div className="flex gap-2">
-              {(["pagado", "parcial", "pendiente", "cancelado"] as const).map((op) => (
-                <Button
-                  key={op}
-                  type="button"
-                  size="sm"
-                  variant={estatusPago === op ? "primary" : "secondary"}
-                  onClick={() => elegirEstatusPago(op)}
-                >
-                  {op}
-                </Button>
-              ))}
+            {anticipos > 0 && (
+              <div className="flex justify-between text-ink-700">
+                <span>Anticipo ya pagado</span>
+                <span className="tabular-nums">− {formatMoneda(anticipos)}</span>
+              </div>
+            )}
+            <div className="flex justify-between border-t border-beige-300 pt-1 font-semibold text-ink-900">
+              <span>Por cobrar</span>
+              <span className="tabular-nums">{formatMoneda(Math.max(0, porCobrar))}</span>
             </div>
           </div>
+          <LineasPago
+            lineas={lineas}
+            onChange={setLineas}
+            metodos={config?.metodosPago ?? []}
+            porCobrar={porCobrar}
+          />
         </div>
 
         <div>
@@ -275,27 +308,15 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
                 type="button"
                 variant="secondary"
                 size="sm"
-                disabled={!puedeSubirComprobante || subirComprobante.isPending}
+                disabled={subirComprobante.isPending}
                 onClick={() => subirComprobante.mutate()}
               >
                 <Upload size={14} /> Subir comprobante
               </Button>
               <p className="text-xs text-ink-500">
-                No se puede cerrar la cita sin comprobante, salvo con el PIN de acceso.
+                Opcional: guarda la foto del voucher o de la transferencia como evidencia. En efectivo no
+                hace falta.
               </p>
-              <label className="flex items-center gap-2 text-sm text-ink-700">
-                <input type="checkbox" checked={usarPin} onChange={(e) => setUsarPin(e.target.checked)} />
-                Cerrar sin comprobante usando el PIN de acceso
-              </label>
-              {usarPin && (
-                <Input
-                  type="password"
-                  inputMode="numeric"
-                  placeholder="PIN de acceso"
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                />
-              )}
             </div>
           )}
         </div>
@@ -303,7 +324,7 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
         {error && <AlertaError mensaje={error} />}
         {!error && motivoBloqueo && <p className="text-xs text-ink-500">{motivoBloqueo}</p>}
 
-        <Button disabled={!listoParaCerrar || cerrar.isPending} onClick={() => cerrar.mutate()}>
+        <Button disabled={!listoParaCerrar || cerrar.isPending} onClick={alCerrar}>
           <Lock size={16} /> Cerrar cita
         </Button>
       </div>
@@ -316,6 +337,7 @@ function ListaProductos({
   filas,
   productos,
   aplicarModoContenido = false,
+  conPrecio = false,
   onAgregar,
   onActualizar,
   onQuitar,
@@ -325,6 +347,8 @@ function ListaProductos({
   productos: Producto[];
   /** true en la lista de insumos: los productos en modo "contenido" se capturan en ml/g. */
   aplicarModoContenido?: boolean;
+  /** true en productos vendidos: muestra el precio unitario de venta, editable (DIN-A5). */
+  conPrecio?: boolean;
   onAgregar: () => void;
   onActualizar: (index: number, cambios: Partial<FilaProducto>) => void;
   onQuitar: (index: number) => void;
@@ -362,7 +386,11 @@ function ListaProductos({
                     const nuevo = productos.find((p) => p.id === e.target.value);
                     const nuevoPorContenido =
                       aplicarModoContenido && nuevo?.modoConsumo === "contenido" && !!nuevo.contenidoCantidad;
-                    onActualizar(i, { productoId: e.target.value, cantidad: nuevoPorContenido ? null : 1 });
+                    onActualizar(i, {
+                      productoId: e.target.value,
+                      cantidad: nuevoPorContenido ? null : 1,
+                      ...(conPrecio ? { precioUnitario: nuevo?.precioVenta ?? 0 } : {}),
+                    });
                   }}
                 >
                   <option value="">Selecciona un producto</option>
@@ -382,6 +410,16 @@ function ListaProductos({
                   value={fila.cantidad}
                   onValueChange={(v) => onActualizar(i, { cantidad: v })}
                 />
+                {conPrecio && (
+                  <div className="w-32" title="Precio unitario de venta">
+                    <MoneyInput
+                      key={`precio-${fila.productoId || "sin-producto"}`}
+                      placeholder="Precio c/u"
+                      value={fila.precioUnitario ?? 0}
+                      onValueChange={(v) => onActualizar(i, { precioUnitario: v })}
+                    />
+                  </div>
+                )}
                 <Button
                   type="button"
                   variant="ghost"

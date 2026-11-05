@@ -36,6 +36,13 @@
       "when": 1793818692609,
       "tag": "0004_cancelacion_inventario",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793828617746,
+      "tag": "0005_cobro_v2",
+      "breakpoints": true
     }
   ]
 }

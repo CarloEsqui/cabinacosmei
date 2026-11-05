@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -14,6 +15,7 @@ import {
   Users,
   UserPlus,
   Package,
+  ChevronRight,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { WelcomeGreeting } from "@/components/WelcomeGreeting";
@@ -25,6 +27,10 @@ import { IlustracionCalendario, IlustracionPaquete } from "@/components/ui/ilust
 import { RamaJacaranda } from "@/components/ui/decoracion";
 import { formatFecha, formatMoneda, formatearStock } from "@/lib/format";
 import { fechaLocalIso, sumarDiasIso } from "@shared/fechas";
+import type { CitaRow } from "@shared/types";
+import { CitaDetalleModal, ESTADO_CITA } from "@/pages/agenda/CitaDetalleModal";
+import { CierreCitaModal } from "@/pages/agenda/CierreCitaModal";
+import { NuevaCitaModal } from "@/pages/agenda/NuevaCitaModal";
 
 const HOY = fechaLocalIso();
 const EN_7_DIAS = sumarDiasIso(HOY, 7);
@@ -41,6 +47,12 @@ const tarjetaVariants = {
 };
 
 export function DashboardPage() {
+  // Detalle de cita abierto desde "Citas de hoy" o "Tu siguiente cita": las mismas acciones que en
+  // Citas y Calendario (cobrar, cerrar, reagendar, confirmar…), sin salir del Dashboard.
+  const [citaAbierta, setCitaAbierta] = useState<CitaRow | null>(null);
+  const [citaEnCierre, setCitaEnCierre] = useState<string | null>(null);
+  const [citaReagendar, setCitaReagendar] = useState<CitaRow | null>(null);
+  const [nuevaCita, setNuevaCita] = useState<{ clienteId: string; fecha?: string } | null>(null);
   const { data: resumen = [] } = useQuery({
     queryKey: ["inventarioResumen"],
     queryFn: () => window.api.inventario.resumen(),
@@ -184,7 +196,7 @@ export function DashboardPage() {
         <div className="relative flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
           <div className="min-w-0 flex-1">
             <WelcomeGreeting
-              citasProximas={citasActivas.length}
+              citasHoy={citasHoy.length}
               mantenimientosPendientes={mantenimientos.length}
               stockBajo={stockBajoLista.length}
               proximosACaducar={caducidadLista.length}
@@ -194,7 +206,11 @@ export function DashboardPage() {
           {/* Siguiente cita destacada + acción rápida (solo datos ya cargados: citasActivas). */}
           <aside className="flex shrink-0 flex-col gap-2.5 px-8 pb-7 lg:w-[288px] lg:px-0 lg:py-6 lg:pr-7">
             {siguienteCita ? (
-              <div className="rounded-2xl border border-jacaranda-200/70 bg-beige-50/85 p-4 shadow-sm shadow-ink-900/[0.04] backdrop-blur-[2px]">
+              <button
+                type="button"
+                onClick={() => setCitaAbierta(siguienteCita)}
+                className="rounded-2xl border border-jacaranda-200/70 bg-beige-50/85 p-4 text-left shadow-sm shadow-ink-900/[0.04] backdrop-blur-[2px] transition-shadow hover:shadow-md"
+              >
                 <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-jacaranda-600">
                   <CalendarClock size={13} className="shrink-0" />
                   Tu siguiente cita
@@ -207,7 +223,7 @@ export function DashboardPage() {
                 </div>
                 <p className="mt-2 truncate text-sm font-medium text-ink-900">{siguienteCita.clienteNombre}</p>
                 <p className="truncate text-xs text-ink-500">{siguienteCita.servicioNombre ?? "Sin servicio"}</p>
-              </div>
+              </button>
             ) : (
               <div className="rounded-2xl border border-beige-300 bg-beige-50/85 p-4 shadow-sm shadow-ink-900/[0.03] backdrop-blur-[2px]">
                 <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-jacaranda-600">
@@ -360,21 +376,29 @@ export function DashboardPage() {
                   </p>
                 </div>
               ) : (
-                <ul className="flex flex-col divide-y divide-beige-200">
-                  {citasHoy.map((c) => (
-                    <li key={c.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-ink-900">{c.clienteNombre}</p>
-                        <p className="truncate text-xs text-ink-500">{c.servicioNombre ?? "Sin servicio"}</p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <span className="text-sm font-medium text-ink-700">{c.hora}</span>
-                        <Badge variant={c.estado === "confirmada" ? "success" : "jacaranda"}>
-                          {c.estado === "confirmada" ? "Confirmada" : "Programada"}
-                        </Badge>
-                      </div>
-                    </li>
-                  ))}
+                <ul className="-mx-2 flex flex-col divide-y divide-beige-200">
+                  {citasHoy.map((c) => {
+                    const estado = ESTADO_CITA[c.estado];
+                    return (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          onClick={() => setCitaAbierta(c)}
+                          className="group flex w-full items-center justify-between gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-beige-100"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-ink-900">{c.clienteNombre}</p>
+                            <p className="truncate text-xs text-ink-500">{c.servicioNombre ?? "Sin servicio"}</p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <span className="text-sm font-medium text-ink-700">{c.hora}</span>
+                            {estado && <Badge variant={estado.variant}>{estado.label}</Badge>}
+                            <ChevronRight size={16} className="text-ink-300 transition-colors group-hover:text-ink-500" />
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </CardContent>
@@ -384,6 +408,30 @@ export function DashboardPage() {
 
       {/* La decoración de hojas al pie ahora es GLOBAL (AppShell): aparece en todas las páginas
           anclada al viewport, sin duplicarse aquí. */}
+
+      {citaAbierta && (
+        <CitaDetalleModal
+          key={citaAbierta.id}
+          cita={citasProximas.find((c) => c.id === citaAbierta.id) ?? citaAbierta}
+          onClose={() => setCitaAbierta(null)}
+          onCerrarCita={setCitaEnCierre}
+          onReagendar={setCitaReagendar}
+        />
+      )}
+      <NuevaCitaModal
+        open={!!nuevaCita}
+        onClose={() => setNuevaCita(null)}
+        clienteInicial={nuevaCita?.clienteId}
+        fechaInicial={nuevaCita?.fecha}
+      />
+      <NuevaCitaModal open={!!citaReagendar} citaEditar={citaReagendar} onClose={() => setCitaReagendar(null)} />
+      {citaEnCierre && (
+        <CierreCitaModal
+          citaId={citaEnCierre}
+          onClose={() => setCitaEnCierre(null)}
+          onAgendarMantenimiento={(clienteId, fecha) => setNuevaCita({ clienteId, fecha })}
+        />
+      )}
     </div>
   );
 }

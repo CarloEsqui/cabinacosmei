@@ -8,7 +8,8 @@ import { IlustracionDocumento } from "@/components/ui/ilustraciones";
 import { formatFechaHoraMs } from "@/lib/format";
 import type { BitacoraFiltro } from "@shared/schemas";
 
-const ACCIONES_SENSIBLES = new Set(["cierre_con_pin_override"]);
+// "cierre_con_pin_override" queda por los registros anteriores al addendum 2026-11-05.
+const ACCIONES_SENSIBLES = new Set(["cierre_con_pin_override", "cobro_sin_comprobante"]);
 
 function etiquetaAccion(accion: string): string {
   return accion.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
