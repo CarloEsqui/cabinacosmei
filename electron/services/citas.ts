@@ -25,6 +25,8 @@ function mapear(
     servicioRealizadoId: string | null;
     precio: number | null;
     totalProductos: number | null;
+    descuentoServicio: number | null;
+    descuentoProductos: number | null;
     estatusPagoServicio: string | null;
   },
   pagosPorServicio: Map<string, number>,
@@ -32,7 +34,13 @@ function mapear(
   let saldoPendiente = 0;
   if (fila.servicioRealizadoId && fila.estatusPagoServicio) {
     saldoPendiente = saldoServicio(
-      { precio: fila.precio, totalProductos: fila.totalProductos, estatusPago: fila.estatusPagoServicio },
+      {
+        precio: fila.precio,
+        totalProductos: fila.totalProductos,
+        descuentoServicio: fila.descuentoServicio ?? 0,
+        descuentoProductos: fila.descuentoProductos ?? 0,
+        estatusPago: fila.estatusPagoServicio,
+      },
       pagosPorServicio.get(fila.servicioRealizadoId) ?? 0,
     );
   }
@@ -69,6 +77,8 @@ export async function listarCitas(filtro: CitasFiltro): Promise<CitaRow[]> {
       servicioRealizadoId: serviciosRealizados.id,
       precio: serviciosRealizados.precio,
       totalProductos: serviciosRealizados.totalProductos,
+      descuentoServicio: serviciosRealizados.descuentoServicio,
+      descuentoProductos: serviciosRealizados.descuentoProductos,
       estatusPagoServicio: serviciosRealizados.estatusPago,
     })
     .from(citas)

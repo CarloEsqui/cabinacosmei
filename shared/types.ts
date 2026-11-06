@@ -165,10 +165,25 @@ export interface ServicioRealizado {
   tieneComprobante: boolean;
 }
 
+/** Un descuento vigente del ticket (spec de descuentos, migración 0006). */
+export interface DescuentoRow {
+  id: string;
+  aplicaA: "servicio" | "productos";
+  modo: "porcentaje" | "monto";
+  valor: number;
+  base: number;
+  monto: number;
+  motivo: string;
+  motivoDetalle: string | null;
+}
+
 export interface DetalleServicioRealizado {
-  precio: number;
-  totalProductos: number;
-  total: number; // precio + totalProductos (cobro v2)
+  precio: number; // precio BRUTO del servicio
+  descuentoServicio: number;
+  totalProductos: number; // productos vendidos, bruto
+  descuentoProductos: number;
+  total: number; // neto: (precio − descuento) + (productos − descuento)
+  descuentos: DescuentoRow[];
   estatusPago: string;
   estatus: string;
   observaciones: string | null;
@@ -198,10 +213,16 @@ export interface EstadoCuentaCita {
   servicioRealizadoId?: string;
   estatusPago?: string;
   tieneComprobante?: boolean; // del servicio cerrado; evidencia opcional (addendum 2026-11-05)
-  total: number | null; // null si la cita aún no se cierra
+  total: number | null; // NETO de descuentos; null si la cita aún no se cierra
   cobrado: number;
   saldo: number;
   anticipos: number; // anticipos cobrados aún sin aplicar (solo citas sin cerrar)
+  // Desglose del ticket cerrado (spec de descuentos, Gate condición 6). null si no está cerrada.
+  precioBruto: number | null;
+  descuentoServicio: number;
+  totalProductos: number;
+  descuentoProductos: number;
+  descuentos: DescuentoRow[];
 }
 
 export interface DesgloseMetodo {
@@ -373,6 +394,8 @@ export interface ReporteFinanzas {
   flujoCaja: FilaEstadoResultados[];
   metodosPago: MetodoPagoFinanzas[];
   carteraAntiguedad: CarteraAntiguedadFila[];
+  /** Descuentos otorgados del periodo por motivo (spec de descuentos, FR-008). */
+  descuentosPorMotivo: { motivo: string; etiqueta: string; monto: number; cantidad: number }[];
   serie: PuntoSerieResumen[];
 }
 

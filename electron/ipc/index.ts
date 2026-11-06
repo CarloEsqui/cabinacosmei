@@ -51,6 +51,8 @@ import {
   anticipoInputSchema,
   esEfectivo,
   cancelarPagoInputSchema,
+  descuentoInputSchema,
+  quitarDescuentoInputSchema,
   guardarRecetaInputSchema,
   bitacoraFiltroSchema,
   resumenFiltroSchema,
@@ -363,6 +365,13 @@ export function registrarIpc(): void {
   );
   ipcMain.handle("cobros:estadoCuentaCita", (_e, citaId: string) =>
     cobrosService.estadoCuentaCita(idSchema.parse(citaId)),
+  );
+  // Descuentos (spec de descuentos, FR-005 y FR-006). Sin PIN: decisión de Carlos del 2026-11-06 (BR-008).
+  ipcMain.handle("cobros:aplicarDescuento", (_e, input) =>
+    cobrosService.aplicarDescuento(descuentoInputSchema.parse(input), usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("cobros:quitarDescuento", (_e, input) =>
+    cobrosService.quitarDescuento(quitarDescuentoInputSchema.parse(input), usuarioActualId() ?? undefined),
   );
   ipcMain.handle("corte:resumenPendiente", () => corteService.resumenPendiente());
   ipcMain.handle("corte:registrar", () => corteService.registrarCorte(usuarioActualId() ?? undefined));

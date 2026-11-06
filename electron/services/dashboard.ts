@@ -17,7 +17,12 @@ export async function resumenDashboard(): Promise<ResumenDashboard> {
   const pendiente = await resumenPendiente();
 
   const serviciosMes = db
-    .select({ precio: serviciosRealizados.precio, totalProductos: serviciosRealizados.totalProductos })
+    .select({
+      precio: serviciosRealizados.precio,
+      totalProductos: serviciosRealizados.totalProductos,
+      descuentoServicio: serviciosRealizados.descuentoServicio,
+      descuentoProductos: serviciosRealizados.descuentoProductos,
+    })
     .from(serviciosRealizados)
     .where(
       and(

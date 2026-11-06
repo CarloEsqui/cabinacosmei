@@ -171,12 +171,52 @@ export function requiereEvidencia(lineas: { metodoPago: string; monto: number }[
 }
 
 /**
+ * Descuento manual del ticket (spec de descuentos, migración 0006). Los valores válidos viven aquí
+ * y en cobros.ts, no en CHECK de la BD (Gate de descuentos, condición 1). Sin PIN (BR-008).
+ */
+export const descuentoCapturaSchema = z
+  .object({
+    aplicaA: z.enum(["servicio", "productos"]),
+    modo: z.enum(["porcentaje", "monto"]),
+    valor: z.number().positive("El descuento debe ser mayor a 0."),
+    motivo: z.enum(["primera_visita", "promocion", "cortesia", "otro"]),
+    motivoDetalle: z.string().trim().max(120).optional(),
+  })
+  .refine((d) => d.modo !== "porcentaje" || d.valor <= 100, { message: "El porcentaje no puede pasar de 100 %." })
+  .refine((d) => d.motivo !== "otro" || (d.motivoDetalle ?? "").length > 0, {
+    message: "Escribe el motivo del descuento.",
+  });
+export type DescuentoCaptura = z.infer<typeof descuentoCapturaSchema>;
+
+/** FR-005: aplicar (o cambiar) un descuento a un servicio ya cerrado, desde el detalle de la cita. */
+export const descuentoInputSchema = z
+  .object({ servicioRealizadoId: z.string().min(1), descuento: descuentoCapturaSchema });
+export type DescuentoInput = z.infer<typeof descuentoInputSchema>;
+
+/** FR-006: quitar un descuento (se cancela, nunca se borra). */
+export const quitarDescuentoInputSchema = z.object({
+  descuentoId: z.string().min(1),
+  motivo: z.string().trim().max(120).optional(),
+});
+export type QuitarDescuentoInput = z.infer<typeof quitarDescuentoInputSchema>;
+
+/**
  * Cierre de cita, cobro v2: N líneas de pago y el estatus lo DERIVA el servidor (FR-003). Ya no
  * existen `metodoPago`, `monto` ni `estatusPago` (Decisión A: sin "cancelado" en el cierre).
  */
 export const cierreCitaInputSchema = z.object({
   servicioRealizadoId: z.string().min(1),
+  /** FR-007 (descuentos): el servicio que realmente se hizo, si cambió respecto a la cita. */
+  servicioCatalogoId: z.string().min(1).optional(),
   precio: z.number().nonnegative().default(0),
+  /** A lo más uno por base (BR-001); el servidor calcula los montos. */
+  descuentos: z
+    .array(descuentoCapturaSchema)
+    .max(2)
+    .default([])
+    .refine((ds) => new Set(ds.map((d) => d.aplicaA)).size === ds.length, {
+      message: "Solo puede haber un descuento al servicio y uno a los productos.",
+    }),
   productosConsumidos: z.array(productoConsumoSchema).default([]),
   productosVendidos: z.array(productoVentaSchema).default([]),
   pagos: z.array(lineaPagoSchema).default([]),

@@ -114,6 +114,8 @@ const api: IpcApi = {
     registrarAnticipo: (input) => ipcRenderer.invoke("cobros:registrarAnticipo", input),
     cancelarPago: (input) => ipcRenderer.invoke("cobros:cancelarPago", input),
     estadoCuentaCita: (citaId) => ipcRenderer.invoke("cobros:estadoCuentaCita", citaId),
+    aplicarDescuento: (input) => ipcRenderer.invoke("cobros:aplicarDescuento", input),
+    quitarDescuento: (input) => ipcRenderer.invoke("cobros:quitarDescuento", input),
   },
   corte: {
     resumenPendiente: () => ipcRenderer.invoke("corte:resumenPendiente"),

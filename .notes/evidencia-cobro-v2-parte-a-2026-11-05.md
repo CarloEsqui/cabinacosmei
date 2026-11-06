@@ -22,7 +22,7 @@ corre Carlos.
 
 ### Auditoría de la Parte A
 
-1. **COB-A1 — ¿Existe la evidencia de las condiciones 3 y 8 del Gate?** **PARCIAL.**
+1. **COB-A1 — ¿Existe la evidencia de las condiciones 3 y 8 del Gate?** **PARCIAL: la condición 3 ya está cumplida y falta la prueba guiada de la condición 8.**
    - **Condición 8 — CUMPLIDA a nivel de servicios.** AC-001…AC-006 y la parte A de AC-009 se
      corrieron contra los servicios reales sobre una copia de la BD de prueba. Salida literal:
      ```
@@ -47,11 +47,30 @@ corre Carlos.
      - **Matiz que se concede al auditor:** la condición pide `npm run dev`. Estas pruebas ejercitan
        los mismos servicios y el mismo zod que usa el IPC, pero no la capa visual. Carlos tiene una
        prueba guiada de 4 pasos en la app (AC-001…AC-004). Su resultado se agrega aquí antes del tag.
-   - **Condición 3 — PENDIENTE.** La radiografía sobre un **respaldo real** de la cabina todavía no se
-     corre: DIN-M4, A-003 y el cuadre corte↔ligados con la `0005` aplicada. Carlos conseguirá el .zip
-     desde la computadora de la cabina.
-     - **El release que lleve la `0005` queda bloqueado** hasta agregar esos tres conteos aquí.
-     - El merge a `main` sí procede: el auditor declaró la Parte A "correcta e integrable".
+   - **Condición 3 — CUMPLIDA (2026-11-06).** Se corrió sobre el respaldo automático diario de la
+     cabina del 2026-11-05. Se trabajó con una copia de solo lectura en el scratchpad, fuera del repo
+     y fuera de la carpeta de datos, y se reportan solo conteos. El respaldo está en 4 migraciones
+     (`0000`…`0003`): la instalación real recibirá `0004` y `0005` juntas. La copia se migró con el
+     `initDb` real (incluye la copia previa a migrar) y el pendiente se leyó con
+     `corte.resumenPendiente()`.
+     ```
+     (a) DIN-M4 pagos con created_at = corte:           0
+     (b) A-003 pagos cancelados:                        0
+     (c) cortes que NO cuadran con sus pagos ligados:   0   (5 cortes, 11 pagos ligados, 10 sin corte)
+     pendiente ANTES  (lógica vieja, created_at > último corte): Efectivo 1300 (2), Tarjeta 3232 (5), Transferencia 1702 (3)
+     pendiente DESPUÉS (corte.resumenPendiente):                 Efectivo 1300, Tarjeta 3232, Transferencia 1702; ajustes 0; 10 pagos
+     estatus ANTES:   abierto/pendiente 6, cerrado/pagado 21
+     estatus DESPUÉS: abierto/pendiente 6, cerrado/pagado 19, cerrado/parcial 2
+     bitácora estatus_pago_recalculado: 2 filas (pagado → parcial)
+     ```
+     - El corte pendiente no cambia. Como (a) da 0, no hay filas sujetas a la decisión 3 de la cabecera.
+     - Hay un efecto visible que la dueña debe conocer: dos servicios cerrados con un pago menor al
+       precio pasan de "pagado" a "parcial", con un saldo total de $388. Uno es una primera visita
+       con un pago del 85 % (descuento implícito) y el otro una visita posterior. Se corrigen con la
+       acción de descuento ([spec de descuentos](spec-descuentos-2026-11-06.md)), que sale en el
+       mismo release.
+     - Sigue pendiente la prueba guiada de Carlos en la app (condición 8, matiz de arriba) y la fila
+       de `APPLIED-MIGRATIONS.md` cuando se instale.
 2. **COB-M1 — ¿`pagos.servicio_realizado_id` con `ON DELETE SET NULL`?** **DIFERIDO, como propone el
    auditor.**
    - No existe ninguna ruta que borre un servicio con pagos: `citas.ts` solo borra borradores sin pagos.

@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, Plus, Upload, FolderOpen, Lock } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { SelectBuscable } from "@/components/ui/select-buscable";
 import { NumberInput } from "@/components/ui/number-input";
 import { MoneyInput } from "@/components/ui/money-input";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,15 @@ import {
 import type { Producto } from "@shared/types";
 import { requiereEvidencia } from "@shared/schemas";
 import { AlertaError } from "@/components/ui/alerta-error";
+import {
+  DESCUENTO_VACIO,
+  DescuentoCampo,
+  descuentoParaEnviar,
+  errorDescuento,
+  montoDescuento,
+  type DescuentoBorrador,
+} from "@/components/cobros/DescuentoCampo";
+import type { DescuentoCaptura } from "@shared/schemas";
 import { mensajeDeError } from "@/lib/errores";
 
 interface FilaProducto {
@@ -73,36 +82,68 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
     queryKey: ["estadoCuentaCita", citaId],
     queryFn: () => window.api.cobros.estadoCuentaCita(citaId),
   });
-  const { data: receta = [] } = useQuery({
-    queryKey: ["recetaServicio", servicio?.servicioCatalogoId],
-    queryFn: () => window.api.serviciosCatalogo.listarReceta(servicio!.servicioCatalogoId),
-    enabled: !!servicio?.servicioCatalogoId,
+  const { data: catalogo = [] } = useQuery({
+    queryKey: ["serviciosCatalogo"],
+    queryFn: () => window.api.serviciosCatalogo.listar(),
+  });
+
+  // FR-007 (descuentos): el servicio que realmente se hizo. null = el de la cita.
+  const [servicioElegido, setServicioElegido] = useState<string | null>(null);
+  const servicioCatalogoId = servicioElegido ?? servicio?.servicioCatalogoId ?? "";
+  const cambioDeServicio = !!servicio && servicioCatalogoId !== servicio.servicioCatalogoId;
+  const catalogoElegido = catalogo.find((c) => c.id === servicioCatalogoId);
+
+  const { data: receta } = useQuery({
+    queryKey: ["recetaServicio", servicioCatalogoId],
+    queryFn: () => window.api.serviciosCatalogo.listarReceta(servicioCatalogoId),
+    enabled: !!servicioCatalogoId,
   });
 
   const [precio, setPrecio] = useState<number | null>(null);
   const [consumidos, setConsumidos] = useState<FilaProducto[]>([]);
-  const recetaPrecargadaRef = useRef(false);
+  // De qué servicio se precargó la receta: al cambiar de servicio se recarga la del nuevo. Es
+  // estado (no ref) porque bloquea "Cerrar cita" mientras la receta del servicio nuevo no llega
+  // (DES-B3): un ref no volvería a pintar el botón al terminar de cargar.
+  const [recetaCargadaDe, setRecetaCargadaDe] = useState<string | null>(null);
+  const recetaLista = !servicioCatalogoId || recetaCargadaDe === servicioCatalogoId;
 
   useEffect(() => {
-    if (recetaPrecargadaRef.current) return;
-    if (receta.length === 0) return;
-    recetaPrecargadaRef.current = true;
+    if (!servicioCatalogoId || !receta) return;
+    if (recetaCargadaDe === servicioCatalogoId) return;
+    const primera = recetaCargadaDe === null;
+    setRecetaCargadaDe(servicioCatalogoId);
+    if (primera && receta.length === 0) return;
     setConsumidos(receta.map((r) => ({ productoId: r.productoId, cantidad: r.cantidadSugerida })));
-  }, [receta]);
+  }, [receta, servicioCatalogoId, recetaCargadaDe]);
   const [vendidos, setVendidos] = useState<FilaProducto[]>([]);
   const [lineas, setLineas] = useState<LineaPagoCaptura[]>(LINEA_INICIAL);
   const [observaciones, setObservaciones] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [descServicio, setDescServicio] = useState<DescuentoBorrador>(DESCUENTO_VACIO);
+  const [descProductos, setDescProductos] = useState<DescuentoBorrador>(DESCUENTO_VACIO);
 
-  const precioEfectivo = precio ?? servicio?.precio ?? 0;
+  // Si cambió el servicio y no se escribió un precio a mano, se usa el sugerido del nuevo (FR-007).
+  const precioEfectivo =
+    precio ?? (cambioDeServicio ? (catalogoElegido?.precioSugerido ?? 0) : (servicio?.precio ?? 0));
   // Cobro v2: total = servicio + productos vendidos; se cobra el total menos los anticipos. El
   // estatus (pagado / parcial / pendiente) lo deriva el servidor de estos números (FR-003).
   const totalProductos = ventasValidas(vendidos).reduce(
     (acc, v) => acc + redondear(v.cantidad * v.precioUnitario),
     0,
   );
+  // Descuentos (spec de descuentos): mismo cálculo que el servidor. El de productos solo cuenta si
+  // hay productos vendidos.
+  const montoDescServicio = montoDescuento(descServicio, precioEfectivo);
+  const montoDescProductos = totalProductos > 0 ? montoDescuento(descProductos, totalProductos) : 0;
+  const errorDescuentos =
+    errorDescuento(descServicio, precioEfectivo) ??
+    (totalProductos > 0 ? errorDescuento(descProductos, totalProductos) : null);
+  const descuentosAEnviar = [
+    descuentoParaEnviar(descServicio, "servicio"),
+    totalProductos > 0 ? descuentoParaEnviar(descProductos, "productos") : null,
+  ].filter((d): d is DescuentoCaptura => d !== null);
   // COB-B2: un solo redondeo, el mismo del servidor.
-  const total = redondear(precioEfectivo + totalProductos);
+  const total = redondear(precioEfectivo - montoDescServicio + totalProductos - montoDescProductos);
   const anticipos = cuenta?.anticipos ?? 0;
   const porCobrar = redondear(total - anticipos);
   const cobro = evaluarCobro(lineas, porCobrar);
@@ -125,7 +166,9 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
       if (!servicio) throw new Error("No se pudo abrir el servicio.");
       return window.api.serviciosRealizados.cerrarCita({
         servicioRealizadoId: servicio.id,
+        ...(cambioDeServicio ? { servicioCatalogoId } : {}),
         precio: precioEfectivo,
+        descuentos: descuentosAEnviar,
         productosConsumidos: filasValidas(consumidos),
         productosVendidos: ventasValidas(vendidos),
         pagos: lineasParaEnviar(lineas, porCobrar),
@@ -183,7 +226,7 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
     );
   }
 
-  const listoParaCerrar = !cobro.error && porCobrar >= -0.005;
+  const listoParaCerrar = recetaLista && !cobro.error && !errorDescuentos && porCobrar >= -0.005;
 
   // Addendum 2026-11-05: el comprobante es evidencia opcional. Efectivo no pide nada; si algún
   // pago es con otro método y no hay comprobante, se confirma una vez antes de cerrar.
@@ -202,8 +245,9 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
     cerrar.mutate(sinEvidencia);
   }
 
-  const motivoBloqueo =
-    porCobrar < -0.005
+  const motivoBloqueo = errorDescuentos
+    ? errorDescuentos
+    : porCobrar < -0.005
       ? `Los anticipos (${formatMoneda(anticipos)}) superan el total. Cancela el anticipo sobrante desde el detalle de la cita.`
       : cobro.error
         ? cobro.error
@@ -220,13 +264,40 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
         </div>
 
         <div>
+          <label className="mb-1 block text-xs font-medium text-ink-500">Servicio realizado</label>
+          <SelectBuscable
+            value={servicioCatalogoId}
+            onChange={(v) => v && setServicioElegido(v)}
+            placeholder="Selecciona un servicio"
+            aria-label="Servicio realizado"
+            opciones={catalogo
+              .filter((c) => c.activo || c.id === servicio.servicioCatalogoId)
+              .map((c) => ({ value: c.id, label: c.nombre }))}
+          />
+          {cambioDeServicio && (
+            <p className="mt-1 text-xs text-ink-500">
+              Cambió el servicio de la cita: se cargaron los insumos y el precio sugerido del nuevo.
+            </p>
+          )}
+        </div>
+
+        <div>
           <label className="mb-1 block text-xs font-medium text-ink-500">Precio del servicio</label>
           <MoneyInput
+            // key por servicio: al cambiarlo, el campo muestra el precio sugerido del nuevo.
+            key={servicioCatalogoId}
             placeholder="0.00"
-            value={precio ?? servicio.precio ?? 0}
+            value={precioEfectivo}
             onValueChange={setPrecio}
           />
         </div>
+
+        <DescuentoCampo
+          etiqueta="Descuento al servicio"
+          base={precioEfectivo}
+          value={descServicio}
+          onChange={setDescServicio}
+        />
 
         <ListaProductos
           titulo="Productos consumidos (insumos)"
@@ -248,6 +319,15 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
           onQuitar={(i) => quitarFila(vendidos, setVendidos, i)}
         />
 
+        {totalProductos > 0 && (
+          <DescuentoCampo
+            etiqueta="Descuento a los productos"
+            base={totalProductos}
+            value={descProductos}
+            onChange={setDescProductos}
+          />
+        )}
+
         <div>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Pago</h3>
           <div className="mb-3 flex flex-col gap-1 rounded-xl bg-beige-100 p-3 text-sm">
@@ -255,10 +335,22 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
               <span>Servicio</span>
               <span className="tabular-nums">{formatMoneda(precioEfectivo)}</span>
             </div>
+            {montoDescServicio > 0 && (
+              <div className="flex justify-between text-success-500">
+                <span>Descuento al servicio</span>
+                <span className="tabular-nums">− {formatMoneda(montoDescServicio)}</span>
+              </div>
+            )}
             {totalProductos > 0 && (
               <div className="flex justify-between text-ink-700">
                 <span>Productos vendidos</span>
                 <span className="tabular-nums">{formatMoneda(totalProductos)}</span>
+              </div>
+            )}
+            {montoDescProductos > 0 && (
+              <div className="flex justify-between text-success-500">
+                <span>Descuento a los productos</span>
+                <span className="tabular-nums">− {formatMoneda(montoDescProductos)}</span>
               </div>
             )}
             <div className="flex justify-between font-medium text-ink-900">
@@ -378,30 +470,28 @@ function ListaProductos({
           return (
             <div key={i} className="flex flex-col gap-1">
               <div className="flex gap-2">
-                <Select
+                <SelectBuscable
                   className="flex-1"
                   value={fila.productoId}
-                  onChange={(e) => {
+                  onChange={(v) => {
                     // Al cambiar de producto, la cantidad se reinicia según su modo: los de
                     // "contenido" quedan vacíos (los ml/g se escriben a propósito, sin un "1"
                     // ambiguo precargado); los de pieza arrancan en 1, que es lo habitual.
-                    const nuevo = productos.find((p) => p.id === e.target.value);
+                    const nuevo = productos.find((p) => p.id === v);
                     const nuevoPorContenido =
                       aplicarModoContenido && nuevo?.modoConsumo === "contenido" && !!nuevo.contenidoCantidad;
                     onActualizar(i, {
-                      productoId: e.target.value,
+                      productoId: v,
                       cantidad: nuevoPorContenido ? null : 1,
                       ...(conPrecio ? { precioUnitario: nuevo?.precioVenta ?? 0 } : {}),
                     });
                   }}
-                >
-                  <option value="">Selecciona un producto</option>
-                  {productos.filter((p) => p.activo || p.id === fila.productoId).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.nombre}
-                    </option>
-                  ))}
-                </Select>
+                  placeholder="Selecciona un producto"
+                  aria-label="Producto"
+                  opciones={productos
+                    .filter((p) => p.activo || p.id === fila.productoId)
+                    .map((p) => ({ value: p.id, label: p.nombre, detalle: p.linea ?? undefined }))}
+                />
                 {/* key por producto: NumberInput guarda su texto interno y solo se resincroniza
                     al re-montarse, así el campo refleja el reinicio de cantidad al cambiar. */}
                 <NumberInput

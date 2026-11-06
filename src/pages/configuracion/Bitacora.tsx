@@ -9,7 +9,8 @@ import { formatFechaHoraMs } from "@/lib/format";
 import type { BitacoraFiltro } from "@shared/schemas";
 
 // "cierre_con_pin_override" queda por los registros anteriores al addendum 2026-11-05.
-const ACCIONES_SENSIBLES = new Set(["cierre_con_pin_override", "cobro_sin_comprobante"]);
+// Los descuentos no piden PIN (BR-008 de descuentos): la bitácora es su único control, así que se resaltan.
+const ACCIONES_SENSIBLES = new Set(["cierre_con_pin_override", "cobro_sin_comprobante", "descuento_aplicado", "descuento_quitado"]);
 
 function etiquetaAccion(accion: string): string {
   return accion.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());

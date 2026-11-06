@@ -14,6 +14,8 @@ import type {
   AbonoInput,
   AnticipoInput,
   CancelarPagoInput,
+  DescuentoInput,
+  QuitarDescuentoInput,
   GuardarRecetaInput,
   ResumenFiltro,
   BitacoraFiltro,
@@ -157,6 +159,10 @@ export interface IpcApi {
     registrarAnticipo(input: AnticipoInput): Promise<{ comprobanteGuardado: boolean; aviso?: string }>;
     cancelarPago(input: CancelarPagoInput): Promise<void>;
     estadoCuentaCita(citaId: string): Promise<EstadoCuentaCita>;
+    /** FR-005: aplica o cambia el descuento de un servicio YA CERRADO. Sin PIN (BR-008). */
+    aplicarDescuento(input: DescuentoInput): Promise<void>;
+    /** FR-006: quita (cancela) un descuento; nunca se borra. */
+    quitarDescuento(input: QuitarDescuentoInput): Promise<void>;
   };
   archivos: {
     /** Comprobante del servicio cerrado; el main resuelve (y crea si falta) la carpeta. */

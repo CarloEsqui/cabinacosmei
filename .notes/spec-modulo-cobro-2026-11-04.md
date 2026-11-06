@@ -692,3 +692,17 @@ rutas resueltas en el main, miniaturas como data URL, sin `file:` ni protocolo p
 - **Superficies:** PII de clientas (`comprobantes.ts`, `clientes.ts`, IPC de archivos) y Dinero
   (`cobros.ts`, `serviciosRealizados.ts`). Entra en la auditoría y la evidencia junto con la Parte A.
   `comprobantes.ts` debe agregarse a `sensitive_globs` (lo edita Carlos).
+
+## Addendum 2026-11-06 — numeración: la Parte B pasa a la `0008`
+El [Gate de descuentos](gate-001-descuentos-2026-11-06.md) (condición 3) cambia la numeración de
+las migraciones planeadas, ninguna generada ni publicada:
+- los descuentos manuales ([spec](spec-descuentos-2026-11-06.md)) toman la **`0006`**;
+- la ficha clínica pasa a la **`0007`**;
+- la Parte B pasa a la **`0008`**.
+
+Las condiciones 1 y 2 de este Gate, y la nota de COB-M1 (`restrict` al recrear `pagos`), aplican a
+la `0008`. El veredicto no se reescribe.
+
+La Parte B reutiliza `descuentos_servicio`, que crea la `0006`. Para cupones y cortesías agrega
+`cupon_id`, `tarjeta_regalo_id` y `orden` con `ALTER TABLE ADD`, todas nullable. Un descuento
+`todo` se guarda como dos filas, una por base.

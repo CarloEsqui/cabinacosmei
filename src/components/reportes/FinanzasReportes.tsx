@@ -150,6 +150,27 @@ export function FinanzasReportes({ filtro, onNavegarTab }: { filtro: ResumenFilt
         </Card>
       </div>
 
+      {data.descuentosPorMotivo.length > 0 && (
+        <Card>
+          <CardHeader>
+            <ChartHeader
+              titulo="Descuentos otorgados por motivo"
+              conclusion="Ya están restados de las ventas; no son pagos ni salen del corte."
+            />
+          </CardHeader>
+          <CardContent className="flex flex-col gap-1 text-sm">
+            {data.descuentosPorMotivo.map((m) => (
+              <div key={m.motivo} className="flex justify-between text-ink-700">
+                <span>
+                  {m.etiqueta} · {m.cantidad} {m.cantidad === 1 ? "descuento" : "descuentos"}
+                </span>
+                <span className="tabular-nums">{formatMoneda(m.monto)}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       <CarteraDrawer open={carteraAbierta} onClose={() => setCarteraAbierta(false)} />
     </div>
   );

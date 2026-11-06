@@ -1,16 +1,25 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, gte, inArray, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
 import { getDb } from "../db";
-import { pagos, serviciosRealizados, citas, clientes, salidasInventario } from "../db/schema";
+import { pagos, serviciosRealizados, citas, clientes, salidasInventario, descuentosServicio } from "../db/schema";
 import { verificarPin } from "./auth";
 import { tieneComprobante } from "./archivos";
 import { existeSeleccion } from "./seleccionesArchivo";
 import { obtenerConfig } from "./config";
 import { registrarAccion } from "./bitacora";
 import { fechaLocalIso } from "../../shared/fechas";
-import type { AbonoInput, AnticipoInput, CancelarPagoInput, LineaPago } from "../../shared/schemas";
+import type {
+  AbonoInput,
+  AnticipoInput,
+  CancelarPagoInput,
+  DescuentoCaptura,
+  DescuentoInput,
+  LineaPago,
+  QuitarDescuentoInput,
+} from "../../shared/schemas";
 import { requiereEvidencia } from "../../shared/schemas";
-import type { EstadoCuentaCita, PagoRow } from "../../shared/types";
+import { calcularDescuento, etiquetaMotivo, validarDescuento } from "../../shared/descuentos";
+import type { DescuentoRow, EstadoCuentaCita, PagoRow } from "../../shared/types";
 
 /**
  * Módulo de cobro v2 (spec .notes/spec-modulo-cobro-2026-11-04.md, migración 0005).
@@ -20,7 +29,10 @@ import type { EstadoCuentaCita, PagoRow } from "../../shared/types";
  * cobrado y saldo (condición 6): todo lector de dinero usa `totalTicket`, `cobradoPorServicio`,
  * `saldoServicio` y `saldosPorCliente` en vez de sumar por su cuenta.
  *
- * Dependencias: este módulo no importa los módulos de la Parte B (tarjetas de regalo, descuentos);
+ * También es el ÚNICO escritor de `descuentos_servicio` y de la caché `descuento_servicio` /
+ * `descuento_productos` de `servicios_realizados` (Gate de descuentos, condición 4).
+ *
+ * Dependencias: este módulo no importa los módulos de la Parte B (tarjetas de regalo, cupones);
  * ellos lo llaman a él (Gate, condición 5).
  */
 
@@ -46,9 +58,25 @@ export function redondearDinero(n: number): number {
 // Definición única de total, cobrado y saldo (FR-008)
 // ---------------------------------------------------------------------------
 
-/** Total del ticket = precio del servicio + productos vendidos (FR-002). */
-export function totalTicket(s: { precio: number | null; totalProductos: number | null }): number {
-  return redondearDinero((s.precio ?? 0) + (s.totalProductos ?? 0));
+/**
+ * Lo que todo lector de dinero selecciona de `servicios_realizados`. Los descuentos son OBLIGATORIOS
+ * en el tipo: un lector que los olvide no compila (Gate de descuentos, condición 4).
+ */
+export interface MontosTicket {
+  precio: number | null;
+  totalProductos: number | null;
+  descuentoServicio: number;
+  descuentoProductos: number;
+}
+
+/**
+ * Total del ticket = (precio − descuento del servicio) + (productos − descuento de productos).
+ * FR-002 del cobro y BR-003 de descuentos: una sola definición.
+ */
+export function totalTicket(s: MontosTicket): number {
+  return redondearDinero(
+    (s.precio ?? 0) - s.descuentoServicio + (s.totalProductos ?? 0) - s.descuentoProductos,
+  );
 }
 
 /** FR-003. Un total de $0 sin pagos queda "pagado": no se debe nada. */
@@ -60,7 +88,7 @@ export function derivarEstatusPago(total: number, cobrado: number): EstatusPago 
 
 /** Saldo de un servicio. El "cancelado" legado (cierre viejo) no debe nada. */
 export function saldoServicio(
-  s: { precio: number | null; totalProductos: number | null; estatusPago: string },
+  s: MontosTicket & { estatusPago: string },
   cobrado: number,
 ): number {
   if (s.estatusPago === "cancelado") return 0;
@@ -104,6 +132,8 @@ export function saldosPorCliente(db: Pick<DbOTx, "select">, clienteIds?: string[
       clienteId: serviciosRealizados.clienteId,
       precio: serviciosRealizados.precio,
       totalProductos: serviciosRealizados.totalProductos,
+      descuentoServicio: serviciosRealizados.descuentoServicio,
+      descuentoProductos: serviciosRealizados.descuentoProductos,
       estatusPago: serviciosRealizados.estatusPago,
     })
     .from(serviciosRealizados)
@@ -125,12 +155,12 @@ export function saldosPorCliente(db: Pick<DbOTx, "select">, clienteIds?: string[
 }
 
 /**
- * Ingreso del SERVICIO, sin productos vendidos. Solo para reportes por tipo de servicio (ingreso
- * por hora, margen por servicio), donde una crema vendida en el ticket no es ingreso del facial.
- * Para "ventas" y saldos se usa `totalTicket`.
+ * Ingreso del SERVICIO, sin productos vendidos y neto de su descuento. Solo para reportes por tipo
+ * de servicio (ingreso por hora, margen por servicio), donde una crema vendida en el ticket no es
+ * ingreso del facial. Para "ventas" y saldos se usa `totalTicket`.
  */
-export function ingresoDelServicio(s: { precio: number | null }): number {
-  return redondearDinero(s.precio ?? 0);
+export function ingresoDelServicio(s: { precio: number | null; descuentoServicio: number }): number {
+  return redondearDinero((s.precio ?? 0) - s.descuentoServicio);
 }
 
 /**
@@ -530,7 +560,19 @@ export async function estadoCuentaCita(citaId: string): Promise<EstadoCuentaCita
   }));
 
   if (!servicio) {
-    return { pagos: lista, cerrada: false, total: null, cobrado: 0, saldo: 0, anticipos: anticiposSinAplicar(db, citaId) };
+    return {
+      pagos: lista,
+      cerrada: false,
+      total: null,
+      cobrado: 0,
+      saldo: 0,
+      anticipos: anticiposSinAplicar(db, citaId),
+      precioBruto: null,
+      descuentoServicio: 0,
+      totalProductos: 0,
+      descuentoProductos: 0,
+      descuentos: [],
+    };
   }
   const cobrado = cobradoPorServicio(db, [servicio.id]).get(servicio.id) ?? 0;
   return {
@@ -543,5 +585,216 @@ export async function estadoCuentaCita(citaId: string): Promise<EstadoCuentaCita
     cobrado,
     saldo: saldoServicio(servicio, cobrado),
     anticipos: 0,
+    precioBruto: redondearDinero(servicio.precio ?? 0),
+    descuentoServicio: servicio.descuentoServicio,
+    totalProductos: redondearDinero(servicio.totalProductos ?? 0),
+    descuentoProductos: servicio.descuentoProductos,
+    descuentos: descuentosVigentes(db, servicio.id),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Descuentos del ticket (spec .notes/spec-descuentos-2026-11-06.md, migración 0006)
+// ---------------------------------------------------------------------------
+
+function mapearDescuento(d: typeof descuentosServicio.$inferSelect): DescuentoRow {
+  return {
+    id: d.id,
+    aplicaA: d.aplicaA as DescuentoRow["aplicaA"],
+    modo: d.modo as DescuentoRow["modo"],
+    valor: d.valor,
+    base: d.base,
+    monto: d.monto,
+    motivo: d.motivo,
+    motivoDetalle: d.motivoDetalle,
+  };
+}
+
+/** Descuentos aplicados (no cancelados) de un servicio. */
+export function descuentosVigentes(db: Pick<DbOTx, "select">, servicioId: string): DescuentoRow[] {
+  return db
+    .select()
+    .from(descuentosServicio)
+    .where(and(eq(descuentosServicio.servicioRealizadoId, servicioId), eq(descuentosServicio.estatus, "aplicado")))
+    .orderBy(descuentosServicio.createdAt)
+    .all()
+    .map(mapearDescuento);
+}
+
+/** Base de un descuento: el precio del servicio o el total de productos vendidos, ambos brutos. */
+function baseDescuento(s: { precio: number | null; totalProductos: number | null }, aplicaA: string): number {
+  return redondearDinero(aplicaA === "servicio" ? (s.precio ?? 0) : (s.totalProductos ?? 0));
+}
+
+function textoDescuento(d: { aplicaA: string; modo: string; valor: number; monto: number; motivo: string }): string {
+  const valor = d.modo === "porcentaje" ? `${d.valor} %` : `$${d.valor.toFixed(2)}`;
+  return `${d.aplicaA === "servicio" ? "servicio" : "productos"} ${valor} = −$${d.monto.toFixed(2)} · ${etiquetaMotivo(d.motivo)}`;
+}
+
+/**
+ * La caché de `servicios_realizados` se recalcula desde la tabla, nunca de forma incremental: así el
+ * invariante de AC-007 (caché = Σ monto aplicado por base) se cumple por construcción.
+ */
+function recalcularCacheDescuentosEnTx(tx: DbOTx, servicioId: string) {
+  const filas = tx
+    .select({ aplicaA: descuentosServicio.aplicaA, monto: descuentosServicio.monto })
+    .from(descuentosServicio)
+    .where(and(eq(descuentosServicio.servicioRealizadoId, servicioId), eq(descuentosServicio.estatus, "aplicado")))
+    .all();
+  const suma = (base: string) =>
+    redondearDinero(filas.filter((f) => f.aplicaA === base).reduce((acc, f) => acc + f.monto, 0));
+  tx.update(serviciosRealizados)
+    .set({ descuentoServicio: suma("servicio"), descuentoProductos: suma("productos"), updatedAt: new Date() })
+    .where(eq(serviciosRealizados.id, servicioId))
+    .run();
+}
+
+/** Cancela (nunca borra) un descuento y recalcula la caché. No toca el estatus de pago. */
+function cancelarDescuentoEnTx(
+  tx: DbOTx,
+  d: typeof descuentosServicio.$inferSelect,
+  codigoServicio: string,
+  motivo: string,
+  usuarioId?: string,
+) {
+  tx.update(descuentosServicio)
+    .set({ estatus: "cancelado", canceladoAt: new Date(), motivoCancelacion: motivo })
+    .where(eq(descuentosServicio.id, d.id))
+    .run();
+  recalcularCacheDescuentosEnTx(tx, d.servicioRealizadoId);
+  registrarAccion(tx, {
+    usuarioId,
+    accion: "descuento_quitado",
+    entidadTipo: "servicio_realizado",
+    entidadId: d.servicioRealizadoId,
+    detalle: `${codigoServicio} · ${textoDescuento(d)} · motivo: ${motivo}`,
+  });
+}
+
+/**
+ * Aplica un descuento manual dentro de una transacción. El servidor calcula el monto sobre la base
+ * ACTUAL de la fila (el cierre la escribe antes de llamar aquí). Si ya había uno vigente en esa
+ * base, lo cancela primero (BR-001). No recalcula el estatus de pago: lo hace quien llama, después
+ * de sus propias validaciones (BR-005 / BR-006).
+ */
+export function aplicarDescuentoEnTx(tx: DbOTx, servicioId: string, d: DescuentoCaptura, usuarioId?: string) {
+  const s = tx.select().from(serviciosRealizados).where(eq(serviciosRealizados.id, servicioId)).get();
+  if (!s) throw new Error("El servicio realizado no existe.");
+  if (d.aplicaA !== "servicio" && d.aplicaA !== "productos") throw new Error("Base de descuento no válida.");
+  if (d.modo !== "porcentaje" && d.modo !== "monto") throw new Error("Tipo de descuento no válido.");
+  if (!["primera_visita", "promocion", "cortesia", "otro"].includes(d.motivo)) throw new Error("Motivo no válido.");
+  const detalle = d.motivoDetalle?.trim() || null;
+  if (d.motivo === "otro" && !detalle) throw new Error("Escribe el motivo del descuento.");
+
+  const base = baseDescuento(s, d.aplicaA);
+  const error = validarDescuento({ modo: d.modo, valor: d.valor, base });
+  if (error) throw new Error(d.aplicaA === "productos" ? `Productos: ${error}` : error);
+  const monto = calcularDescuento({ modo: d.modo, valor: d.valor, base });
+
+  const previo = tx
+    .select()
+    .from(descuentosServicio)
+    .where(
+      and(
+        eq(descuentosServicio.servicioRealizadoId, s.id),
+        eq(descuentosServicio.aplicaA, d.aplicaA),
+        eq(descuentosServicio.tipo, "manual"),
+        eq(descuentosServicio.estatus, "aplicado"),
+      ),
+    )
+    .get();
+  if (previo) cancelarDescuentoEnTx(tx, previo, s.codigoServicio, "Reemplazado por otro descuento", usuarioId);
+
+  const fila = {
+    id: randomUUID(),
+    servicioRealizadoId: s.id,
+    tipo: "manual",
+    aplicaA: d.aplicaA,
+    modo: d.modo,
+    valor: d.valor,
+    base,
+    monto,
+    motivo: d.motivo,
+    motivoDetalle: detalle,
+    estatus: "aplicado",
+    usuarioId: usuarioId || null,
+  };
+  tx.insert(descuentosServicio).values(fila).run();
+  recalcularCacheDescuentosEnTx(tx, s.id);
+  registrarAccion(tx, {
+    usuarioId,
+    accion: "descuento_aplicado",
+    entidadTipo: "servicio_realizado",
+    entidadId: s.id,
+    detalle: `${s.codigoServicio} · ${textoDescuento(fila)}${detalle ? ` (${detalle})` : ""}`,
+  });
+}
+
+/**
+ * FR-005: aplicar o cambiar un descuento en un servicio YA CERRADO, desde el detalle de la cita.
+ * Sin PIN (BR-008, decisión de Carlos 2026-11-06). BR-005: el total no puede quedar por debajo de
+ * lo ya cobrado; todo se valida dentro de la transacción (DIN-M2).
+ */
+export async function aplicarDescuento(input: DescuentoInput, usuarioId?: string): Promise<void> {
+  const db = getDb();
+  db.transaction((tx) => {
+    const s = tx.select().from(serviciosRealizados).where(eq(serviciosRealizados.id, input.servicioRealizadoId)).get();
+    if (!s) throw new Error("El servicio realizado no existe.");
+    if (s.estatus !== "cerrado") throw new Error("El descuento de una cita abierta se aplica al cerrarla.");
+    if (s.estatusPago === "cancelado") throw new Error("Este servicio está marcado como cancelado.");
+
+    aplicarDescuentoEnTx(tx, s.id, input.descuento, usuarioId);
+
+    const despues = tx.select().from(serviciosRealizados).where(eq(serviciosRealizados.id, s.id)).get()!;
+    const total = totalTicket(despues);
+    const cobrado = cobradoPorServicio(tx, [s.id]).get(s.id) ?? 0;
+    if (cobrado > total + TOLERANCIA) {
+      throw new Error(
+        `Con este descuento el total quedaría en $${total.toFixed(2)}, pero ya se cobraron $${cobrado.toFixed(2)}. ` +
+          "Para descontar más, primero cancela un pago.",
+      );
+    }
+    recalcularEstatusEnTx(tx, s.id);
+  });
+}
+
+/** FR-006: quitar un descuento de un servicio cerrado. Se cancela con motivo; nunca se borra. */
+export async function quitarDescuento(input: QuitarDescuentoInput, usuarioId?: string): Promise<void> {
+  const db = getDb();
+  db.transaction((tx) => {
+    const d = tx.select().from(descuentosServicio).where(eq(descuentosServicio.id, input.descuentoId)).get();
+    if (!d) throw new Error("El descuento no existe.");
+    if (d.estatus !== "aplicado") throw new Error("Este descuento ya se había quitado.");
+    const s = tx.select().from(serviciosRealizados).where(eq(serviciosRealizados.id, d.servicioRealizadoId)).get();
+    if (!s) throw new Error("El servicio realizado no existe.");
+    if (s.estatus !== "cerrado") throw new Error("Solo se quitan descuentos de citas cerradas.");
+    cancelarDescuentoEnTx(tx, d, s.codigoServicio, input.motivo?.trim() || "Sin motivo", usuarioId);
+    recalcularEstatusEnTx(tx, s.id);
+  });
+}
+
+/**
+ * "Descuentos otorgados" de un rango (FR-008; Gate de descuentos, condición 10). Una sola
+ * definición: fecha del SERVICIO (BR-007), mismo filtro de servicios que las ventas (cerrado y no
+ * cancelado) y solo descuentos aplicados. Nunca devuelve `motivo_detalle` (texto libre).
+ */
+export function descuentosDelRango(
+  db: Pick<DbOTx, "select">,
+  desde: string,
+  hasta: string,
+): { motivo: string; aplicaA: string; monto: number }[] {
+  return db
+    .select({ motivo: descuentosServicio.motivo, aplicaA: descuentosServicio.aplicaA, monto: descuentosServicio.monto })
+    .from(descuentosServicio)
+    .innerJoin(serviciosRealizados, eq(serviciosRealizados.id, descuentosServicio.servicioRealizadoId))
+    .where(
+      and(
+        eq(descuentosServicio.estatus, "aplicado"),
+        eq(serviciosRealizados.estatus, "cerrado"),
+        ne(serviciosRealizados.estatusPago, "cancelado"),
+        gte(serviciosRealizados.fecha, desde),
+        lte(serviciosRealizados.fecha, hasta),
+      ),
+    )
+    .all();
 }
