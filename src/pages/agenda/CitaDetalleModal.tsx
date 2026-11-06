@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   BadgeCheck,
@@ -22,6 +23,11 @@ import { fechaLocalIso, horaLocal } from "@shared/fechas";
 import type { CitaRow, ProductoConStock, RecetaItem } from "@shared/types";
 import { useAccionesCita } from "@/pages/agenda/useAccionesCita";
 import { PagosDeCita } from "@/pages/agenda/PagosDeCita";
+import { AvisoPrecaucion } from "@/components/ficha/AvisoPrecaucion";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { FichaClinicaModal } from "@/components/ficha/FichaClinicaModal";
+import { FotosTratamiento } from "@/components/ficha/FotosTratamiento";
+import { NotasTratamiento } from "@/components/ficha/NotasTratamiento";
 
 /**
  * Un color por estado, el mismo en todas partes (puntos del calendario, franja de la lista de
@@ -83,6 +89,22 @@ export function CitaDetalleModal({
 
   const inactiva = cita.estado === "cancelada" || cita.estado === "no_asistio";
   const { ejecutar, ocupado } = useAccionesCita();
+  const [fichaAbierta, setFichaAbierta] = useState(false);
+  // FIC-M2: no cerrar en silencio con notas de tratamiento escritas y sin guardar.
+  const [notasPendientes, setNotasPendientes] = useState(false);
+  const confirm = useConfirm();
+  async function cerrarDetalle() {
+    if (notasPendientes) {
+      const r = await confirm({
+        titulo: "Notas sin guardar",
+        mensaje: "Escribiste notas del tratamiento que no se han guardado. ¿Descartarlas?",
+        confirmarLabel: "Descartar",
+        cancelarLabel: "Seguir editando",
+      });
+      if (r !== "confirmado") return;
+    }
+    onClose();
+  }
 
   const { data: detalle } = useQuery({
     queryKey: ["detalleServicio", cita.servicioRealizadoId],
@@ -91,7 +113,8 @@ export function CitaDetalleModal({
   });
 
   return (
-    <Modal open onClose={onClose} title="Detalle de la cita">
+    <>
+    <Modal open onClose={cerrarDetalle} title="Detalle de la cita">
       <div className="flex flex-col gap-4">
         <div className="flex items-start justify-between gap-3 rounded-xl bg-beige-100 p-4">
           <div className="flex items-start gap-3">
@@ -112,6 +135,9 @@ export function CitaDetalleModal({
           </div>
           <Badge variant={estado.variant}>{estado.label}</Badge>
         </div>
+
+        {/* Ficha clínica: Precaución (FR-009) o acceso gris (FR-010), en toda cita de la clienta. */}
+        <AvisoPrecaucion clienteId={cita.clienteId} onAbrirFicha={() => setFichaAbierta(true)} />
 
         {cita.notas && (
           <div className="flex items-start gap-2 text-sm text-ink-700">
@@ -136,9 +162,20 @@ export function CitaDetalleModal({
             {detalle.productosVendidos.length > 0 && (
               <SeccionProductos titulo="Productos vendidos" items={detalle.productosVendidos} />
             )}
-            {detalle.observaciones && (
-              <p className="text-sm text-ink-500">{detalle.observaciones}</p>
-            )}
+          </div>
+        )}
+
+        {/* FR-007: notas y fotos del tratamiento, también con la cita cerrada. */}
+        {estaCerrada && detalle && cita.servicioRealizadoId && (
+          <div className="flex flex-col gap-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-500">Tratamiento</h3>
+            <NotasTratamiento
+              key={cita.servicioRealizadoId}
+              servicioRealizadoId={cita.servicioRealizadoId}
+              inicial={detalle.observaciones}
+              onPendiente={setNotasPendientes}
+            />
+            <FotosTratamiento servicioRealizadoId={cita.servicioRealizadoId} />
           </div>
         )}
 
@@ -216,6 +253,9 @@ export function CitaDetalleModal({
         )}
       </div>
     </Modal>
+    {/* Fuera del modal de la cita (no anidado en su contenedor animado): se apila encima. */}
+    {fichaAbierta && <FichaClinicaModal clienteId={cita.clienteId} onClose={() => setFichaAbierta(false)} />}
+    </>
   );
 }
 

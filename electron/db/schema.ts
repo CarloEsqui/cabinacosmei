@@ -507,3 +507,45 @@ export const hallazgosEstado = sqliteTable("hallazgos_estado", {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
+
+// ---------------------------------------------------------------------------
+// Ficha clínica facial (migración 0007; spec .notes/spec-ficha-clinica-2026-11-05.md §21).
+// DATOS DE SALUD SENSIBLES (PROJECT.md → pii). Solo los escribe y lee electron/services/fichasClinicas.ts
+// (Gate de la ficha, condición 11).
+// ---------------------------------------------------------------------------
+
+// Milisegundos: `updated_at` es la llave de la concurrencia optimista (condición 4); en segundos dos
+// guardados del mismo segundo no se distinguirían.
+const msAhora = sql`(unixepoch() * 1000)`;
+
+export const fichasClinicas = sqliteTable("fichas_clinicas", {
+  id: id(),
+  clienteId: text("cliente_id")
+    .notNull()
+    .unique()
+    .references(() => clientes.id, { onDelete: "restrict" }), // BR-009: primero se borra la ficha
+  sexo: text("sexo"), // F | M (validado en zod)
+  ocupacion: text("ocupacion"),
+  versionFormulario: integer("version_formulario").notNull().default(1),
+  datos: text("datos").notNull(), // JSON de shared/fichaClinica.ts, normalizado en el main
+  usuarioId: text("usuario_id").references(() => usuarios.id, { onDelete: "set null" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(msAhora),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(msAhora),
+});
+
+// Instantánea COMPLETA del estado anterior en cada guardado que cambió algo (condición 5). Inmutable.
+export const fichasClinicasVersiones = sqliteTable("fichas_clinicas_versiones", {
+  id: id(),
+  // restrict: el borrado de la ficha (FR-011) borra antes sus versiones, en la misma transacción.
+  fichaId: text("ficha_id")
+    .notNull()
+    .references(() => fichasClinicas.id, { onDelete: "restrict" }),
+  sexo: text("sexo"),
+  ocupacion: text("ocupacion"),
+  versionFormulario: integer("version_formulario").notNull(),
+  datos: text("datos").notNull(),
+  vigenteDesde: integer("vigente_desde", { mode: "timestamp_ms" }).notNull(),
+  vigenteHasta: integer("vigente_hasta", { mode: "timestamp_ms" }).notNull(),
+  usuarioId: text("usuario_id").references(() => usuarios.id, { onDelete: "set null" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(msAhora),
+}, (t) => [index("fichas_clinicas_versiones_ficha_idx").on(t.fichaId)]);

@@ -150,8 +150,11 @@ cita muestra "Sin ficha clínica" en gris, sin alarma.
   - los logs.
 - **BR-007** — Las fotos se guardan dentro de la carpeta del negocio, en la carpeta del servicio. Es
   el proceso main el que decide la ruta, no el renderer. Formatos permitidos: jpg, jpeg, png, webp.
-- **BR-008** — Las fotos entran en los respaldos, que ya incluyen `Datos/`, y se borran en el
-  reinicio de datos, igual que los demás archivos de la clienta.
+- **BR-008** — Las fotos entran en los respaldos, que ya incluyen `Datos/`. En el reinicio de datos
+  se borran las filas de la ficha, de sus versiones y de las fotos. Los archivos de las fotos solo se
+  borran del disco si se marca "eliminar archivos"; con esa opción apagada quedan en la carpeta, sin
+  fila en la BD, igual que los demás archivos de la clienta. Corregido el 2026-11-06 (Gate,
+  condición 10).
 - **BR-009** — Una clienta con ficha clínica no se puede borrar mientras la ficha exista (FK
   `restrict`). El mensaje dice que primero se borre la ficha. La ficha sí se borra con FR-011.
 
@@ -373,3 +376,133 @@ El [Gate de descuentos](gate-001-descuentos-2026-11-06.md) (condición 3) asigna
 descuentos manuales, que Carlos priorizó el 2026-11-06. La ficha clínica ocupa la **`0007`**. Las
 condiciones de su [Gate](gate-001-ficha-clinica-2026-11-05.md) que dicen `drizzle/0006_*` aplican a
 `drizzle/0007_*`. El veredicto no se reescribe.
+
+## 21. Diseño técnico (Gate, condición 13; 2026-11-06)
+
+### 21.1 Módulo y dependencias
+- Módulo dueño: **`electron/services/fichasClinicas.ts`**.
+- Dirección de dependencias: `fichasClinicas → archivos, folders, serviciosRealizados, bitacora,
+  config, db`.
+- Nadie importa `fichasClinicas` salvo `electron/ipc/index.ts`. `reinicio.ts` solo usa las tablas
+  del esquema.
+- La definición del formulario es una sola:
+  - `shared/fichaClinica.ts` tiene el catálogo de preguntas y chips, con claves, etiquetas y si
+    llevan "Especifique";
+  - `shared/fichaClinica.ts` también tiene `PREGUNTAS_PRECAUCION`;
+  - `shared/schemas.ts` construye `fichaClinicaDatosSchema` a partir de ese catálogo y reexporta
+    `PREGUNTAS_PRECAUCION`.
+
+  El main y la UI usan las mismas constantes (condición 6).
+
+### 21.2 Datos (migración `0007`, solo `CREATE TABLE` e índices)
+
+**`fichas_clinicas`:**
+
+| Columna | Detalle |
+|---|---|
+| `id` | |
+| `cliente_id` | NOT NULL, **UNIQUE**, FK `clientes` `ON DELETE restrict` (BR-009) |
+| `sexo` | Nullable |
+| `ocupacion` | Nullable |
+| `version_formulario` | INT NOT NULL DEFAULT 1 |
+| `datos` | TEXT JSON NOT NULL |
+| `usuario_id` | FK `usuarios` `ON DELETE set null` |
+| `created_at`, `updated_at` | Enteros en **milisegundos** |
+
+`updated_at` va en milisegundos porque es la llave de la concurrencia optimista. En segundos, dos
+guardados en el mismo segundo no se distinguirían.
+
+**`fichas_clinicas_versiones`:**
+
+| Columna | Detalle |
+|---|---|
+| `id` | |
+| `ficha_id` | FK `fichas_clinicas` `ON DELETE restrict`. El borrado de FR-011 borra las versiones primero, en la misma transacción. |
+| `sexo`, `ocupacion`, `version_formulario`, `datos` | Instantánea **completa** del estado anterior (condición 5) |
+| `vigente_desde` | El `updated_at` que tenía la vigente (ms) |
+| `vigente_hasta` | Momento del guardado que la reemplazó (ms) |
+| `usuario_id` | Quién hizo el guardado que la reemplazó |
+| `created_at` | |
+
+Índice por `ficha_id`.
+
+**Fotos:** sin tabla nueva. Van en `archivos`, con:
+- `entidad_tipo = 'servicio_realizado'`;
+- `categoria = 'foto_antes' | 'foto_despues'`;
+- `tipo_mime` lleno.
+
+### 21.3 Dueño de cada escritura
+
+| Qué se escribe | Dueño |
+|---|---|
+| `fichas_clinicas`, `fichas_clinicas_versiones` | `fichasClinicas.ts` |
+| Filas de `archivos` (insertar o borrar) | `archivos.ts`: `guardarArchivoDesdeRuta`, que gana `tipoMime` opcional, y una función nueva `eliminarArchivo` que valida la ruta con `rutaDentroDe(carpetaDatos)` antes de borrar del disco |
+| `servicios_realizados.observaciones` | `serviciosRealizados.ts`, función nueva `actualizarObservacionesServicio`. Solo cambia `observaciones` y `updatedAt`, y deja bitácora sin contenido (condición 9) |
+| `servicios_realizados.carpeta_path` | `serviciosRealizados.asegurarCarpetaServicio` (ya existe; la usan los comprobantes) |
+
+### 21.4 Canales IPC (ninguno recibe rutas)
+
+| Canal | Entrada | Salida |
+|---|---|---|
+| `fichas:obtener` | `clienteId` | `FichaClinica \| null` |
+| `fichas:guardar` | `{ clienteId, sexo, ocupacion, datos, updatedAtEsperado: number \| null }` | `FichaClinica`. Rechaza si `updatedAtEsperado` no coincide (condición 4). Guardar sin cambios no crea versión. |
+| `fichas:versiones` | `clienteId` | `VersionFicha[]` con su rango de vigencia. Una versión que no valida se devuelve como "formato anterior", con el JSON tal cual (`safeParse`). |
+| `fichas:borrar` | `clienteId` | `void` (FR-011, sin PIN) |
+| `fichas:aviso` | `clienteId` | `{ tieneFicha, precauciones: { etiqueta, especifique }[] }`. Es el único dato clínico que ven el detalle de cita y Clientes (condición 11). |
+| `fichas:tratamientos` | `clienteId` | Servicios **cerrados** de la clienta, con su número 1°, 2°…, fecha, servicio, notas y fotos (`id`, `categoria`) |
+| `fichas:fotosServicio` | `servicioRealizadoId` | Fotos de un servicio, para el detalle de la cita |
+| `fichas:subirFoto` | `servicioRealizadoId`, `'antes' \| 'despues'` | El main abre el diálogo y valida (ver la lista de abajo) |
+| `fichas:miniatura` | `archivoId` | `{ dataUrl }` (JPEG de 320 px o menos, con `toJPEG`) o `{ faltante: true }` |
+| `fichas:abrirFoto` | `archivoId` | `shell.openPath` después de validar la ruta |
+| `fichas:quitarFoto` | `archivoId` | Borra la fila y el archivo, y deja bitácora |
+| `serviciosRealizados:actualizarObservaciones` | `servicioRealizadoId`, `observaciones` | `void` |
+
+Validaciones de `fichas:subirFoto`:
+- solo servicios `cerrado` (condición 7a);
+- la carpeta se resuelve con `asegurarCarpetaServicio`, que crea la del servicio y la de la clienta
+  si faltan (condición 7b);
+- la extensión está en la lista blanca jpg/jpeg/png/webp, y además
+  `nativeImage.createFromPath(ruta).isEmpty()` debe dar false (condición 7c).
+
+### 21.5 Reglas de implementación
+- **Guardar** (condición 4) corre en una transacción síncrona: leer la vigente, comparar
+  `updatedAtEsperado`, normalizar y comparar la forma canónica, y luego insertar la versión,
+  actualizar la vigente y dejar bitácora.
+  - La forma canónica: claves ordenadas; arreglos sin duplicados y en el orden del catálogo;
+    textos recortados, y `""` → `null`.
+  - BR-004: el "Especifique" se descarta cuando la respuesta no es Sí.
+- **Bitácora** sin contenido (BR-006, condición 11):
+  - `ficha_clinica_creada`, `ficha_clinica_actualizada` y `ficha_clinica_borrada`, con el código de
+    la clienta;
+  - `foto_tratamiento_agregada` y `foto_tratamiento_quitada`, con el código del servicio;
+  - `observaciones_servicio_actualizadas`, con el código del servicio.
+- **Borrar la ficha** (FR-011): en una transacción se borran las versiones, la ficha y las filas de
+  fotos de los servicios de la clienta. Después se borran los archivos del disco; cada ruta se
+  valida y un archivo que no se pueda borrar no revierte la BD.
+- **Notas del tratamiento:** **no se versionan** (decisión del dueño). Se editan en su lugar, también
+  con el servicio cerrado (condición 9).
+- **Reinicio** (condición 10): `fichasClinicasVersiones` y `fichasClinicas` entran en
+  `TABLAS_NEGOCIO` antes de `clientes`. **BR-008 corregido:** las fotos se borran del disco solo si
+  la usuaria marca "eliminar archivos". Con esa opción apagada, los archivos de salud quedan en
+  disco sin fila en la BD.
+- **`eliminarCliente`:** su mensaje menciona la ficha clínica (condición 2).
+
+### 21.6 Numeración
+Esta migración es la **`0007`** (addendum del 2026-11-06). Donde el Gate y §15 dicen `0006`, se
+refieren a ella.
+
+## Addendum 2026-11-06 — resultado de la auditoría (FIC-B3, FIC-M1, FIC-B7)
+Según la [auditoría](auditoria-ficha-clinica-2026-11-06.md):
+
+- **FIC-B3 — sin WEBP.** Una prueba en Electron confirmó que `nativeImage` no decodifica WEBP en
+  macOS. Una foto `.webp` no tendría miniatura y la regla 7c la rechazaría. BR-007 y §21.4 quedan
+  así: **formatos permitidos jpg, jpeg y png**. Las fotos de celular llegan como JPG; si algún día
+  hace falta otro formato, se decide aparte con una prueba en la máquina de la cabina.
+- **FIC-M1 — los respaldos conservan la ficha borrada.**
+  - El pop-up de "Borrar ficha clínica" ahora lo dice: las copias de respaldo anteriores la
+    contienen, y restaurar una la regresa.
+  - PROJECT.md (Marco legal), que ofrece el borrado como mitigación del derecho de cancelación,
+    debe decir lo mismo. Esa edición le toca al dueño (pendiente).
+- **FIC-B7 — regla para el Gate de CIT-C1**, junto con DES-M1: cuando exista la reversa de un
+  servicio cerrado, la ficha excluye o marca los tratamientos cancelados en "Tratamientos en
+  cabina".

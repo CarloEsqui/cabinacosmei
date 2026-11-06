@@ -573,3 +573,53 @@ export interface EstadoLicencia {
   diasRestantes: number | null;
   matricula: string;
 }
+
+// ---------------------------------------------------------------------------
+// Ficha clínica facial (spec .notes/spec-ficha-clinica-2026-11-05.md §21)
+// ---------------------------------------------------------------------------
+
+export interface FichaClinica {
+  id: string;
+  clienteId: string;
+  sexo: "F" | "M" | null;
+  ocupacion: string | null;
+  versionFormulario: number;
+  datos: import("./fichaClinica").FichaDatos;
+  createdAt: number; // ms
+  updatedAt: number; // ms: llave de la concurrencia optimista
+}
+
+export interface VersionFicha {
+  id: string;
+  vigenteDesde: number; // ms
+  vigenteHasta: number; // ms
+  sexo: string | null;
+  ocupacion: string | null;
+  versionFormulario: number;
+  /** null si la versión tiene un formato anterior que ya no valida; entonces viene `datosCrudos`. */
+  datos: import("./fichaClinica").FichaDatos | null;
+  datosCrudos: string | null;
+}
+
+/** Lo único clínico que ven el detalle de cita y Clientes (Gate de la ficha, condición 11). */
+export interface AvisoFicha {
+  tieneFicha: boolean;
+  precauciones: { clave: string; etiqueta: string; especifique: string | null }[];
+}
+
+export interface FotoTratamiento {
+  id: string;
+  momento: "antes" | "despues";
+  nombreOriginal: string;
+}
+
+export interface TratamientoFicha {
+  servicioRealizadoId: string;
+  numero: number; // 1°, 2°… en orden cronológico, como en el papel
+  codigoServicio: string;
+  citaId: string | null;
+  fecha: string;
+  servicioNombre: string;
+  observaciones: string | null;
+  fotos: FotoTratamiento[];
+}

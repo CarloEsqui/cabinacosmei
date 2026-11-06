@@ -50,6 +50,13 @@
       "when": 1793946895419,
       "tag": "0006_descuentos",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793949053646,
+      "tag": "0007_ficha_clinica",
+      "breakpoints": true
     }
   ]
 }

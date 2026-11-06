@@ -315,3 +315,49 @@ export const movimientosFiltroSchema = z.object({
   tipos: z.array(z.string()).optional(),
 });
 export type MovimientosFiltro = z.infer<typeof movimientosFiltroSchema>;
+
+// ---------------------------------------------------------------------------
+// Ficha clínica facial (spec .notes/spec-ficha-clinica-2026-11-05.md; migración 0007)
+// ---------------------------------------------------------------------------
+
+/**
+ * Una sola definición del formulario (Gate de la ficha, condición 6). Todo es nullable: "sin
+ * responder" ≠ "No" (BR-003). Las claves y opciones válidas vienen del catálogo de
+ * shared/fichaClinica.ts; el main normaliza con `normalizarFicha` (BR-004) antes de guardar.
+ */
+export { PREGUNTAS_PRECAUCION } from "./fichaClinica";
+
+const respuestaSchema = z.enum(["si", "no"]).nullable();
+const textoLibre = z.string().max(2000).nullable();
+
+export const fichaClinicaDatosSchema = z.object({
+  respuestas: z.record(
+    z.string(),
+    z.object({ respuesta: respuestaSchema, especifique: z.string().max(500).nullable() }),
+  ),
+  cosmeticosActuales: textoLibre,
+  exposicionSolar: z.string().nullable(),
+  habitosOtros: textoLibre,
+  motivoConsulta: textoLibre,
+  tipologia: z.record(z.string(), z.array(z.string())),
+  bolsas: z.object({ respuesta: respuestaSchema, tipo: z.string().nullable() }),
+  recomendacion: z.object({
+    productos: z.array(z.object({ productoId: z.string().min(1), nombre: z.string().min(1) })).max(50),
+    texto: textoLibre,
+  }),
+});
+
+export const guardarFichaInputSchema = z.object({
+  clienteId: z.string().min(1),
+  sexo: z.enum(["F", "M"]).nullable(),
+  ocupacion: z.string().trim().max(120).nullable(),
+  datos: fichaClinicaDatosSchema,
+  /**
+   * Concurrencia optimista (condición 4): el `updatedAt` (ms) de la ficha que se abrió; null si no
+   * existía. Si otra ventana guardó antes, el main rechaza.
+   */
+  updatedAtEsperado: z.number().int().nullable(),
+});
+export type GuardarFichaInput = z.infer<typeof guardarFichaInputSchema>;
+
+export const momentoFotoSchema = z.enum(["antes", "despues"]);

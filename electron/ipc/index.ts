@@ -15,6 +15,7 @@ import * as citasService from "../services/citas";
 import * as serviciosRealizadosService from "../services/serviciosRealizados";
 import * as archivosService from "../services/archivos";
 import * as comprobantesService from "../services/comprobantes";
+import * as fichasService from "../services/fichasClinicas";
 import * as corteService from "../services/corte";
 import * as cobrosService from "../services/cobros";
 import * as bitacoraService from "../services/bitacora";
@@ -53,6 +54,8 @@ import {
   cancelarPagoInputSchema,
   descuentoInputSchema,
   quitarDescuentoInputSchema,
+  guardarFichaInputSchema,
+  momentoFotoSchema,
   guardarRecetaInputSchema,
   bitacoraFiltroSchema,
   resumenFiltroSchema,
@@ -330,6 +333,49 @@ export function registrarIpc(): void {
     await comprobantesService.guardarCopia(id, resultado.filePath, usuarioActualId() ?? undefined);
     return true;
   });
+  // -- Ficha clínica (spec de la ficha §21.4). Ningún canal recibe rutas: el main las resuelve. --
+  ipcMain.handle("fichas:obtener", (_e, clienteId: string) => fichasService.obtenerFicha(idSchema.parse(clienteId)));
+  ipcMain.handle("fichas:guardar", (_e, input) =>
+    fichasService.guardarFicha(guardarFichaInputSchema.parse(input), usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("fichas:versiones", (_e, clienteId: string) => fichasService.listarVersiones(idSchema.parse(clienteId)));
+  ipcMain.handle("fichas:borrar", (_e, clienteId: string) =>
+    fichasService.borrarFicha(idSchema.parse(clienteId), usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("fichas:aviso", (_e, clienteId: string) => fichasService.avisoFicha(idSchema.parse(clienteId)));
+  ipcMain.handle("fichas:tratamientos", (_e, clienteId: string) =>
+    fichasService.listarTratamientos(idSchema.parse(clienteId)),
+  );
+  ipcMain.handle("fichas:fotosServicio", (_e, servicioRealizadoId: string) =>
+    fichasService.fotosServicio(idSchema.parse(servicioRealizadoId)),
+  );
+  ipcMain.handle("fichas:subirFoto", async (_e, servicioRealizadoId: string, momento: string) => {
+    const id = idSchema.parse(servicioRealizadoId);
+    const cual = momentoFotoSchema.parse(momento);
+    const resultado = await dialog.showOpenDialog(mainWindow(), {
+      properties: ["openFile"],
+      title: cual === "antes" ? "Selecciona la foto de antes" : "Selecciona la foto de después",
+      filters: [{ name: "Fotos", extensions: fichasService.EXTENSIONES_FOTO }],
+    });
+    if (resultado.canceled || resultado.filePaths.length === 0) return null;
+    return fichasService.subirFoto(id, cual, resultado.filePaths[0], usuarioActualId() ?? undefined);
+  });
+  ipcMain.handle("fichas:miniatura", (_e, archivoId: string) => fichasService.miniatura(idSchema.parse(archivoId)));
+  ipcMain.handle("fichas:abrirFoto", async (_e, archivoId: string) => {
+    const ruta = await fichasService.rutaFoto(idSchema.parse(archivoId));
+    const error = await shell.openPath(ruta);
+    if (error) throw new Error(`No se pudo abrir la foto: ${error}`);
+  });
+  ipcMain.handle("fichas:quitarFoto", (_e, archivoId: string) =>
+    fichasService.quitarFoto(idSchema.parse(archivoId), usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("serviciosRealizados:actualizarObservaciones", (_e, servicioRealizadoId: string, observaciones: unknown) =>
+    serviciosRealizadosService.actualizarObservacionesServicio(
+      idSchema.parse(servicioRealizadoId),
+      z.string().max(4000).parse(observaciones),
+      usuarioActualId() ?? undefined,
+    ),
+  );
   ipcMain.handle("archivos:listar", (_e, entidadTipo: string, entidadId: string) =>
     archivosService.listarArchivos(entidadTipo, entidadId),
   );

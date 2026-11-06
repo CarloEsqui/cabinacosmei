@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../db";
 import { archivos } from "../db/schema";
-import { sanitizarNombre, rutaDentroDe } from "./folders";
+import { carpetaDatos, sanitizarNombre, rutaDentroDe } from "./folders";
 import { obtenerConfig } from "./config";
 
 /** Anti-colisión para archivos: agrega sufijo antes de la extensión (a.jpg -> a_2.jpg). */
@@ -27,6 +27,8 @@ interface GuardarArchivoInput {
   rutaOrigen: string;
   carpetaDestino: string;
   categoria: string;
+  /** Ficha clínica (Gate, condición 7d): las fotos guardan su tipo MIME. */
+  tipoMime?: string;
   usuarioId?: string;
 }
 
@@ -55,6 +57,7 @@ export async function guardarArchivoDesdeRuta(input: GuardarArchivoInput) {
       nombreGuardado: path.basename(rutaDestino),
       rutaFisica: rutaDestino,
       categoria: input.categoria,
+      tipoMime: input.tipoMime ?? null,
       usuarioId: input.usuarioId || null,
     })
     .run();
@@ -86,4 +89,40 @@ export async function tieneComprobante(servicioRealizadoId: string): Promise<boo
     )
     .get();
   return Boolean(fila);
+}
+
+type Db = ReturnType<typeof getDb>;
+
+/**
+ * Borra filas de `archivos` dentro de una transacción ajena (ej. borrar la ficha clínica) y
+ * devuelve sus rutas físicas para borrarlas del disco DESPUÉS de confirmar la transacción.
+ */
+export function eliminarFilasArchivosEnTx(tx: Pick<Db, "select" | "delete">, ids: string[]): string[] {
+  if (ids.length === 0) return [];
+  const filas = tx.select({ ruta: archivos.rutaFisica }).from(archivos).where(inArray(archivos.id, ids)).all();
+  tx.delete(archivos).where(inArray(archivos.id, ids)).run();
+  return filas.map((f) => f.ruta);
+}
+
+/**
+ * Borra archivos del disco, solo si están dentro de `Datos/` del negocio. Nunca lanza: un archivo
+ * que no se puede borrar no deshace lo que ya se confirmó en la BD; se devuelve cuántos fallaron.
+ */
+export async function borrarArchivosFisicos(rutas: string[]): Promise<number> {
+  if (rutas.length === 0) return 0;
+  const { carpetaRaiz } = await obtenerConfig();
+  const datos = carpetaDatos(carpetaRaiz);
+  let fallidos = 0;
+  for (const ruta of rutas) {
+    if (!rutaDentroDe(ruta, datos)) {
+      fallidos += 1;
+      continue;
+    }
+    try {
+      if (fs.existsSync(ruta)) fs.unlinkSync(ruta);
+    } catch {
+      fallidos += 1;
+    }
+  }
+  return fallidos;
 }

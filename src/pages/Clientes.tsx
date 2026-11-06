@@ -46,6 +46,8 @@ import { ManchaOrganica, PetalosAlVuelo } from "@/components/ui/decoracion";
 import { CitaDetalleModal, ESTADO_CITA } from "@/pages/agenda/CitaDetalleModal";
 import { NuevaCitaModal } from "@/pages/agenda/NuevaCitaModal";
 import { CierreCitaModal } from "@/pages/agenda/CierreCitaModal";
+import { FichaClinicaModal } from "@/components/ficha/FichaClinicaModal";
+import { AvisoPrecaucion } from "@/components/ficha/AvisoPrecaucion";
 import { fechaLocalIso, horaLocal } from "@shared/fechas";
 import { Paginador, usePaginacion } from "@/components/ui/paginador";
 import type { CitaRow, Cliente } from "@shared/types";
@@ -439,6 +441,11 @@ function FichaCliente({
 }) {
   const navigate = useNavigate();
   const [citaAbierta, setCitaAbierta] = useState<string | null>(null);
+  const [fichaClinica, setFichaClinica] = useState(false);
+  const { data: aviso } = useQuery({
+    queryKey: ["fichaAviso", clienteId],
+    queryFn: () => window.api.fichas.aviso(clienteId),
+  });
 
   const { data: cliente } = useQuery({
     queryKey: ["clienteExpediente", clienteId],
@@ -520,9 +527,15 @@ function FichaCliente({
             />
           </div>
 
-          <div className="flex gap-2">
+          {/* FR-009: el aviso de Precaución de la ficha clínica (solo el resumen). */}
+          <AvisoPrecaucion clienteId={cliente.id} />
+
+          <div className="flex flex-wrap gap-2">
             <Button className="flex-1" onClick={() => onNuevaCita(cliente.id)}>
               <CalendarPlus size={16} /> Nueva cita
+            </Button>
+            <Button variant="secondary" className="flex-1" onClick={() => setFichaClinica(true)}>
+              <ClipboardList size={16} /> {aviso?.tieneFicha ? "Ficha clínica" : "Llenar ficha clínica"}
             </Button>
             <Button variant="secondary" className="flex-1" onClick={() => onEditar(cliente)}>
               <Pencil size={16} /> Editar datos
@@ -623,6 +636,8 @@ function FichaCliente({
           </div>
         </div>
       </Modal>
+
+      {fichaClinica && <FichaClinicaModal clienteId={cliente.id} onClose={() => setFichaClinica(false)} />}
 
       {/* Fuera del modal de la ficha (no anidado en su contenedor animado): se apila encima. */}
       {citaDetalle && (

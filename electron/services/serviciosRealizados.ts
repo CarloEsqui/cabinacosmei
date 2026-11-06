@@ -483,3 +483,37 @@ export async function obtenerDetalle(servicioRealizadoId: string): Promise<Detal
     saldoPendiente: saldoServicio(servicio, totalCobrado),
   };
 }
+
+/**
+ * Notas del tratamiento después del cierre (ficha clínica, FR-007; Gate de la ficha, condición 9).
+ * Solo cambia `observaciones` y `updatedAt`: nada de estatus, precio, productos ni dinero. Las notas
+ * NO se versionan (decisión del dueño). La bitácora no guarda el contenido (BR-006).
+ */
+export async function actualizarObservacionesServicio(
+  servicioRealizadoId: string,
+  observaciones: string,
+  usuarioId?: string,
+): Promise<void> {
+  const db = getDb();
+  const s = db
+    .select({ codigo: serviciosRealizados.codigoServicio, estatus: serviciosRealizados.estatus })
+    .from(serviciosRealizados)
+    .where(eq(serviciosRealizados.id, servicioRealizadoId))
+    .get();
+  if (!s) throw new Error("El servicio realizado no existe.");
+  if (s.estatus !== "cerrado") throw new Error("Las notas del tratamiento se capturan al cerrar la cita.");
+  const texto = observaciones.trim();
+  db.transaction((tx) => {
+    tx.update(serviciosRealizados)
+      .set({ observaciones: texto || null, updatedAt: new Date() })
+      .where(eq(serviciosRealizados.id, servicioRealizadoId))
+      .run();
+    registrarAccion(tx, {
+      usuarioId,
+      accion: "observaciones_servicio_actualizadas",
+      entidadTipo: "servicio_realizado",
+      entidadId: servicioRealizadoId,
+      detalle: `${s.codigo} · notas del tratamiento actualizadas`,
+    });
+  });
+}
