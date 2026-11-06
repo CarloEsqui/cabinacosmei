@@ -124,7 +124,7 @@ export function AppShell() {
             a su propia esquina. */}
         <ActualizacionBanner />
         <LicenciaBanner />
-        <div className="relative flex-1 overflow-y-auto">
+        <div data-scroll-principal className="relative flex-1 overflow-y-auto">
           <Outlet />
         </div>
       </main>

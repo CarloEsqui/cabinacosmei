@@ -1,7 +1,8 @@
 import { and, eq, gte, lte, ne } from "drizzle-orm";
 import { getDb } from "../db";
-import { pagos, clientes, serviciosRealizados } from "../db/schema";
+import { clientes, serviciosRealizados } from "../db/schema";
 import { resumenPendiente } from "./corte";
+import { cobrosDeDinero, redondearDinero, totalTicket } from "./cobros";
 import { fechaLocalIso, inicioDeMesIso } from "../../shared/fechas";
 import type { ResumenDashboard } from "../../shared/types";
 
@@ -10,16 +11,13 @@ export async function resumenDashboard(): Promise<ResumenDashboard> {
   const hoy = fechaLocalIso();
   const inicioMes = inicioDeMesIso();
 
-  const cobradosHoy = db
-    .select({ monto: pagos.monto })
-    .from(pagos)
-    .where(and(eq(pagos.estatus, "cobrado"), eq(pagos.fecha, hoy)))
-    .all();
+  // Pagos con fecha de hoy = cobrados hoy (cobro v2: el pago lleva el día del cobro, DIN-M1).
+  const cobradosHoy = cobrosDeDinero(db, hoy, hoy);
 
   const pendiente = await resumenPendiente();
 
   const serviciosMes = db
-    .select({ precio: serviciosRealizados.precio })
+    .select({ precio: serviciosRealizados.precio, totalProductos: serviciosRealizados.totalProductos })
     .from(serviciosRealizados)
     .where(
       and(
@@ -31,7 +29,7 @@ export async function resumenDashboard(): Promise<ResumenDashboard> {
       ),
     )
     .all();
-  const totalMes = serviciosMes.reduce((acc, s) => acc + (s.precio ?? 0), 0);
+  const totalMes = serviciosMes.reduce((acc, s) => acc + totalTicket(s), 0);
 
   const clientasActivas = db
     .select({ id: clientes.id })
@@ -40,7 +38,7 @@ export async function resumenDashboard(): Promise<ResumenDashboard> {
     .all();
 
   return {
-    cobradoHoy: cobradosHoy.reduce((acc, p) => acc + p.monto, 0),
+    cobradoHoy: redondearDinero(cobradosHoy.reduce((acc, p) => acc + p.monto, 0)),
     pendienteDeCortar: pendiente.total,
     serviciosDelMes: serviciosMes.length,
     ticketPromedioMes: serviciosMes.length > 0 ? totalMes / serviciosMes.length : 0,

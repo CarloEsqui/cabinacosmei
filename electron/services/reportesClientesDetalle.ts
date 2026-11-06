@@ -1,5 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../db";
+import { totalTicket } from "./cobros";
 import { serviciosRealizados, clientes } from "../db/schema";
 import { agregadosDelRango, comparar } from "./reportesResumen";
 import { fechaLocalIso, rangoComparacion } from "../../shared/fechas";
@@ -50,6 +51,7 @@ export async function reporteClientesDetalle(filtro: ResumenFiltro): Promise<Rep
       clienteId: serviciosRealizados.clienteId,
       fecha: serviciosRealizados.fecha,
       precio: serviciosRealizados.precio,
+      totalProductos: serviciosRealizados.totalProductos,
       nombre: clientes.nombreCompleto,
     })
     .from(serviciosRealizados)
@@ -71,7 +73,7 @@ export async function reporteClientesDetalle(filtro: ResumenFiltro): Promise<Rep
   for (const s of servicios) {
     const a = porCliente.get(s.clienteId) ?? { nombre: s.nombre, fechas: [], valor: 0 };
     a.fechas.push(s.fecha);
-    a.valor += s.precio ?? 0;
+    a.valor += totalTicket(s);
     porCliente.set(s.clienteId, a);
   }
 

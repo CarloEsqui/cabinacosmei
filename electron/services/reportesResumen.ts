@@ -5,10 +5,10 @@ import {
   serviciosProductosConsumidos,
   lotes,
   salidasInventario,
-  pagos,
   clientes,
 } from "../db/schema";
 import { calcularSaldosPorCliente } from "./clientes";
+import { cobrosDeDinero, costoProductosVendidos, totalTicket } from "./cobros";
 import {
   diasEnRango,
   fechaLocalIso,
@@ -43,9 +43,15 @@ export interface Agregados {
 export function agregadosDelRango(desde: string, hasta: string): Agregados {
   const db = getDb();
 
-  // Ventas = servicios CERRADOS y no cancelados en el rango. No depende de si ya se cobraron.
+  // Ventas = total del ticket (servicio + productos vendidos, cobros.totalTicket) de los servicios
+  // CERRADOS y no cancelados en el rango. No depende de si ya se cobraron.
   const servicios = db
-    .select({ id: serviciosRealizados.id, clienteId: serviciosRealizados.clienteId, precio: serviciosRealizados.precio })
+    .select({
+      id: serviciosRealizados.id,
+      clienteId: serviciosRealizados.clienteId,
+      precio: serviciosRealizados.precio,
+      totalProductos: serviciosRealizados.totalProductos,
+    })
     .from(serviciosRealizados)
     .where(
       and(
@@ -57,7 +63,7 @@ export function agregadosDelRango(desde: string, hasta: string): Agregados {
     )
     .all();
 
-  const ventas = servicios.reduce((acc, s) => acc + (s.precio ?? 0), 0);
+  const ventas = servicios.reduce((acc, s) => acc + totalTicket(s), 0);
   const clientesUnicos = new Set(servicios.map((s) => s.clienteId)).size;
   const serviciosIds = servicios.map((s) => s.id);
 
@@ -81,6 +87,9 @@ export function agregadosDelRango(desde: string, hasta: string): Agregados {
     }
   }
   const serviciosSinCosto = serviciosIds.filter((id) => !serviciosConCosto.has(id)).length;
+  // Cobro v2: el ingreso de los productos vendidos en el ticket entra a ventas, así que su costo
+  // entra al margen (si no, el margen saldría inflado).
+  for (const costo of costoProductosVendidos(db, serviciosIds).values()) costoInsumos += costo;
 
   // Pérdidas valorizadas: salidas de tipo merma / devolución en el rango.
   const mermas = db
@@ -97,12 +106,8 @@ export function agregadosDelRango(desde: string, hasta: string): Agregados {
     .all();
   const mermaValorizada = mermas.reduce((acc, m) => acc + (m.valor ?? 0), 0);
 
-  // Cobranza efectivamente recibida en el rango.
-  const cobros = db
-    .select({ monto: pagos.monto })
-    .from(pagos)
-    .where(and(eq(pagos.estatus, "cobrado"), gte(pagos.fecha, desde), lte(pagos.fecha, hasta)))
-    .all();
+  // Cobranza efectivamente recibida en el rango (solo dinero, cobros.cobrosDeDinero).
+  const cobros = cobrosDeDinero(db, desde, hasta);
   const cobranza = cobros.reduce((acc, p) => acc + p.monto, 0);
 
   return {
@@ -199,7 +204,12 @@ export function serieResumen(desde: string, hasta: string): PuntoSerieResumen[] 
   for (const k of claves) acum.set(k, { ventas: 0, cobranza: 0, costo: 0, merma: 0 });
 
   const servicios = db
-    .select({ id: serviciosRealizados.id, fecha: serviciosRealizados.fecha, precio: serviciosRealizados.precio })
+    .select({
+      id: serviciosRealizados.id,
+      fecha: serviciosRealizados.fecha,
+      precio: serviciosRealizados.precio,
+      totalProductos: serviciosRealizados.totalProductos,
+    })
     .from(serviciosRealizados)
     .where(
       and(
@@ -216,7 +226,7 @@ export function serieResumen(desde: string, hasta: string): PuntoSerieResumen[] 
     const k = claveBucket(s.fecha, gran);
     const b = acum.get(k);
     if (!b) continue;
-    b.ventas += s.precio ?? 0;
+    b.ventas += totalTicket(s);
     bucketPorServicio.set(s.id, k);
   }
 
@@ -237,13 +247,14 @@ export function serieResumen(desde: string, hasta: string): PuntoSerieResumen[] 
       const b = k ? acum.get(k) : undefined;
       if (b) b.costo += c.cantidad * (c.costo ?? 0);
     }
+    for (const [srId, costo] of costoProductosVendidos(db, serviciosIds)) {
+      const k = bucketPorServicio.get(srId);
+      const b = k ? acum.get(k) : undefined;
+      if (b) b.costo += costo;
+    }
   }
 
-  const cobros = db
-    .select({ fecha: pagos.fecha, monto: pagos.monto })
-    .from(pagos)
-    .where(and(eq(pagos.estatus, "cobrado"), gte(pagos.fecha, desde), lte(pagos.fecha, hasta)))
-    .all();
+  const cobros = cobrosDeDinero(db, desde, hasta);
   for (const p of cobros) {
     const b = acum.get(claveBucket(p.fecha, gran));
     if (b) b.cobranza += p.monto;

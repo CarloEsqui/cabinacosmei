@@ -145,23 +145,72 @@ export const productoConsumoSchema = z.object({
   cantidad: z.number().positive(),
 });
 
-export const cierreCitaInputSchema = z
-  .object({
-    servicioRealizadoId: z.string().min(1),
-    precio: z.number().nonnegative().default(0),
-    productosConsumidos: z.array(productoConsumoSchema).default([]),
-    productosVendidos: z.array(productoConsumoSchema).default([]),
-    metodoPago: z.string().optional(),
-    monto: z.number().nonnegative().default(0),
-    estatusPago: z.enum(["pagado", "parcial", "pendiente", "cancelado"]).default("pendiente"),
-    observaciones: z.string().optional(),
-    pinOverride: z.string().optional(),
-  })
-  .refine((data) => data.monto <= 0 || !!data.metodoPago, {
-    message: "Selecciona un método de pago para registrar el cobro.",
-    path: ["metodoPago"],
-  });
+/** Producto vendido en el ticket del cierre, con su precio unitario de venta (DIN-A5, FR-002). */
+export const productoVentaSchema = productoConsumoSchema.extend({
+  precioUnitario: z.number().nonnegative("El precio no puede ser negativo"),
+});
+
+/** Una línea de pago: método + monto (cobro v2, FR-001). */
+export const lineaPagoSchema = z.object({
+  metodoPago: z.string().trim().min(1, "Elige el método de pago."),
+  monto: z.number().positive("Cada pago debe ser mayor a $0."),
+});
+export type LineaPago = z.infer<typeof lineaPagoSchema>;
+
+/**
+ * Addendum 2026-11-05 (reemplaza BR-008): el efectivo no pide comprobante. Se reconoce por nombre
+ * porque los métodos de pago son configurables: "Efectivo", "efectivo (caja)", etc.
+ */
+export function esEfectivo(metodoPago: string): boolean {
+  return metodoPago.trim().toLowerCase().startsWith("efectivo");
+}
+
+/** true si algún pago no es en efectivo: sin comprobante, ese cobro queda sin evidencia. */
+export function requiereEvidencia(lineas: { metodoPago: string; monto: number }[]): boolean {
+  return lineas.some((l) => l.monto > 0 && !esEfectivo(l.metodoPago));
+}
+
+/**
+ * Cierre de cita, cobro v2: N líneas de pago y el estatus lo DERIVA el servidor (FR-003). Ya no
+ * existen `metodoPago`, `monto` ni `estatusPago` (Decisión A: sin "cancelado" en el cierre).
+ */
+export const cierreCitaInputSchema = z.object({
+  servicioRealizadoId: z.string().min(1),
+  precio: z.number().nonnegative().default(0),
+  productosConsumidos: z.array(productoConsumoSchema).default([]),
+  productosVendidos: z.array(productoVentaSchema).default([]),
+  pagos: z.array(lineaPagoSchema).default([]),
+  observaciones: z.string().optional(),
+  /** La usuaria confirmó continuar sin comprobante en un cobro que no es en efectivo. */
+  sinComprobanteAceptado: z.boolean().optional(),
+});
 export type CierreCitaInput = z.infer<typeof cierreCitaInputSchema>;
+
+/** FR-004: abono a un servicio cerrado. Sin PIN (addendum 2026-11-05). */
+export const abonoInputSchema = z.object({
+  servicioRealizadoId: z.string().min(1),
+  lineas: z.array(lineaPagoSchema).min(1, "Agrega al menos un pago."),
+  sinComprobanteAceptado: z.boolean().optional(),
+});
+export type AbonoInput = z.infer<typeof abonoInputSchema>;
+
+/** FR-005: anticipo sobre una cita activa. Sin PIN (addendum 2026-11-05). */
+export const anticipoInputSchema = z.object({
+  citaId: z.string().min(1),
+  lineas: z.array(lineaPagoSchema).min(1, "Agrega al menos un pago."),
+  sinComprobanteAceptado: z.boolean().optional(),
+  /** Comprobante elegido con `archivos:elegirComprobante`; el main lo guarda al registrar. */
+  comprobanteToken: z.string().min(1).optional(),
+});
+export type AnticipoInput = z.infer<typeof anticipoInputSchema>;
+
+/** FR-006 / BR-009: cancelar un pago siempre pide PIN y motivo. */
+export const cancelarPagoInputSchema = z.object({
+  pagoId: z.string().min(1),
+  motivo: z.string().trim().min(3, "Escribe el motivo de la cancelación."),
+  pin: z.string().min(1, "Escribe el PIN de acceso."),
+});
+export type CancelarPagoInput = z.infer<typeof cancelarPagoInputSchema>;
 
 export const recetaItemSchema = z.object({
   productoId: z.string().min(1),

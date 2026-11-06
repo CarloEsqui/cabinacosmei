@@ -167,14 +167,41 @@ export interface ServicioRealizado {
 
 export interface DetalleServicioRealizado {
   precio: number;
+  totalProductos: number;
+  total: number; // precio + totalProductos (cobro v2)
   estatusPago: string;
   estatus: string;
   observaciones: string | null;
   productosConsumidos: { productoNombre: string; cantidad: number }[];
-  productosVendidos: { productoNombre: string; cantidad: number }[];
+  productosVendidos: { productoNombre: string; cantidad: number; precioUnitario: number | null }[];
   pagos: { fecha: string; monto: number; metodoPago: string }[];
   totalCobrado: number;
   saldoPendiente: number;
+}
+
+/** Un pago tal como lo ve el detalle de la cita (cobro v2). */
+export interface PagoRow {
+  id: string;
+  fecha: string;
+  monto: number;
+  metodoPago: string;
+  estatus: string; // cobrado | cancelado
+  concepto: string; // servicio | anticipo
+  motivoCancelacion: string | null;
+  enCorte: boolean;
+}
+
+/** Pagos y saldo de una cita, antes (anticipos) o después de cerrarla. */
+export interface EstadoCuentaCita {
+  pagos: PagoRow[];
+  cerrada: boolean;
+  servicioRealizadoId?: string;
+  estatusPago?: string;
+  tieneComprobante?: boolean; // del servicio cerrado; evidencia opcional (addendum 2026-11-05)
+  total: number | null; // null si la cita aún no se cierra
+  cobrado: number;
+  saldo: number;
+  anticipos: number; // anticipos cobrados aún sin aplicar (solo citas sin cerrar)
 }
 
 export interface DesgloseMetodo {
@@ -183,10 +210,17 @@ export interface DesgloseMetodo {
 }
 
 export interface CorteResumenPendiente {
-  desglosePorMetodo: DesgloseMetodo[];
-  total: number;
+  desglosePorMetodo: DesgloseMetodo[]; // cobros (ingresos) por método
+  totalCobros: number;
+  ajustesPorMetodo: DesgloseMetodo[]; // pagos ya cortados y cancelados después, montos NEGATIVOS
+  totalAjustes: number; // ≤ 0
+  total: number; // neto = totalCobros + totalAjustes
   cantidadPagos: number;
+  cantidadAjustes: number;
   desdeFecha: string | null; // fecha del corte anterior, o null si nunca se ha hecho uno
+  // Informativo, no suma (Gate del cobro, condición 14): anticipos cobrados de citas que no se han
+  // cerrado. Si la cita se canceló y nadie lo resolvió, aquí no se pierde de vista.
+  anticiposSinAplicar: { cantidad: number; total: number };
 }
 
 export interface CorteRow {
@@ -194,7 +228,9 @@ export interface CorteRow {
   fecha: string;
   hora: string;
   desglosePorMetodo: DesgloseMetodo[];
-  total: number;
+  ajustesPorMetodo: DesgloseMetodo[];
+  totalAjustes: number;
+  total: number; // neto
 }
 
 export interface CorteResumenPeriodo {
@@ -207,6 +243,15 @@ export interface ArchivoRow {
   nombreOriginal: string;
   categoria: string | null;
   createdAt: number;
+}
+
+/** Comprobante de una cita: del servicio cerrado o de un anticipo. */
+export interface ComprobanteRow {
+  id: string;
+  nombreOriginal: string;
+  createdAt: number;
+  origen: "servicio" | "anticipo";
+  esPdf: boolean;
 }
 
 export interface RecetaItem {

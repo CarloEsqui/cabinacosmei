@@ -11,6 +11,9 @@ import type {
   CitaInput,
   CitasFiltro,
   CierreCitaInput,
+  AbonoInput,
+  AnticipoInput,
+  CancelarPagoInput,
   GuardarRecetaInput,
   ResumenFiltro,
   BitacoraFiltro,
@@ -30,7 +33,9 @@ import type {
   CitaRow,
   ServicioRealizado,
   DetalleServicioRealizado,
+  EstadoCuentaCita,
   ArchivoRow,
+  ComprobanteRow,
   MantenimientoPendiente,
   CorteResumenPendiente,
   CorteRow,
@@ -146,8 +151,24 @@ export interface IpcApi {
     cerrarCita(input: CierreCitaInput): Promise<ServicioRealizado>;
     obtenerDetalle(servicioRealizadoId: string): Promise<DetalleServicioRealizado | null>;
   };
+  // Cobro v2 (spec §22.2). El PIN se verifica en el main, nunca en el renderer.
+  cobros: {
+    registrarAbono(input: AbonoInput): Promise<void>;
+    registrarAnticipo(input: AnticipoInput): Promise<{ comprobanteGuardado: boolean; aviso?: string }>;
+    cancelarPago(input: CancelarPagoInput): Promise<void>;
+    estadoCuentaCita(citaId: string): Promise<EstadoCuentaCita>;
+  };
   archivos: {
-    subirComprobante(entidadTipo: string, entidadId: string, carpetaDestino: string): Promise<ArchivoRow | null>;
+    /** Comprobante del servicio cerrado; el main resuelve (y crea si falta) la carpeta. */
+    subirComprobante(servicioRealizadoId: string): Promise<ArchivoRow | null>;
+    /** Elige un archivo para un anticipo aún no registrado; devuelve un token, nunca la ruta. */
+    elegirComprobante(): Promise<{ token: string; nombre: string } | null>;
+    /** Libera un comprobante elegido que ya no se usará (se quitó o se cerró el panel). */
+    descartarComprobante(token: string): Promise<void>;
+    comprobantesCita(citaId: string): Promise<ComprobanteRow[]>;
+    vistaPrevia(archivoId: string, tamano: "mini" | "grande"): Promise<string | null>;
+    abrirComprobante(archivoId: string): Promise<void>;
+    guardarCopiaComprobante(archivoId: string): Promise<boolean>;
     listar(entidadTipo: string, entidadId: string): Promise<ArchivoRow[]>;
   };
   corte: {
@@ -265,7 +286,17 @@ export type IpcChannel =
   | "serviciosRealizados:abrirCierre"
   | "serviciosRealizados:cerrarCita"
   | "serviciosRealizados:obtenerDetalle"
+  | "cobros:registrarAbono"
+  | "cobros:registrarAnticipo"
+  | "cobros:cancelarPago"
+  | "cobros:estadoCuentaCita"
   | "archivos:subirComprobante"
+  | "archivos:elegirComprobante"
+  | "archivos:descartarComprobante"
+  | "archivos:comprobantesCita"
+  | "archivos:vistaPrevia"
+  | "archivos:abrirComprobante"
+  | "archivos:guardarCopiaComprobante"
   | "archivos:listar"
   | "corte:resumenPendiente"
   | "corte:registrar"

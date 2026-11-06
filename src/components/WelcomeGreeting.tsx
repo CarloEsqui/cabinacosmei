@@ -4,7 +4,8 @@ import { es } from "date-fns/locale";
 import { getFirstName } from "@/lib/format";
 
 interface ResumenOperativoProps {
-  citasProximas: number;
+  /** Citas de HOY aún por atender (programadas o confirmadas). La frase dice "Hoy tienes…". */
+  citasHoy: number;
   mantenimientosPendientes: number;
   stockBajo: number;
   proximosACaducar: number;
@@ -17,14 +18,14 @@ function saludoSegunHora(hora: number): string {
 }
 
 function ResumenOperativo({
-  citasProximas,
+  citasHoy,
   mantenimientosPendientes,
   stockBajo,
   proximosACaducar,
 }: ResumenOperativoProps) {
   const partes: { valor: number; texto: string }[] = [];
-  if (citasProximas > 0) {
-    partes.push({ valor: citasProximas, texto: citasProximas === 1 ? "cita próxima" : "citas próximas" });
+  if (citasHoy > 0) {
+    partes.push({ valor: citasHoy, texto: citasHoy === 1 ? "cita" : "citas" });
   }
   if (mantenimientosPendientes > 0) {
     partes.push({

@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, like } from "drizzle-orm";
+import fs from "node:fs";
+import { desc, eq, like } from "drizzle-orm";
 import { getDb } from "../db";
-import { clientes, serviciosRealizados, pagos } from "../db/schema";
+import { clientes } from "../db/schema";
+import { saldosPorCliente } from "./cobros";
 import { obtenerConfig } from "./config";
-import { crearCarpetaCliente } from "./folders";
+import { carpetaDatos, crearCarpetaCliente, rutaDentroDe } from "./folders";
 import { registrarAccion } from "./bitacora";
 import { eliminarOFallarConHistorial } from "./errores";
 import { listarMantenimientosNoProgramados } from "./citas";
@@ -14,38 +16,15 @@ import type { Cliente } from "../../shared/types";
 const EPSILON_SALDO = 0.005;
 
 /**
- * Saldo real por clienta = Σ precio de servicios cerrados (sin contar los que quedaron
- * "cancelado" en su estatus de pago) − Σ monto de pagos cobrados. No se usa el campo manual
- * `estatusPago` de servicios_realizados como fuente de verdad porque puede quedar
- * desactualizado (ej. un servicio pagado por completo que alguien nunca marcó "pagado").
+ * Saldo real por clienta: la definición única de cobros.saldosPorCliente (FR-008) — Σ saldos de
+ * sus servicios cerrados no cancelados. Ya NO resta todos los pagos de la clienta: un anticipo de
+ * una cita futura no es saldo a favor (AC-006).
  */
 export async function calcularSaldosPorCliente(clienteIds: string[]): Promise<Map<string, number>> {
-  const db = getDb();
   const mapa = new Map<string, number>();
   if (clienteIds.length === 0) return mapa;
-
-  const cargos = db
-    .select({ clienteId: serviciosRealizados.clienteId, precio: serviciosRealizados.precio })
-    .from(serviciosRealizados)
-    .where(
-      and(eq(serviciosRealizados.estatus, "cerrado"), inArray(serviciosRealizados.estatusPago, ["pagado", "parcial", "pendiente"])),
-    )
-    .all();
-  const cobros = db
-    .select({ clienteId: pagos.clienteId, monto: pagos.monto })
-    .from(pagos)
-    .where(eq(pagos.estatus, "cobrado"))
-    .all();
-
-  for (const id of clienteIds) mapa.set(id, 0);
-  for (const c of cargos) {
-    if (!mapa.has(c.clienteId)) continue;
-    mapa.set(c.clienteId, (mapa.get(c.clienteId) ?? 0) + (c.precio ?? 0));
-  }
-  for (const p of cobros) {
-    if (!mapa.has(p.clienteId)) continue;
-    mapa.set(p.clienteId, (mapa.get(p.clienteId) ?? 0) - p.monto);
-  }
+  const saldos = saldosPorCliente(getDb(), clienteIds);
+  for (const id of clienteIds) mapa.set(id, saldos.get(id)?.saldo ?? 0);
   return mapa;
 }
 
@@ -88,6 +67,37 @@ export async function listarClientes(): Promise<Cliente[]> {
   const filas = db.select().from(clientes).orderBy(desc(clientes.createdAt)).all();
   const alertas = await calcularAlertasPorCliente(filas.map((f) => f.id));
   return filas.map((f) => ({ ...f, alertas: alertas.get(f.id) ?? [] }));
+}
+
+/**
+ * Carpeta de la clienta en disco. Si no existe (clientas importadas o creadas sin carpeta, o una
+ * carpeta borrada a mano), se crea y se guarda. Así subir un comprobante nunca queda bloqueado.
+ */
+export async function asegurarCarpetaCliente(clienteId: string): Promise<string> {
+  const db = getDb();
+  const c = db.select().from(clientes).where(eq(clientes.id, clienteId)).get();
+  if (!c) throw new Error("La clienta no existe.");
+  if (c.carpetaPath && fs.existsSync(c.carpetaPath)) return c.carpetaPath;
+  const config = await obtenerConfig();
+  // COB-M4: si la carpeta del negocio no está (disco externo desmontado, raíz movida), no se crea
+  // nada: crear aquí dejaría a la clienta con dos carpetas.
+  if (!fs.existsSync(carpetaDatos(config.carpetaRaiz))) {
+    throw new Error("La carpeta del negocio no está disponible. Revisa que el disco esté conectado.");
+  }
+  // Si la ruta guardada sigue dentro del negocio, se recrea en el mismo lugar (sin "_2").
+  if (c.carpetaPath && rutaDentroDe(c.carpetaPath, config.carpetaRaiz)) {
+    fs.mkdirSync(c.carpetaPath, { recursive: true });
+    return c.carpetaPath;
+  }
+  const ruta = crearCarpetaCliente(config.carpetaRaiz, c.codigoCliente, c.nombreCompleto);
+  db.update(clientes).set({ carpetaPath: ruta }).where(eq(clientes.id, clienteId)).run();
+  registrarAccion(db, {
+    accion: "carpeta_recreada",
+    entidadTipo: "cliente",
+    entidadId: clienteId,
+    detalle: `${c.codigoCliente} · se creó su carpeta en el negocio.`,
+  });
+  return ruta;
 }
 
 export async function crearCliente(input: ClienteInput, usuarioId?: string) {

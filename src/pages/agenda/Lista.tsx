@@ -1,27 +1,37 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
-import { motion } from "framer-motion";
-import { Lock, XCircle, Search, X, ChevronDown, ChevronUp, SearchX, CalendarClock, BadgeCheck, UserX, RotateCcw, Trash2 } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { addDays, format, parseISO } from "date-fns";
+import { es } from "date-fns/locale";
+import {
+  AlarmClock,
+  CalendarDays,
+  CheckCircle2,
+  ChevronRight,
+  IdCard,
+  Repeat,
+  Search,
+  SearchX,
+  Wallet,
+  X,
+} from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Avatar } from "@/components/ui/avatar";
+import { StatChip } from "@/components/ui/stat-chip";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Paginador, usePaginacion } from "@/components/ui/paginador";
 import { IlustracionCalendario } from "@/components/ui/ilustraciones";
-import { formatFecha, formatMoneda } from "@/lib/format";
+import { formatMoneda } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { NuevaCitaModal } from "@/pages/agenda/NuevaCitaModal";
-import { useAccionesCita } from "@/pages/agenda/useAccionesCita";
+import { CitaDetalleModal, ESTADO_CITA, ESTADOS_VIGENTES, colorEstadoCita } from "@/pages/agenda/CitaDetalleModal";
 import { fechaLocalIso, horaLocal } from "@shared/fechas";
 import type { CitasFiltro } from "@shared/schemas";
 import type { Cliente, CitaRow } from "@shared/types";
-
-const PAGO_LABEL: Record<string, string> = {
-  pagado: "Pagado",
-  pendiente: "Pago pendiente",
-};
 
 /** "no_aplica" = la cita aún no se cierra, así que no tiene un estatus de pago que mostrar o filtrar. */
 function estatusPagoCita(c: CitaRow): "pagado" | "pendiente" | "no_aplica" {
@@ -29,27 +39,55 @@ function estatusPagoCita(c: CitaRow): "pagado" | "pendiente" | "no_aplica" {
   return c.saldoPendiente > 0.005 ? "pendiente" : "pagado";
 }
 
-const ESTADO_LABEL: Record<string, string> = {
-  programada: "Programada",
-  confirmada: "Confirmada",
-  asistio: "Asistió",
-  no_asistio: "No asistió",
-  cancelada: "Cancelada",
-  reagendada: "Reagendada",
-};
+/** Franja de color a la izquierda de cada cita: mismos tonos que los eventos del Calendario. */
+type Periodo = "proximas" | "anteriores" | "todas";
 
-function badgeVariant(estado: string) {
-  if (estado === "asistio") return "success" as const;
-  if (estado === "cancelada" || estado === "no_asistio") return "danger" as const;
-  if (estado === "programada" || estado === "confirmada") return "jacaranda" as const;
-  return "neutral" as const;
+const PERIODOS: { value: Periodo; label: string }[] = [
+  { value: "proximas", label: "Hoy y próximas" },
+  { value: "anteriores", label: "Anteriores" },
+  { value: "todas", label: "Todas" },
+];
+
+/**
+ * Pestaña con la que abre la lista. Por defecto "Hoy y próximas" (patrón de agendas: lo de hoy
+ * primero). Si se llega desde un enlace de cobranza o de una clienta, "Todas", porque los saldos
+ * suelen ser de citas pasadas.
+ */
+function periodoInicial(params: URLSearchParams, hoy: string): Periodo {
+  if (params.get("pago") || params.get("clienteId")) return "todas";
+  const hasta = params.get("hasta");
+  if (hasta && hasta < hoy) return "anteriores";
+  return "proximas";
+}
+
+function capitalizar(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Encabezado de cada día: "Hoy", "Mañana", "Ayer" o el día de la semana, con la fecha larga. */
+function etiquetaDia(fecha: string, hoy: string): { titulo: string; detalle: string } {
+  const d = parseISO(fecha);
+  const mismoAnio = fecha.slice(0, 4) === hoy.slice(0, 4);
+  const largo = format(d, mismoAnio ? "EEEE d 'de' MMMM" : "EEEE d 'de' MMMM 'de' yyyy", { locale: es });
+  const base = parseISO(hoy);
+  if (fecha === hoy) return { titulo: "Hoy", detalle: largo };
+  if (fecha === fechaLocalIso(addDays(base, 1))) return { titulo: "Mañana", detalle: largo };
+  if (fecha === fechaLocalIso(addDays(base, -1))) return { titulo: "Ayer", detalle: largo };
+  return { titulo: capitalizar(largo), detalle: "" };
 }
 
 interface ListaTabProps {
   onCerrarCita: (citaId: string) => void;
 }
 
+/**
+ * Todas las citas, agrupadas por día. Cada cita es una tarjeta con una sola acción a la vista
+ * (Cerrar o Cobrar, según lo que toque); el clic en la tarjeta abre el mismo detalle que el
+ * Calendario, desde donde se hace todo lo demás: abonos, anticipos, cancelar pagos, confirmar,
+ * reagendar, cancelar, reactivar y eliminar.
+ */
 export function ListaTab({ onCerrarCita }: ListaTabProps) {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [filtro, setFiltro] = useState<CitasFiltro>(() => ({
     fechaDesde: searchParams.get("desde") ?? undefined,
@@ -59,7 +97,8 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
   const [filtrosPago, setFiltrosPago] = useState<string[]>(
     () => searchParams.get("pago")?.split(",").filter(Boolean) ?? [],
   );
-  const [expandido, setExpandido] = useState<string | null>(null);
+  const [detalle, setDetalle] = useState<{ cita: CitaRow; cobrar: boolean } | null>(null);
+  const [periodo, setPeriodo] = useState<Periodo>(() => periodoInicial(searchParams, fechaLocalIso()));
   const [citaReagendar, setCitaReagendar] = useState<CitaRow | null>(null);
 
   // Si se llega desde un enlace (ej. la tarjeta "Citas próximas" del Dashboard, o el flag de
@@ -107,18 +146,62 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
     setFiltro((f) => ({ ...f, clienteId: c?.id }));
   }
 
-  const { ejecutar, ocupado } = useAccionesCita();
+  const hoy = fechaLocalIso();
+  const ahora = `${hoy} ${horaLocal()}`;
 
-  const ahora = `${fechaLocalIso()} ${horaLocal()}`;
+  // Filtros de pago sobre todo lo cargado; la pestaña (periodo) se aplica después, así los
+  // contadores de pendientes ven también los días que la pestaña oculta.
+  const filtradas = useMemo(
+    () => (filtrosPago.length > 0 ? citas.filter((c) => filtrosPago.includes(estatusPagoCita(c))) : citas),
+    [citas, filtrosPago],
+  );
 
   const ordenadas = useMemo(() => {
-    // Más recientes/próximas primero (orden descendente), no las más antiguas.
-    let lista = [...citas].sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
-    if (filtrosPago.length > 0) {
-      lista = lista.filter((c) => filtrosPago.includes(estatusPagoCita(c)));
+    if (periodo === "proximas") {
+      // Hoy primero y luego hacia adelante, en el orden en que se van a vivir.
+      return filtradas
+        .filter((c) => c.fecha >= hoy)
+        .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.hora.localeCompare(b.hora));
     }
-    return lista;
-  }, [citas, filtrosPago]);
+    // Anteriores / Todas: el día más reciente primero; dentro del día, en orden de hora.
+    return filtradas
+      .filter((c) => periodo === "todas" || c.fecha < hoy)
+      .sort((a, b) => b.fecha.localeCompare(a.fecha) || a.hora.localeCompare(b.hora));
+  }, [filtradas, periodo, hoy]);
+
+  // Citas de días anteriores que siguen sin cerrar: en "Hoy y próximas" no se ven, así que se
+  // avisan arriba con un atajo.
+  const pendientesAnteriores = useMemo(
+    () => filtradas.filter((c) => c.fecha < hoy && (c.estado === "programada" || c.estado === "confirmada")).length,
+    [filtradas, hoy],
+  );
+
+  const claveFiltros = `${periodo}|${filtro.fechaDesde}|${filtro.fechaHasta}|${(filtro.estados ?? []).join()}|${filtrosPago.join()}|${clienteSeleccionado?.id ?? ""}`;
+  const paginacion = usePaginacion(ordenadas, claveFiltros);
+
+  // Citas por día en toda la vista (no solo en la página), para el contador de cada día.
+  const totalPorDia = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of ordenadas) m.set(c.fecha, (m.get(c.fecha) ?? 0) + 1);
+    return m;
+  }, [ordenadas]);
+
+  const grupos = useMemo(() => {
+    const porDia = new Map<string, CitaRow[]>();
+    for (const c of paginacion.visibles) {
+      const lista = porDia.get(c.fecha);
+      if (lista) lista.push(c);
+      else porDia.set(c.fecha, [c]);
+    }
+    return [...porDia.entries()].map(([fecha, lista]) => ({ fecha, citas: lista }));
+  }, [paginacion.visibles]);
+
+  // Franja de stats: se calcula de lo ya cargado, cero queries nuevas.
+  const sinCerrar = filtradas.filter(
+    (c) => (c.estado === "programada" || c.estado === "confirmada") && `${c.fecha} ${c.hora}` <= ahora,
+  ).length;
+  const conSaldo = filtradas.filter((c) => estatusPagoCita(c) === "pendiente");
+  const totalSaldo = conSaldo.reduce((s, c) => s + c.saldoPendiente, 0);
 
   // Distingue "aún no hay citas" (vacío real) de "ninguna coincide" (vacío por filtros) para el
   // EmptyState §2 — sin disparar queries nuevas, solo mirando los filtros ya en estado.
@@ -130,12 +213,30 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
     clienteSeleccionado
   );
 
+  // El detalle siempre muestra la versión más reciente de la cita (tras confirmar, cobrar, etc.).
+  const citaDetalle = detalle ? (citas.find((c) => c.id === detalle.cita.id) ?? detalle.cita) : null;
+
   return (
     <div className="p-8">
       <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex rounded-xl border border-beige-300 bg-beige-50 p-0.5">
+          {PERIODOS.map((p) => (
+            <button
+              key={p.value}
+              type="button"
+              onClick={() => setPeriodo(p.value)}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                periodo === p.value ? "bg-jacaranda-600 text-beige-50 shadow-sm" : "text-ink-600 hover:bg-beige-200",
+              )}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
         <BuscadorCliente seleccionado={clienteSeleccionado} onSeleccionar={seleccionarCliente} />
         <MultiSelect
-          options={Object.entries(ESTADO_LABEL).map(([valor, label]) => ({ value: valor, label }))}
+          options={ESTADOS_VIGENTES.map(([valor, { label }]) => ({ value: valor, label }))}
           selected={filtro.estados ?? []}
           onChange={(estados) => setFiltro({ ...filtro, estados: estados.length > 0 ? estados : undefined })}
           placeholder="Todos los estados"
@@ -159,246 +260,267 @@ export function ListaTab({ onCerrarCita }: ListaTabProps) {
         />
       </div>
 
-      {clienteSeleccionado && (
-        <div className="mb-4 flex flex-wrap gap-4 rounded-xl border border-beige-300 bg-beige-50 p-4 text-sm">
-          <span className="font-medium text-ink-900">{clienteSeleccionado.nombreCompleto}</span>
-          <span className="text-ink-700">
-            Servicios cerrados: <strong>{resumenCliente?.serviciosCerrados ?? "—"}</strong>
-          </span>
-          <span className="text-ink-700">
-            Total cobrado: <strong>{formatMoneda(resumenCliente?.totalCobrado)}</strong>
-          </span>
-          <span className={resumenCliente && resumenCliente.saldoPendiente > 0.005 ? "text-danger-500" : "text-ink-700"}>
-            Saldo pendiente: <strong>{formatMoneda(resumenCliente?.saldoPendiente)}</strong>
-          </span>
-        </div>
+      {clienteSeleccionado ? (
+        <Card className="aparecer-suave mb-5 flex flex-wrap items-center gap-4 p-4">
+          <Avatar nombre={clienteSeleccionado.nombreCompleto} size="lg" apagado={!clienteSeleccionado.activo} />
+          <div className="min-w-[160px] flex-1">
+            <p className="text-lg font-semibold text-ink-900">{clienteSeleccionado.nombreCompleto}</p>
+            <p className="text-sm text-ink-500">{clienteSeleccionado.codigoCliente}</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <DatoResumen label="Servicios" valor={String(resumenCliente?.serviciosCerrados ?? "—")} />
+            <DatoResumen label="Cobrado" valor={formatMoneda(resumenCliente?.totalCobrado)} />
+            <DatoResumen
+              label="Saldo"
+              valor={formatMoneda(resumenCliente?.saldoPendiente)}
+              tono={resumenCliente && resumenCliente.saldoPendiente > 0.005 ? "danger" : "success"}
+            />
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => navigate(`/clientes?expediente=${clienteSeleccionado.id}`)}
+          >
+            <IdCard size={14} /> Ver ficha
+          </Button>
+        </Card>
+      ) : (
+        citas.length > 0 && (
+          <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <StatChip
+              icon={CalendarDays}
+              valor={ordenadas.length}
+              label={ordenadas.length === 1 ? "Cita en esta pestaña" : "Citas en esta pestaña"}
+            />
+            <StatChip
+              icon={AlarmClock}
+              valor={sinCerrar}
+              label="Ya pasó la hora y siguen sin cerrar"
+              tono={sinCerrar > 0 ? "warning" : "neutral"}
+            />
+            <StatChip
+              icon={Wallet}
+              valor={formatMoneda(totalSaldo)}
+              label={`Por cobrar en ${conSaldo.length} ${conSaldo.length === 1 ? "cita" : "citas"}`}
+              tono={totalSaldo > 0.005 ? "danger" : "neutral"}
+            />
+          </div>
+        )
       )}
 
-      <Card className="overflow-x-auto">
-        <table className="tabla-bellora">
-          <thead>
-            <tr>
-              <th></th>
-              <th>Fecha</th>
-              <th className="num">Hora</th>
-              <th>Clienta</th>
-              <th>Servicio</th>
-              <th>Estado</th>
-              <th>Pago</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody
-            key={`${filtro.fechaDesde}|${filtro.fechaHasta}|${(filtro.estados ?? []).join()}|${filtrosPago.join()}|${clienteSeleccionado?.id ?? ""}`}
-            className="aparecer-suave"
-          >
-            {ordenadas.map((c) => {
-              const activa = c.estado === "programada" || c.estado === "confirmada";
-              const yaPasoLaHora = `${c.fecha} ${c.hora}` <= ahora;
-              const inactiva = c.estado === "cancelada" || c.estado === "no_asistio";
-              const pago = estatusPagoCita(c);
-              const expandible = !!c.servicioRealizadoId;
-              return (
-                <Fragment key={c.id}>
-                  <tr
-                    className={cn(expandible && "cursor-pointer")}
-                    onClick={() => expandible && setExpandido(expandido === c.id ? null : c.id)}
-                  >
-                    <td className="text-ink-500">
-                      {expandible && (expandido === c.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
-                    </td>
-                    <td>{formatFecha(c.fecha)}</td>
-                    <td className="num">{c.hora}</td>
-                    <td className="font-medium text-ink-900">{c.clienteNombre}</td>
-                    <td>{c.servicioNombre || "—"}</td>
-                    <td>
-                      <Badge variant={badgeVariant(c.estado)}>{ESTADO_LABEL[c.estado] ?? c.estado}</Badge>
-                    </td>
-                    <td>
-                      {pago !== "no_aplica" && (
-                        <Badge variant={pago === "pendiente" ? "danger" : "success"}>{PAGO_LABEL[pago]}</Badge>
-                      )}
-                    </td>
-                    <td className="text-right">
-                      {activa && (
-                        <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                          <Button variant="secondary" size="sm" onClick={() => onCerrarCita(c.id)}>
-                            <Lock size={14} /> Cerrar
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-ink-400 hover:text-jacaranda-700"
-                            onClick={() => setCitaReagendar(c)}
-                            title="Reagendar cita"
-                          >
-                            <CalendarClock size={14} />
-                          </Button>
-                          {c.estado === "programada" && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-ink-400 hover:text-success-500"
-                              onClick={() => ejecutar(c, "confirmada")}
-                              disabled={ocupado}
-                              title="Confirmar cita (la clienta confirmó)"
-                            >
-                              <BadgeCheck size={14} />
-                            </Button>
-                          )}
-                          {yaPasoLaHora && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-ink-400 hover:text-danger-500"
-                              onClick={() => ejecutar(c, "no_asistio")}
-                              disabled={ocupado}
-                              title="Marcar que no asistió"
-                            >
-                              <UserX size={14} />
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-ink-400 hover:text-danger-500"
-                            onClick={() => ejecutar(c, "cancelada")}
-                            disabled={ocupado}
-                            title="Cancelar cita"
-                          >
-                            <XCircle size={14} />
-                          </Button>
-                          <BotonEliminar onClick={() => ejecutar(c, "eliminar")} disabled={ocupado} />
-                        </div>
-                      )}
-                      {inactiva && (
-                        <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-ink-400 hover:text-jacaranda-700"
-                            onClick={() => ejecutar(c, "reactivar")}
-                            disabled={ocupado}
-                            title="Reactivar (vuelve a quedar programada)"
-                          >
-                            <RotateCcw size={14} />
-                          </Button>
-                          <BotonEliminar onClick={() => ejecutar(c, "eliminar")} disabled={ocupado} />
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                  {expandible && expandido === c.id && (
-                    <tr className="bg-beige-100">
-                      <td colSpan={8} className="px-4 py-3">
-                        <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: "easeOut" }}>
-                          <DetalleCita servicioRealizadoId={c.servicioRealizadoId!} />
-                        </motion.div>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-            {ordenadas.length === 0 && (
-              <tr>
-                <td colSpan={8} className="px-4 py-6">
-                  {hayFiltrosActivos ? (
-                    <EmptyState
-                      icon={SearchX}
-                      mensaje="Ninguna cita coincide con los filtros."
-                      submensaje="Ajusta las fechas, el estado, el pago o la clienta para ver más resultados."
-                    />
-                  ) : (
-                    <EmptyState
-                      ilustracion={IlustracionCalendario}
-                      mensaje="Aún no hay citas registradas."
-                      submensaje="Agenda tu primera cita con el botón “Nueva cita” de arriba."
-                    />
-                  )}
-                </td>
-              </tr>
+      {periodo === "proximas" && pendientesAnteriores > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            setPeriodo("anteriores");
+            setFiltro((f) => ({ ...f, estados: ["programada", "confirmada"] }));
+          }}
+          className="mb-5 flex w-full items-center gap-3 rounded-2xl border border-warning-500/30 bg-warning-500/10 px-4 py-3 text-left text-sm text-ink-900 transition-colors hover:bg-warning-500/15"
+        >
+          <AlarmClock size={18} className="shrink-0 text-warning-500" />
+          <span className="flex-1">
+            {pendientesAnteriores === 1
+              ? "Hay 1 cita de días anteriores sin cerrar."
+              : `Hay ${pendientesAnteriores} citas de días anteriores sin cerrar.`}
+          </span>
+          <span className="flex items-center gap-1 font-medium text-warning-500">
+            Ver <ChevronRight size={16} />
+          </span>
+        </button>
+      )}
+
+      <div key={`${claveFiltros}|${paginacion.pagina}`} className="aparecer-suave flex flex-col gap-6">
+        {grupos.map(({ fecha, citas: delDia }) => {
+          const { titulo, detalle: fechaLarga } = etiquetaDia(fecha, hoy);
+          return (
+            <section key={fecha}>
+              <div className="mb-2 flex items-baseline gap-2 px-1">
+                <h3 className={cn("font-semibold", fecha === hoy ? "text-jacaranda-700" : "text-ink-900")}>
+                  {titulo}
+                </h3>
+                {fechaLarga && <span className="text-sm text-ink-500">{fechaLarga}</span>}
+                <span className="ml-auto text-xs text-ink-400">
+                  {totalPorDia.get(fecha)} {totalPorDia.get(fecha) === 1 ? "cita" : "citas"}
+                </span>
+              </div>
+              <Card className="divide-y divide-beige-200 overflow-hidden">
+                {delDia.map((c) => (
+                  <TarjetaCita
+                    key={c.id}
+                    cita={c}
+                    ahora={ahora}
+                    onAbrir={() => setDetalle({ cita: c, cobrar: false })}
+                    onCobrar={() => setDetalle({ cita: c, cobrar: true })}
+                    onCerrar={() => onCerrarCita(c.id)}
+                  />
+                ))}
+              </Card>
+            </section>
+          );
+        })}
+
+        {grupos.length === 0 && (
+          <Card className="px-4 py-6">
+            {hayFiltrosActivos ? (
+              <EmptyState
+                icon={SearchX}
+                mensaje="Ninguna cita coincide con los filtros."
+                submensaje="Ajusta las fechas, el estado, el pago o la clienta, o cambia de pestaña."
+              />
+            ) : citas.length > 0 ? (
+              <EmptyState
+                ilustracion={IlustracionCalendario}
+                mensaje={periodo === "proximas" ? "No hay citas de hoy en adelante." : "No hay citas anteriores."}
+                submensaje={
+                  periodo === "proximas"
+                    ? "Agenda una con el botón “Nueva cita” de arriba."
+                    : "Aquí aparecerán las citas de días pasados."
+                }
+              />
+            ) : (
+              <EmptyState
+                ilustracion={IlustracionCalendario}
+                mensaje="Aún no hay citas registradas."
+                submensaje="Agenda tu primera cita con el botón “Nueva cita” de arriba."
+              />
             )}
-          </tbody>
-        </table>
-        {citas.length > 0 && (
-          <div className="border-t border-beige-200 px-4 py-2.5 text-xs text-ink-500">
-            Mostrando {ordenadas.length} de {citas.length} {citas.length === 1 ? "cita" : "citas"}
-          </div>
+          </Card>
         )}
-      </Card>
+
+        {ordenadas.length > 0 && (
+          <Paginador {...paginacion} sustantivo={["cita", "citas"]} onCambiar={paginacion.irA} />
+        )}
+      </div>
+
+      {citaDetalle && (
+        <CitaDetalleModal
+          key={citaDetalle.id}
+          cita={citaDetalle}
+          cobrarAlAbrir={detalle!.cobrar}
+          onClose={() => setDetalle(null)}
+          onCerrarCita={onCerrarCita}
+          onReagendar={setCitaReagendar}
+        />
+      )}
 
       <NuevaCitaModal open={!!citaReagendar} citaEditar={citaReagendar} onClose={() => setCitaReagendar(null)} />
     </div>
   );
 }
 
-function BotonEliminar({ onClick, disabled }: { onClick: () => void; disabled: boolean }) {
+/**
+ * Una cita en la lista. Toda la tarjeta abre el detalle; a la vista solo queda la acción que toca
+ * ahora: "Cerrar cita" si sigue activa (resaltada si ya pasó la hora) o "Cobrar" si quedó saldo.
+ */
+function TarjetaCita({
+  cita,
+  ahora,
+  onAbrir,
+  onCobrar,
+  onCerrar,
+}: {
+  cita: CitaRow;
+  ahora: string;
+  onAbrir: () => void;
+  onCobrar: () => void;
+  onCerrar: () => void;
+}) {
+  const estado = ESTADO_CITA[cita.estado] ?? { label: cita.estado, variant: "neutral" as const };
+  const activa = cita.estado === "programada" || cita.estado === "confirmada";
+  const sinCerrar = activa && `${cita.fecha} ${cita.hora}` <= ahora;
+  const pago = estatusPagoCita(cita);
+  const apagada = cita.estado === "cancelada" || cita.estado === "no_asistio";
+
+  function alTeclear(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onAbrir();
+    }
+  }
+
+  function accion(fn: () => void) {
+    return (e: ReactMouseEvent) => {
+      e.stopPropagation();
+      fn();
+    };
+  }
+
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="text-ink-400 hover:text-danger-500"
-      onClick={onClick}
-      disabled={disabled}
-      title="Eliminar cita (solo si se capturó por error)"
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onAbrir}
+      onKeyDown={alTeclear}
+      title="Ver detalle de la cita"
+      className="group relative flex cursor-pointer items-center gap-4 py-3 pl-5 pr-4 transition-colors hover:bg-beige-100 focus-visible:bg-beige-100 focus-visible:outline-none"
     >
-      <Trash2 size={14} />
-    </Button>
+      <span
+        className="absolute inset-y-2 left-0 w-1 rounded-r-full"
+        style={{ backgroundColor: colorEstadoCita(cita.estado) }}
+      />
+
+      <div className="w-14 shrink-0">
+        <p className={cn("text-base font-semibold tabular-nums", apagada ? "text-ink-400" : "text-ink-900")}>
+          {cita.hora}
+        </p>
+        {cita.duracionMin ? <p className="text-xs text-ink-400">{cita.duracionMin} min</p> : null}
+      </div>
+
+      <Avatar nombre={cita.clienteNombre} apagado={apagada} />
+
+      <div className="min-w-0 flex-1">
+        <p className={cn("truncate font-medium", apagada ? "text-ink-500" : "text-ink-900")}>{cita.clienteNombre}</p>
+        <p className="flex items-center gap-2 truncate text-sm text-ink-500">
+          <span className="truncate">{cita.servicioNombre || "Sin servicio asignado"}</span>
+          {cita.esMantenimiento && (
+            <span className="inline-flex shrink-0 items-center gap-1 text-xs text-jacaranda-600">
+              <Repeat size={12} /> Mantenimiento
+            </span>
+          )}
+        </p>
+      </div>
+
+      <div className="hidden shrink-0 items-center justify-end gap-1.5 md:flex">
+        <Badge variant={estado.variant}>{estado.label}</Badge>
+        {sinCerrar && <Badge variant="warning">Sin cerrar</Badge>}
+        {pago === "pendiente" && <Badge variant="danger">Debe {formatMoneda(cita.saldoPendiente)}</Badge>}
+        {pago === "pagado" && <Badge variant="success">Pagado</Badge>}
+      </div>
+
+      <div className="flex w-[124px] shrink-0 justify-end">
+        {activa && (
+          <Button size="sm" variant={sinCerrar ? "primary" : "secondary"} onClick={accion(onCerrar)}>
+            <CheckCircle2 size={14} /> Cerrar cita
+          </Button>
+        )}
+        {pago === "pendiente" && (
+          <Button size="sm" onClick={accion(onCobrar)}>
+            <Wallet size={14} /> Cobrar
+          </Button>
+        )}
+      </div>
+
+      <ChevronRight
+        size={18}
+        className="shrink-0 text-ink-300 transition-transform group-hover:translate-x-0.5 group-hover:text-jacaranda-600"
+      />
+    </div>
   );
 }
 
-/** Expediente de una cita ya cerrada: insumos usados, productos vendidos y estado real de pago. */
-function DetalleCita({ servicioRealizadoId }: { servicioRealizadoId: string }) {
-  const { data: detalle } = useQuery({
-    queryKey: ["detalleServicio", servicioRealizadoId],
-    queryFn: () => window.api.serviciosRealizados.obtenerDetalle(servicioRealizadoId),
-  });
-
-  if (!detalle) return <p className="text-xs text-ink-500">Cargando...</p>;
-
+function DatoResumen({ label, valor, tono }: { label: string; valor: string; tono?: "danger" | "success" }) {
   return (
-    <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-3">
-      <div>
-        <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Pago</h4>
-        <p className="text-ink-700">Precio: {formatMoneda(detalle.precio)}</p>
-        <p className="text-ink-700">Cobrado: {formatMoneda(detalle.totalCobrado)}</p>
-        <p className={detalle.saldoPendiente > 0.005 ? "font-medium text-danger-500" : "text-success-500"}>
-          {detalle.saldoPendiente > 0.005
-            ? `Saldo pendiente: ${formatMoneda(detalle.saldoPendiente)}`
-            : "Pagado por completo"}
-        </p>
-        {detalle.pagos.length > 0 && (
-          <div className="mt-2 flex flex-col gap-0.5">
-            {detalle.pagos.map((p, i) => (
-              <p key={i} className="text-xs text-ink-500">
-                {formatFecha(p.fecha)} · {p.metodoPago} · {formatMoneda(p.monto)}
-              </p>
-            ))}
-          </div>
+    <div className="min-w-[96px] rounded-xl bg-beige-100 px-3 py-2">
+      <p className="text-xs font-medium text-ink-500">{label}</p>
+      <p
+        className={cn(
+          "text-sm font-semibold tabular-nums",
+          tono === "danger" ? "text-danger-500" : tono === "success" ? "text-success-500" : "text-ink-900",
         )}
-      </div>
-      <div>
-        <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Insumos usados</h4>
-        {detalle.productosConsumidos.length === 0 && <p className="text-xs text-ink-500">Ninguno registrado.</p>}
-        {detalle.productosConsumidos.map((p, i) => (
-          <p key={i} className="text-ink-700">
-            {p.productoNombre} · {p.cantidad}
-          </p>
-        ))}
-      </div>
-      <div>
-        <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Productos vendidos</h4>
-        {detalle.productosVendidos.length === 0 && <p className="text-xs text-ink-500">Ninguno.</p>}
-        {detalle.productosVendidos.map((p, i) => (
-          <p key={i} className="text-ink-700">
-            {p.productoNombre} · {p.cantidad}
-          </p>
-        ))}
-        {detalle.observaciones && (
-          <p className="mt-2 text-xs text-ink-500">Observaciones: {detalle.observaciones}</p>
-        )}
-      </div>
+      >
+        {valor}
+      </p>
     </div>
   );
 }

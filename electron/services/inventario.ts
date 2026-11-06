@@ -461,7 +461,8 @@ export function verificarStockSuficiente(items: { productoId: string; cantidad: 
  */
 export function registrarSalidaEnTx(
   tx: DbOTx,
-  input: SalidaInput,
+  // precioUnitarioVenta: solo lo manda el cierre de cita en salidas tipo "venta" (cobro v2, DIN-A5).
+  input: SalidaInput & { precioUnitarioVenta?: number },
   criterioSalidaLotes: string,
   hoy: string,
   usuarioId?: string,
@@ -544,6 +545,7 @@ export function registrarSalidaEnTx(
         servicioRealizadoId: input.servicioRealizadoId || null,
         usuarioId: usuarioId || null,
         observaciones: input.observaciones || null,
+        precioUnitarioVenta: input.precioUnitarioVenta ?? null,
       })
       .run();
 

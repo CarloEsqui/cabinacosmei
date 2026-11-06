@@ -1,7 +1,8 @@
 import { and, eq, gte, inArray, isNotNull, lte } from "drizzle-orm";
 import { getDb } from "../db";
-import { pagos, entradasInventario, lotes, serviciosRealizados, clientes, serviciosCatalogo } from "../db/schema";
+import { entradasInventario, lotes, serviciosRealizados, clientes, serviciosCatalogo } from "../db/schema";
 import { agregadosDelRango, comparar, serieResumen } from "./reportesResumen";
+import { cobradoPorServicio, cobrosDeDinero, saldoServicio } from "./cobros";
 import { fechaLocalIso, rangoComparacion } from "../../shared/fechas";
 import type { ResumenFiltro } from "../../shared/schemas";
 import type {
@@ -45,18 +46,13 @@ function caducidadDelRango(desde: string, hasta: string): number {
 }
 
 function metodosDePago(desde: string, hasta: string): MetodoPagoFinanzas[] {
-  const db = getDb();
-  const filas = db
-    .select({ metodo: pagos.metodoPago, monto: pagos.monto })
-    .from(pagos)
-    .where(and(eq(pagos.estatus, "cobrado"), gte(pagos.fecha, desde), lte(pagos.fecha, hasta)))
-    .all();
+  const filas = cobrosDeDinero(getDb(), desde, hasta);
   const mapa = new Map<string, { monto: number; operaciones: number }>();
   for (const p of filas) {
-    const e = mapa.get(p.metodo) ?? { monto: 0, operaciones: 0 };
+    const e = mapa.get(p.metodoPago) ?? { monto: 0, operaciones: 0 };
     e.monto += p.monto;
     e.operaciones += 1;
-    mapa.set(p.metodo, e);
+    mapa.set(p.metodoPago, e);
   }
   return [...mapa.entries()]
     .map(([metodo, e]) => ({ metodo, monto: e.monto, operaciones: e.operaciones }))
@@ -74,29 +70,24 @@ function carteraPorAntiguedad(): CarteraAntiguedadFila[] {
   const hoy = fechaLocalIso();
 
   const serviciosPend = db
-    .select({ id: serviciosRealizados.id, precio: serviciosRealizados.precio, fecha: serviciosRealizados.fecha })
+    .select({
+      id: serviciosRealizados.id,
+      precio: serviciosRealizados.precio,
+      totalProductos: serviciosRealizados.totalProductos,
+      estatusPago: serviciosRealizados.estatusPago,
+      fecha: serviciosRealizados.fecha,
+    })
     .from(serviciosRealizados)
     .where(
       and(eq(serviciosRealizados.estatus, "cerrado"), inArray(serviciosRealizados.estatusPago, ["parcial", "pendiente"])),
     )
     .all();
 
-  const ids = serviciosPend.map((s) => s.id);
-  const pagadoPorServicio = new Map<string, number>();
-  if (ids.length > 0) {
-    const pgs = db
-      .select({ srId: pagos.servicioRealizadoId, monto: pagos.monto })
-      .from(pagos)
-      .where(and(eq(pagos.estatus, "cobrado"), inArray(pagos.servicioRealizadoId, ids)))
-      .all();
-    for (const p of pgs) {
-      if (p.srId) pagadoPorServicio.set(p.srId, (pagadoPorServicio.get(p.srId) ?? 0) + p.monto);
-    }
-  }
+  const pagadoPorServicio = cobradoPorServicio(db, serviciosPend.map((s) => s.id));
 
   const buckets = { b0: 0, b1: 0, b2: 0, b3: 0 };
   for (const s of serviciosPend) {
-    const saldo = (s.precio ?? 0) - (pagadoPorServicio.get(s.id) ?? 0);
+    const saldo = saldoServicio(s, pagadoPorServicio.get(s.id) ?? 0);
     if (saldo <= EPSILON) continue;
     const dias = Math.round((fechaMs(hoy) - fechaMs(s.fecha)) / 86_400_000);
     if (dias <= 7) buckets.b0 += saldo;
@@ -129,6 +120,8 @@ export function carteraDetallePorCliente(): CarteraClienteFila[] {
       clienteNombre: clientes.nombreCompleto,
       servicioNombre: serviciosCatalogo.nombre,
       precio: serviciosRealizados.precio,
+      totalProductos: serviciosRealizados.totalProductos,
+      estatusPago: serviciosRealizados.estatusPago,
       fecha: serviciosRealizados.fecha,
     })
     .from(serviciosRealizados)
@@ -139,18 +132,7 @@ export function carteraDetallePorCliente(): CarteraClienteFila[] {
     )
     .all();
 
-  const ids = serviciosPend.map((s) => s.id);
-  const pagadoPorServicio = new Map<string, number>();
-  if (ids.length > 0) {
-    const pgs = db
-      .select({ srId: pagos.servicioRealizadoId, monto: pagos.monto })
-      .from(pagos)
-      .where(and(eq(pagos.estatus, "cobrado"), inArray(pagos.servicioRealizadoId, ids)))
-      .all();
-    for (const p of pgs) {
-      if (p.srId) pagadoPorServicio.set(p.srId, (pagadoPorServicio.get(p.srId) ?? 0) + p.monto);
-    }
-  }
+  const pagadoPorServicio = cobradoPorServicio(db, serviciosPend.map((s) => s.id));
 
   interface Acum {
     clienteNombre: string;
@@ -160,7 +142,7 @@ export function carteraDetallePorCliente(): CarteraClienteFila[] {
   }
   const porCliente = new Map<string, Acum>();
   for (const s of serviciosPend) {
-    const saldo = (s.precio ?? 0) - (pagadoPorServicio.get(s.id) ?? 0);
+    const saldo = saldoServicio(s, pagadoPorServicio.get(s.id) ?? 0);
     if (saldo <= EPSILON) continue;
     const a = porCliente.get(s.clienteId) ?? {
       clienteNombre: s.clienteNombre,
@@ -214,7 +196,7 @@ export async function reporteFinanzas(filtro: ResumenFiltro): Promise<ReporteFin
       valor: act.ventas,
       formato: "moneda",
       comparacion: comparar(act.ventas, prev?.ventas ?? null, etiqueta),
-      formula: "Suma del precio de los servicios cerrados (no cancelados) en el periodo.",
+      formula: "Suma del total de los tickets (servicio + productos vendidos) cerrados y no cancelados en el periodo.",
     },
     {
       id: "cobranza",
@@ -222,7 +204,7 @@ export async function reporteFinanzas(filtro: ResumenFiltro): Promise<ReporteFin
       valor: act.cobranza,
       formato: "moneda",
       comparacion: comparar(act.cobranza, prev?.cobranza ?? null, etiqueta),
-      formula: "Suma de los pagos cobrados en el periodo.",
+      formula: "Suma de los pagos cobrados (no cancelados) en el periodo, por la fecha en que se cobraron.",
     },
     {
       id: "margen_bruto",
@@ -230,7 +212,7 @@ export async function reporteFinanzas(filtro: ResumenFiltro): Promise<ReporteFin
       valor: margenBruto,
       formato: "moneda",
       comparacion: comparar(margenBruto, margenBrutoPrev, etiqueta),
-      formula: "Ventas − costo de insumos − merma/devoluciones.",
+      formula: "Ventas − costo de insumos y de productos vendidos − merma/devoluciones.",
       microexplicacion: "No incluye renta, nómina ni otros gastos.",
     },
     {
@@ -246,7 +228,7 @@ export async function reporteFinanzas(filtro: ResumenFiltro): Promise<ReporteFin
       titulo: "Cuentas por cobrar",
       valor: carteraTotal,
       formato: "moneda",
-      formula: "Saldo pendiente (servicios cerrados − pagos) al día de hoy.",
+      formula: "Saldo pendiente (total de los tickets cerrados − pagos) al día de hoy.",
       microexplicacion: "Total actual, independiente del periodo.",
     },
     {
@@ -276,7 +258,7 @@ export async function reporteFinanzas(filtro: ResumenFiltro): Promise<ReporteFin
 
   const estadoResultados: FilaEstadoResultados[] = [
     { concepto: "Ventas realizadas", valor: act.ventas },
-    { concepto: "− Costo de insumos consumidos", valor: -act.costoInsumos },
+    { concepto: "− Costo de insumos y productos vendidos", valor: -act.costoInsumos },
     { concepto: "− Merma y devoluciones", valor: -act.mermaValorizada },
     { concepto: "= Margen bruto estimado", valor: margenBruto, enfasis: true },
   ];

@@ -1,5 +1,6 @@
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { getDb } from "../db";
+import { ingresoDelServicio } from "./cobros";
 import { serviciosRealizados, serviciosCatalogo, serviciosProductosConsumidos, lotes } from "../db/schema";
 import { agregadosDelRango, comparar } from "./reportesResumen";
 import { rangoComparacion } from "../../shared/fechas";
@@ -81,7 +82,7 @@ export async function reporteServiciosDetalle(filtro: ResumenFiltro): Promise<Re
       sinCosto: false,
     };
     g.cantidad += 1;
-    g.ingresos += s.precio ?? 0;
+    g.ingresos += ingresoDelServicio(s);
     g.costo += costoPorServicio.get(s.id) ?? 0;
     g.duracionMin += s.duracion ?? 0;
     if (!conCosto.has(s.id)) g.sinCosto = true;

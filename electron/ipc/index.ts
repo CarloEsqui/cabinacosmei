@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { ipcMain, dialog, app, type BrowserWindow } from "electron";
+import { ipcMain, dialog, app, shell, type BrowserWindow } from "electron";
+import { z } from "zod";
 import * as auth from "../services/auth";
 import * as configService from "../services/config";
 import * as folders from "../services/folders";
@@ -13,7 +14,9 @@ import * as serviciosCatalogoService from "../services/serviciosCatalogo";
 import * as citasService from "../services/citas";
 import * as serviciosRealizadosService from "../services/serviciosRealizados";
 import * as archivosService from "../services/archivos";
+import * as comprobantesService from "../services/comprobantes";
 import * as corteService from "../services/corte";
+import * as cobrosService from "../services/cobros";
 import * as bitacoraService from "../services/bitacora";
 import * as respaldosService from "../services/respaldos";
 import * as reinicioService from "../services/reinicio";
@@ -44,6 +47,10 @@ import {
   cancelacionInventarioSchema,
   citasFiltroSchema,
   cierreCitaInputSchema,
+  abonoInputSchema,
+  anticipoInputSchema,
+  esEfectivo,
+  cancelarPagoInputSchema,
   guardarRecetaInputSchema,
   bitacoraFiltroSchema,
   resumenFiltroSchema,
@@ -275,30 +282,88 @@ export function registrarIpc(): void {
   );
 
   // -- Archivos -----------------------------------------------------------------
-  ipcMain.handle(
-    "archivos:subirComprobante",
-    async (_e, entidadTipo: string, entidadId: string, carpetaDestino: string) => {
-      const resultado = await dialog.showOpenDialog(mainWindow(), {
-        properties: ["openFile"],
-        title: "Selecciona el comprobante de pago",
-        filters: [{ name: "Imágenes y PDF", extensions: ["jpg", "jpeg", "png", "pdf", "webp"] }],
-      });
-      if (resultado.canceled || resultado.filePaths.length === 0) return null;
-      return archivosService.guardarArchivoDesdeRuta({
-        entidadTipo,
-        entidadId,
-        rutaOrigen: resultado.filePaths[0],
-        carpetaDestino,
-        categoria: "comprobante",
-        usuarioId: usuarioActualId() ?? undefined,
-      });
-    },
+  // Comprobantes: el renderer manda ids; la carpeta destino la resuelve el main (y la crea si falta).
+  const idSchema = z.string().min(1);
+  async function elegirArchivoComprobante(): Promise<string | null> {
+    const resultado = await dialog.showOpenDialog(mainWindow(), {
+      properties: ["openFile"],
+      title: "Selecciona el comprobante de pago",
+      filters: [{ name: "Imágenes y PDF", extensions: comprobantesService.EXTENSIONES_COMPROBANTE }],
+    });
+    if (resultado.canceled || resultado.filePaths.length === 0) return null;
+    return resultado.filePaths[0];
+  }
+  ipcMain.handle("archivos:subirComprobante", async (_e, servicioRealizadoId: string) => {
+    const id = idSchema.parse(servicioRealizadoId);
+    const ruta = await elegirArchivoComprobante();
+    if (!ruta) return null;
+    return comprobantesService.subirComprobanteServicio(id, ruta, usuarioActualId() ?? undefined);
+  });
+  ipcMain.handle("archivos:elegirComprobante", async () => {
+    const ruta = await elegirArchivoComprobante();
+    return ruta ? comprobantesService.guardarSeleccion(ruta) : null;
+  });
+  ipcMain.handle("archivos:descartarComprobante", (_e, token: string) =>
+    comprobantesService.descartarSeleccion(idSchema.parse(token)),
   );
+  ipcMain.handle("archivos:comprobantesCita", (_e, citaId: string) =>
+    comprobantesService.listarComprobantesCita(idSchema.parse(citaId)),
+  );
+  ipcMain.handle("archivos:vistaPrevia", (_e, archivoId: string, tamano: string) =>
+    comprobantesService.vistaPrevia(idSchema.parse(archivoId), tamano === "grande" ? "grande" : "mini"),
+  );
+  ipcMain.handle("archivos:abrirComprobante", async (_e, archivoId: string) => {
+    const { ruta } = await comprobantesService.rutaComprobante(idSchema.parse(archivoId));
+    const error = await shell.openPath(ruta);
+    if (error) throw new Error(`No se pudo abrir el comprobante: ${error}`);
+  });
+  ipcMain.handle("archivos:guardarCopiaComprobante", async (_e, archivoId: string) => {
+    const id = idSchema.parse(archivoId);
+    const { nombre } = await comprobantesService.rutaComprobante(id);
+    const resultado = await dialog.showSaveDialog(mainWindow(), {
+      title: "Guardar una copia del comprobante",
+      defaultPath: path.join(app.getPath("downloads"), nombre),
+    });
+    if (resultado.canceled || !resultado.filePath) return false;
+    await comprobantesService.guardarCopia(id, resultado.filePath, usuarioActualId() ?? undefined);
+    return true;
+  });
   ipcMain.handle("archivos:listar", (_e, entidadTipo: string, entidadId: string) =>
     archivosService.listarArchivos(entidadTipo, entidadId),
   );
 
   // -- Corte de caja ------------------------------------------------------------
+  ipcMain.handle("cobros:registrarAbono", (_e, input) =>
+    cobrosService.registrarAbono(abonoInputSchema.parse(input), usuarioActualId() ?? undefined),
+  );
+  // COB-A2: el anticipo ya quedó registrado cuando se adjunta el comprobante. Si el adjunto falla, NO
+  // se lanza (el renderer creería que no se registró y permitiría repetirlo): se devuelve un aviso y
+  // la bitácora deja "sin comprobante".
+  ipcMain.handle("cobros:registrarAnticipo", async (_e, input) => {
+    const datos = anticipoInputSchema.parse(input);
+    const usuarioId = usuarioActualId() ?? undefined;
+    const ids = await cobrosService.registrarAnticipo(datos, usuarioId);
+    if (!datos.comprobanteToken) return { comprobanteGuardado: false };
+    try {
+      // Solo los pagos que no son en efectivo llevan el comprobante.
+      const conEvidencia = ids.filter((_, i) => !esEfectivo(datos.lineas[i].metodoPago));
+      await comprobantesService.adjuntarComprobanteAnticipo(datos.comprobanteToken, datos.citaId, conEvidencia, usuarioId);
+      return { comprobanteGuardado: true };
+    } catch (e) {
+      const motivo = (e as Error).message;
+      cobrosService.registrarAnticipoSinComprobanteGuardado(datos.citaId, motivo, usuarioId);
+      return {
+        comprobanteGuardado: false,
+        aviso: `El anticipo quedó registrado, pero el comprobante no se pudo guardar (${motivo}). Puedes agregarlo después desde la cita.`,
+      };
+    }
+  });
+  ipcMain.handle("cobros:cancelarPago", (_e, input) =>
+    cobrosService.cancelarPago(cancelarPagoInputSchema.parse(input), usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("cobros:estadoCuentaCita", (_e, citaId: string) =>
+    cobrosService.estadoCuentaCita(idSchema.parse(citaId)),
+  );
   ipcMain.handle("corte:resumenPendiente", () => corteService.resumenPendiente());
   ipcMain.handle("corte:registrar", () => corteService.registrarCorte(usuarioActualId() ?? undefined));
   ipcMain.handle("corte:historial", () => corteService.listarHistorial());

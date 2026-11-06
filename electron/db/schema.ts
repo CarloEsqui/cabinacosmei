@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 const id = () => text("id").primaryKey();
@@ -199,6 +199,10 @@ export const salidasInventario = sqliteTable("salidas_inventario", {
   canceladaAt: integer("cancelada_at", { mode: "timestamp" }),
   canceladaMotivo: text("cancelada_motivo"),
   canceladaPorUsuarioId: text("cancelada_por_usuario_id").references(() => usuarios.id, { onDelete: "set null" }),
+  // Cobro v2 (migración 0005, DIN-A5): precio al que se VENDIÓ cada pieza en el ticket. Solo en
+  // salidas tipo "venta" hechas desde el cierre de cita; null en todo lo demás y en ventas viejas.
+  // `valor` sigue siendo el costo (costo_unitario × cantidad).
+  precioUnitarioVenta: real("precio_unitario_venta"),
   createdAt: createdAt(),
 });
 
@@ -261,7 +265,12 @@ export const serviciosRealizados = sqliteTable("servicios_realizados", {
   hora: text("hora"),
   profesionalId: text("profesional_id").references(() => usuarios.id, { onDelete: "set null" }),
   precio: real("precio").default(0),
-  estatusPago: text("estatus_pago").notNull().default("pendiente"), // pagado | parcial | pendiente | cancelado
+  // Cobro v2 (migración 0005): Σ cantidad × precio unitario de venta de los productos vendidos en
+  // el ticket. Total del ticket = precio + total_productos. 0 en servicios anteriores a la 0005.
+  totalProductos: real("total_productos").notNull().default(0),
+  // pagado | parcial | pendiente — DERIVADO por cobros.recalcularEstatusEnTx (FR-003), nunca lo
+  // manda el cliente. "cancelado" es legado (el cierre viejo lo escribía): se conserva y se excluye.
+  estatusPago: text("estatus_pago").notNull().default("pendiente"),
   estatus: text("estatus").notNull().default("abierto"), // abierto | cerrado (candado de comprobante)
   observaciones: text("observaciones"),
   proximaCitaSugerida: text("proxima_cita_sugerida"),
@@ -310,8 +319,30 @@ export const pagos = sqliteTable("pagos", {
   comprobanteArchivoId: text("comprobante_archivo_id").references(() => archivos.id, {
     onDelete: "set null",
   }),
+  // ---- Cobro v2 (migración 0005). Único escritor: electron/services/cobros.ts ----
+  // servicio | anticipo (Parte B agrega venta_tarjeta). Un anticipo aplicado conserva "anticipo"
+  // y gana servicio_realizado_id al cerrar la cita.
+  concepto: text("concepto").notNull().default("servicio"),
+  // dinero (Parte B agrega tarjeta_regalo). El corte solo cuenta fuente = dinero (BR-010).
+  fuente: text("fuente").notNull().default("dinero"),
+  // Anticipo: cita activa a la que se pagó por adelantado (FR-005).
+  citaId: text("cita_id").references((): AnySQLiteColumn => citas.id, { onDelete: "restrict" }),
+  // Corte que contó este pago como ingreso (BR-006, BR-011).
+  corteId: text("corte_id").references((): AnySQLiteColumn => cortes.id, { onDelete: "restrict" }),
+  // Cancelación (FR-006, BR-001): el pago nunca se borra.
+  canceladoAt: integer("cancelado_at", { mode: "timestamp" }),
+  motivoCancelacion: text("motivo_cancelacion"),
+  canceladoPor: text("cancelado_por").references(() => usuarios.id, { onDelete: "restrict" }),
+  // Corte que contó el ajuste negativo de un pago cancelado después de cortado.
+  corteCancelacionId: text("corte_cancelacion_id").references((): AnySQLiteColumn => cortes.id, {
+    onDelete: "restrict",
+  }),
   createdAt: createdAt(),
-});
+}, (t) => [
+  index("pagos_servicio_realizado_idx").on(t.servicioRealizadoId),
+  index("pagos_cita_idx").on(t.citaId),
+  index("pagos_corte_idx").on(t.corteId),
+]);
 
 // ---------------------------------------------------------------------------
 // Agenda
@@ -410,8 +441,12 @@ export const cortes = sqliteTable("cortes", {
   id: id(),
   fecha: text("fecha").notNull(),
   hora: text("hora").notNull(),
-  desglosePorMetodoJson: text("desglose_por_metodo_json").notNull(), // { "Efectivo": 500, "Tarjeta": 300 }
+  desglosePorMetodoJson: text("desglose_por_metodo_json").notNull(), // [{ metodoPago, monto }]
   total: real("total").notNull(),
+  // Cobro v2 (migración 0005): pagos ya cortados que se cancelaron después, por método, en
+  // negativo. `total` = cobros − ajustes (neto). Cortes anteriores a la 0005: "[]" y 0.
+  ajustesJson: text("ajustes_json").notNull().default("[]"),
+  totalAjustes: real("total_ajustes").notNull().default(0),
   usuarioId: text("usuario_id").references(() => usuarios.id, { onDelete: "set null" }),
   createdAt: createdAt(),
 });

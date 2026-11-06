@@ -23,7 +23,7 @@ pii:
   # Operative rule (enforced by validate-notes): documents may state a #ID's ROLE;
   # a name and its number NEVER coexist in the same repo — that mapping is the key
   # that retroactively de-anonymizes every #N in every document.
-  notes: "Tabla clientes: nombre, teléfono, correo, fecha de nacimiento, dirección, contacto de emergencia, notas/observaciones en texto libre (pueden contener datos de salud = datos SENSIBLES, LFPDPPP 2025). Tabla archivos + carpetas por clienta/servicio en disco (el esquema ya admite categoria 'foto'). Todo en SQLite y disco SIN cifrar, en la máquina de la cabina. Respaldos .zip también sin cifrar. keys/clientes-licencias.json (datos de clientas del negocio de licencias) está en .gitignore y NUNCA se versiona. En notas/evidencia: referirse a clientas solo por código (CL-0001) o rol, nunca por nombre; nunca pegar contenido de la BD real."
+  notes: "Tabla clientes: nombre, teléfono, correo, fecha de nacimiento, dirección, contacto de emergencia, notas/observaciones en texto libre (pueden contener datos de salud = datos SENSIBLES, LFPDPPP 2025). Ficha clínica facial (desde 2026-11-05): tablas fichas_clinicas y fichas_clinicas_versiones = datos de salud SENSIBLES, sin registro de consentimiento por decisión del dueño (ver Marco legal). Tabla archivos + carpetas por clienta/servicio en disco (el esquema ya admite categoria 'foto'; las fotos de tratamiento usan foto_antes / foto_despues). Todo en SQLite y disco SIN cifrar, en la máquina de la cabina. Respaldos .zip también sin cifrar. keys/clientes-licencias.json (datos de clientas del negocio de licencias) está en .gitignore y NUNCA se versiona. En notas/evidencia: referirse a clientas solo por código (CL-0001) o rol, nunca por nombre; nunca pegar contenido de la BD real."
   subject_pattern: "CL-[0-9]{4}"
 
 critical_surfaces:          # an AUDIT is required BEFORE integrating changes here
@@ -43,12 +43,15 @@ sensitive_globs:            # machine-readable shadow of critical_surfaces
   - ".atlas-notes-allow"
   - "drizzle/**"
   - "electron/db/**"
-  - "electron/services/pagos.ts"
+  - "electron/services/comprobantes.ts"
   - "electron/services/corte.ts"
   - "electron/services/serviciosRealizados.ts"
   - "electron/services/reportesFinanzas.ts"
   - "src/pages/agenda/CierreCitaModal.tsx"
   - "src/pages/Corte.tsx"
+  - "electron/services/cobros.ts"
+  - "electron/services/tarjetasRegalo.ts"
+  - "electron/services/cupones.ts"
   - "electron/services/respaldos.ts"
   - "electron/services/reinicio.ts"
   - "electron/services/migracionCarpetas.ts"
@@ -63,6 +66,7 @@ sensitive_globs:            # machine-readable shadow of critical_surfaces
   - "electron/services/archivos.ts"
   - "electron/services/folders.ts"
   - "electron/services/exportarCsv.ts"
+  - "electron/services/fichasClinicas.ts"
 
 roles:
   model: "Sin roles. Un único PIN (scrypt + salt) en configuracion['auth.pinHash'], verificado en electron/services/auth.ts; la tabla usuarios existe pero no separa permisos. El renderer corre con contextIsolation + sandbox y solo habla con el main por IPC (electron/ipc/index.ts)."
@@ -135,6 +139,12 @@ se versione en `.notes/` es público.
 - **LFPDPPP 2025** — datos de salud = sensibles → consentimiento expreso y por escrito + aviso de
   privacidad que los identifique. Cualquier feature de fotos de tratamiento o notas clínicas entra
   por Gate 001 y requiere el flujo de consentimiento. `[pending: validar con abogado — owner: Carlos]`
+  **Riesgo aceptado por el dueño (2026-11-05), solo para la ficha clínica facial** (spec
+  `.notes/spec-ficha-clinica-2026-11-05.md`, Gate 001 condición 1, opción a): la ficha no lleva
+  flujo ni registro de consentimiento en la app; Carlos considera el consentimiento implícito
+  porque la clienta entrega sus datos. Es una excepción acotada a esa feature, no un cambio de la
+  regla: cualquier otra feature con datos sensibles sigue requiriendo el flujo de consentimiento.
+  Mitigación: la ficha se puede borrar (ficha, versiones y fotos) a petición de la clienta.
 - **CFF art. 30** — conservar documentación contable 5 años → no borrar pagos/ventas/cortes.
   `[pending: confirmar con contador si la cabina factura y qué registros cuentan — owner: Carlos]`
 - **NOM-004-SSA3-2012 (expediente clínico)** — aplica a establecimientos de atención médica; si la
