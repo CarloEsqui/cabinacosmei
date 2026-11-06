@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../db";
 import { totalTicket } from "./cobros";
+import { ventasDelRango } from "./ventasMostrador";
 import { serviciosRealizados, clientes } from "../db/schema";
 import { agregadosDelRango, comparar } from "./reportesResumen";
 import { fechaLocalIso, rangoComparacion } from "../../shared/fechas";
@@ -77,6 +78,12 @@ export async function reporteClientesDetalle(filtro: ResumenFiltro): Promise<Rep
     a.fechas.push(s.fecha);
     a.valor += totalTicket(s);
     porCliente.set(s.clienteId, a);
+  }
+  // Compras de mostrador (0008): suman al VALOR de la clienta, pero no son visitas ni la vuelven
+  // "atendida" (decisión del dueño, spec de la venta §20). Solo se suman a quien ya tiene visitas.
+  for (const v of ventasDelRango(db, "0000-01-01", "9999-12-31")) {
+    const a = v.clienteId ? porCliente.get(v.clienteId) : undefined;
+    if (a) a.valor += v.total;
   }
 
   const metricas: ClienteMetricas[] = [];

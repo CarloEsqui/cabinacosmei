@@ -3,7 +3,7 @@ import path from "node:path";
 import { nativeImage } from "electron";
 import { and, eq, or } from "drizzle-orm";
 import { getDb } from "../db";
-import { archivos, citas, serviciosRealizados } from "../db/schema";
+import { archivos, citas, serviciosRealizados, ventasMostrador } from "../db/schema";
 import { guardarArchivoDesdeRuta } from "./archivos";
 import { carpetaDatos, rutaDentroDe } from "./folders";
 import { consumirSeleccion, validarExtensionComprobante } from "./seleccionesArchivo";
@@ -19,6 +19,8 @@ import type { ComprobanteRow } from "../../shared/types";
  * - Del servicio cerrado: `archivos` con entidad `servicio_realizado`, en la carpeta del servicio.
  * - De un anticipo: `archivos` con entidad `cita`, en la carpeta "Pagos" de la clienta, ligado a los
  *   pagos con `pagos.comprobante_archivo_id`.
+ * - De una venta de mostrador (0008): `archivos` con entidad `venta_mostrador`, en "Pagos" de la
+ *   clienta o, sin clienta, en `Datos/Comprobantes/Ventas`; ligado a sus pagos.
  * Las rutas las decide siempre el main; el renderer solo maneja ids y tokens.
  */
 
@@ -55,6 +57,66 @@ export async function adjuntarComprobanteAnticipo(token: string, citaId: string,
   });
   // `pagos` solo lo escribe cobros.ts (condición 5 del Gate del cobro; COB-M3).
   if (archivo && pagoIds.length > 0) ligarComprobanteEnTx(db, pagoIds, archivo.id);
+}
+
+/** Carpeta del comprobante de una venta: "Pagos" de la clienta, o `Datos/Comprobantes/Ventas`. */
+async function carpetaComprobanteVenta(ventaId: string): Promise<string> {
+  const db = getDb();
+  const v = db.select({ clienteId: ventasMostrador.clienteId }).from(ventasMostrador).where(eq(ventasMostrador.id, ventaId)).get();
+  if (!v) throw new Error("La venta no existe.");
+  if (v.clienteId) return path.join(await asegurarCarpetaCliente(v.clienteId), "Pagos");
+  const { carpetaRaiz } = await obtenerConfig();
+  const carpeta = path.join(carpetaDatos(carpetaRaiz), "Comprobantes", "Ventas");
+  fs.mkdirSync(carpeta, { recursive: true });
+  return carpeta;
+}
+
+/**
+ * Comprobante elegido al registrar la venta (condición 10 del Gate de la venta): la venta ya quedó
+ * guardada; si esto falla, quien llama deja bitácora `cobro_sin_comprobante` y NO revierte.
+ */
+export async function adjuntarComprobanteVenta(token: string, ventaId: string, pagoIds: string[], usuarioId?: string) {
+  const ruta = consumirSeleccion(token);
+  const archivo = await guardarArchivoDesdeRuta({
+    entidadTipo: "venta_mostrador",
+    entidadId: ventaId,
+    rutaOrigen: ruta,
+    carpetaDestino: await carpetaComprobanteVenta(ventaId),
+    categoria: "comprobante",
+    usuarioId,
+  });
+  // `pagos` solo lo escribe cobros.ts.
+  if (archivo && pagoIds.length > 0) ligarComprobanteEnTx(getDb(), pagoIds, archivo.id);
+}
+
+/** Comprobante agregado después, desde el detalle de la venta. */
+export async function subirComprobanteVenta(ventaId: string, rutaOrigen: string, usuarioId?: string) {
+  validarExtensionComprobante(rutaOrigen);
+  return guardarArchivoDesdeRuta({
+    entidadTipo: "venta_mostrador",
+    entidadId: ventaId,
+    rutaOrigen,
+    carpetaDestino: await carpetaComprobanteVenta(ventaId),
+    categoria: "comprobante",
+    usuarioId,
+  });
+}
+
+export async function listarComprobantesVenta(ventaId: string): Promise<ComprobanteRow[]> {
+  const db = getDb();
+  return db
+    .select()
+    .from(archivos)
+    .where(and(eq(archivos.categoria, "comprobante"), eq(archivos.entidadTipo, "venta_mostrador"), eq(archivos.entidadId, ventaId)))
+    .all()
+    .map((a) => ({
+      id: a.id,
+      nombreOriginal: a.nombreOriginal,
+      createdAt: a.createdAt instanceof Date ? a.createdAt.getTime() : Number(a.createdAt),
+      origen: "venta" as const,
+      esPdf: path.extname(a.rutaFisica).toLowerCase() === ".pdf",
+    }))
+    .sort((a, b) => a.createdAt - b.createdAt);
 }
 
 export async function listarComprobantesCita(citaId: string): Promise<ComprobanteRow[]> {

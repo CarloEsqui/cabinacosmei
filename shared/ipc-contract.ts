@@ -16,6 +16,8 @@ import type {
   CancelarPagoInput,
   DescuentoInput,
   QuitarDescuentoInput,
+  VentaMostradorInput,
+  CancelarVentaInput,
   GuardarFichaInput,
   GuardarRecetaInput,
   ResumenFiltro,
@@ -62,6 +64,9 @@ import type {
   ReporteInventarioDetalle,
   Hallazgo,
   EstadoLicencia,
+  DetalleVentaMostrador,
+  PaginaVentasMostrador,
+  VentaMostradorRow,
 } from "./types";
 
 export interface IpcApi {
@@ -193,6 +198,22 @@ export interface IpcApi {
     aplicarDescuento(input: DescuentoInput): Promise<void>;
     /** FR-006: quita (cancela) un descuento; nunca se borra. */
     quitarDescuento(input: QuitarDescuentoInput): Promise<void>;
+  };
+  /**
+   * Venta de productos en mostrador (migración 0008; spec de la venta §22.4). El renderer nunca manda
+   * totales, estatus ni rutas. Abono, descuento y cancelar un pago usan `cobros:*` con `ventaMostradorId`.
+   */
+  ventas: {
+    /** Si el comprobante elegido no se pudo guardar, la venta igual queda registrada (condición 10). */
+    registrar(input: VentaMostradorInput): Promise<{ id: string; folio: string; comprobanteGuardado: boolean; aviso?: string }>;
+    /** 30 por página, la más reciente primero. */
+    listar(pagina: number): Promise<PaginaVentasMostrador>;
+    detalle(ventaId: string): Promise<DetalleVentaMostrador>;
+    porCliente(clienteId: string): Promise<VentaMostradorRow[]>;
+    /** Con PIN y motivo: regresa el stock y cancela pagos y descuento. */
+    cancelar(input: CancelarVentaInput): Promise<void>;
+    /** Comprobante después de la venta; el main abre el diálogo y decide la carpeta. */
+    subirComprobante(ventaId: string): Promise<ArchivoRow | null>;
   };
   archivos: {
     /** Comprobante del servicio cerrado; el main resuelve (y crea si falta) la carpeta. */
@@ -326,6 +347,12 @@ export type IpcChannel =
   | "cobros:registrarAnticipo"
   | "cobros:cancelarPago"
   | "cobros:estadoCuentaCita"
+  | "ventas:registrar"
+  | "ventas:listar"
+  | "ventas:detalle"
+  | "ventas:porCliente"
+  | "ventas:cancelar"
+  | "ventas:subirComprobante"
   | "archivos:subirComprobante"
   | "archivos:elegirComprobante"
   | "archivos:descartarComprobante"

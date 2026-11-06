@@ -271,7 +271,7 @@ export interface ComprobanteRow {
   id: string;
   nombreOriginal: string;
   createdAt: number;
-  origen: "servicio" | "anticipo";
+  origen: "servicio" | "anticipo" | "venta";
   esPdf: boolean;
 }
 
@@ -623,3 +623,54 @@ export interface TratamientoFicha {
   observaciones: string | null;
   fotos: FotoTratamiento[];
 }
+
+// ---------------------------------------------------------------------------
+// Venta de mostrador (migración 0008; spec de la venta §22.4)
+// ---------------------------------------------------------------------------
+
+export interface VentaMostradorRow {
+  id: string;
+  folio: string;
+  fecha: string;
+  clienteId: string | null;
+  clienteNombre: string | null;
+  clienteCodigo: string | null;
+  nombreReferencia: string | null;
+  total: number;
+  cobrado: number;
+  saldo: number;
+  estatusPago: string;
+  estatus: "vigente" | "cancelada";
+  /** Cuántas piezas y productos distintos lleva, para la lista. */
+  productos: number;
+}
+
+/** Una línea por producto: una línea repartida en lotes son varias salidas con el mismo folio S-. */
+export interface LineaVentaMostrador {
+  productoId: string;
+  nombre: string;
+  cantidad: number;
+  precioUnitario: number;
+  importe: number;
+}
+
+export interface DetalleVentaMostrador extends VentaMostradorRow {
+  lineas: LineaVentaMostrador[];
+  totalProductos: number;
+  descuento: number;
+  descuentos: DescuentoRow[];
+  pagos: PagoRow[];
+  tieneComprobante: boolean;
+  comprobantes: ComprobanteRow[];
+  observaciones: string | null;
+  motivoCancelacion: string | null;
+  canceladaAt: number | null;
+  /** BR-003: ¿se puede cancelar un pago suelto? (clienta o nombre de referencia). */
+  permitePagoSuelto: boolean;
+}
+
+export interface PaginaVentasMostrador {
+  filas: VentaMostradorRow[];
+  total: number;
+}
+

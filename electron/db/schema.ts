@@ -203,6 +203,11 @@ export const salidasInventario = sqliteTable("salidas_inventario", {
   // salidas tipo "venta" hechas desde el cierre de cita; null en todo lo demás y en ventas viejas.
   // `valor` sigue siendo el costo (costo_unitario × cantidad).
   precioUnitarioVenta: real("precio_unitario_venta"),
+  // Venta de mostrador (migración 0008): la venta sin cita a la que pertenece esta línea. Null en
+  // todo lo demás. Una línea repartida en varios lotes son varias filas con el mismo folio S-.
+  ventaMostradorId: text("venta_mostrador_id").references((): AnySQLiteColumn => ventasMostrador.id, {
+    onDelete: "restrict",
+  }),
   createdAt: createdAt(),
 });
 
@@ -309,11 +314,18 @@ export const serviciosProductosConsumidos = sqliteTable("servicios_productos_con
 
 export const pagos = sqliteTable("pagos", {
   id: id(),
-  clienteId: text("cliente_id")
-    .notNull()
-    .references(() => clientes.id, { onDelete: "restrict" }),
+  // Nullable desde la 0008: un pago de venta de mostrador puede no tener clienta. La regla "un pago
+  // tiene clienta salvo que sea de una venta de mostrador" (BR-002) vive en
+  // cobros.registrarPagosEnTx, NO en un CHECK: la Parte B (venta_tarjeta) también la extiende
+  // (Gate de la venta, condición 3).
+  clienteId: text("cliente_id").references(() => clientes.id, { onDelete: "restrict" }),
+  // restrict desde la 0008 (COB-M1): un pago nunca pierde su servicio en silencio.
   servicioRealizadoId: text("servicio_realizado_id").references(() => serviciosRealizados.id, {
-    onDelete: "set null",
+    onDelete: "restrict",
+  }),
+  // Venta de mostrador (0008) a la que pertenece el pago; concepto = venta_mostrador.
+  ventaMostradorId: text("venta_mostrador_id").references((): AnySQLiteColumn => ventasMostrador.id, {
+    onDelete: "restrict",
   }),
   fecha: text("fecha").notNull(),
   monto: real("monto").notNull(),
@@ -325,7 +337,7 @@ export const pagos = sqliteTable("pagos", {
     onDelete: "set null",
   }),
   // ---- Cobro v2 (migración 0005). Único escritor: electron/services/cobros.ts ----
-  // servicio | anticipo (Parte B agrega venta_tarjeta). Un anticipo aplicado conserva "anticipo"
+  // servicio | anticipo | venta_mostrador (0008; la Parte B agrega venta_tarjeta). Un anticipo aplicado conserva "anticipo"
   // y gana servicio_realizado_id al cerrar la cita.
   concepto: text("concepto").notNull().default("servicio"),
   // dinero (Parte B agrega tarjeta_regalo). El corte solo cuenta fuente = dinero (BR-010).
@@ -349,15 +361,51 @@ export const pagos = sqliteTable("pagos", {
   index("pagos_corte_idx").on(t.corteId),
 ]);
 
+// Venta de productos en mostrador, sin cita (migración 0008; spec-venta-mostrador §22). Cabecera
+// del ticket: las líneas son salidas_inventario (venta_mostrador_id), el dinero son pagos
+// (concepto venta_mostrador) y el descuento vive en descuentos_servicio. Escritores:
+// ventasMostrador.ts (cabecera, folio, estatus, cancelación) y cobros.ts (estatus_pago y
+// descuento, derivados). Nunca se borra: se cancela.
+export const ventasMostrador = sqliteTable("ventas_mostrador", {
+  id: id(),
+  folio: text("folio").notNull().unique(), // VTA-0001
+  fecha: text("fecha").notNull(),
+  // Opcional: sin clienta es "Público general".
+  clienteId: text("cliente_id").references((): AnySQLiteColumn => clientes.id, { onDelete: "restrict" }),
+  // Texto libre para identificar una venta sin clienta (BR-003). PII ordinaria: nunca a bitácora.
+  nombreReferencia: text("nombre_referencia"),
+  totalProductos: real("total_productos").notNull().default(0),
+  // Caché de Σ descuentos aplicados; solo la escribe cobros.ts.
+  descuento: real("descuento").notNull().default(0),
+  // pagado | parcial | pendiente — derivado por cobros.recalcularEstatusEnTx.
+  estatusPago: text("estatus_pago").notNull().default("pendiente"),
+  estatus: text("estatus").notNull().default("vigente"), // vigente | cancelada
+  canceladaAt: integer("cancelada_at", { mode: "timestamp" }),
+  motivoCancelacion: text("motivo_cancelacion"),
+  canceladaPor: text("cancelada_por").references((): AnySQLiteColumn => usuarios.id, { onDelete: "set null" }),
+  observaciones: text("observaciones"),
+  usuarioId: text("usuario_id").references((): AnySQLiteColumn => usuarios.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  index("ventas_mostrador_cliente_idx").on(t.clienteId),
+  index("ventas_mostrador_fecha_idx").on(t.fecha),
+]);
+
 // Descuentos del ticket (migración 0006). Un descuento reduce la venta y NUNCA es un pago: no toca
 // `pagos` ni el corte. Hoy solo `tipo = 'manual'`; cupones y cortesías llegan en la Parte B (0008).
 // Los valores de tipo / aplica_a / modo / motivo viven en zod y en cobros.ts, no en CHECK (misma
 // convención que 0004 y 0005). Solo cobros.ts escribe esta tabla. Nunca se borra: se cancela.
 export const descuentosServicio = sqliteTable("descuentos_servicio", {
   id: id(),
-  servicioRealizadoId: text("servicio_realizado_id")
-    .notNull()
-    .references(() => serviciosRealizados.id, { onDelete: "restrict" }),
+  // Desde la 0008 un descuento es de un servicio O de una venta de mostrador (exactamente uno,
+  // CHECK abajo). El nombre de la tabla se conserva para no recrearla dos veces (Gate de la venta).
+  servicioRealizadoId: text("servicio_realizado_id").references(() => serviciosRealizados.id, {
+    onDelete: "restrict",
+  }),
+  ventaMostradorId: text("venta_mostrador_id").references((): AnySQLiteColumn => ventasMostrador.id, {
+    onDelete: "restrict",
+  }),
   tipo: text("tipo").notNull().default("manual"), // manual | cupon | cortesia
   aplicaA: text("aplica_a").notNull(), // servicio | productos
   modo: text("modo").notNull(), // porcentaje | monto
@@ -377,6 +425,14 @@ export const descuentosServicio = sqliteTable("descuentos_servicio", {
   uniqueIndex("descuentos_servicio_manual_vigente_uq")
     .on(t.servicioRealizadoId, t.aplicaA)
     .where(sql`estatus = 'aplicado' AND tipo = 'manual'`),
+  // Ídem por venta de mostrador: el índice de arriba no restringe filas con servicio NULL.
+  uniqueIndex("descuentos_servicio_venta_manual_vigente_uq")
+    .on(t.ventaMostradorId, t.aplicaA)
+    .where(sql`estatus = 'aplicado' AND tipo = 'manual'`),
+  check(
+    "descuentos_servicio_destino_ck",
+    sql`(${t.servicioRealizadoId} IS NOT NULL) + (${t.ventaMostradorId} IS NOT NULL) = 1`,
+  ),
   check("descuentos_servicio_valor_ck", sql`${t.valor} > 0`),
   check("descuentos_servicio_monto_ck", sql`${t.monto} > 0 AND ${t.monto} <= ${t.base}`),
 ]);

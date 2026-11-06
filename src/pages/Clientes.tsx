@@ -48,6 +48,7 @@ import { NuevaCitaModal } from "@/pages/agenda/NuevaCitaModal";
 import { CierreCitaModal } from "@/pages/agenda/CierreCitaModal";
 import { FichaClinicaModal } from "@/components/ficha/FichaClinicaModal";
 import { AvisoPrecaucion } from "@/components/ficha/AvisoPrecaucion";
+import { VentasDeCliente } from "@/components/ventas/ListaVentas";
 import { fechaLocalIso, horaLocal } from "@shared/fechas";
 import { Paginador, usePaginacion } from "@/components/ui/paginador";
 import type { CitaRow, Cliente } from "@shared/types";
@@ -587,6 +588,9 @@ function FichaCliente({
               </div>
             )}
           </SeccionFicha>
+
+          {/* Venta de mostrador (0008): sus compras fuera de cita, con las mismas acciones. */}
+          <VentasDeCliente clienteId={cliente.id} />
 
           <SeccionFicha titulo="Datos">
             <div className="grid grid-cols-2 gap-4">

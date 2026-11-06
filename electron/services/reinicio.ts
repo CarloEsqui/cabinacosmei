@@ -23,6 +23,9 @@ const TABLAS_NEGOCIO = [
   schema.serviciosRealizados,
   schema.movimientos,
   schema.salidasInventario,
+  // Venta de mostrador (0008): después de pagos, descuentos y salidas, que la referencian; antes de
+  // clientes por su FK restrict (Gate de la venta, condición 8).
+  schema.ventasMostrador,
   schema.entradasInventario,
   schema.lotes,
   schema.productos,
