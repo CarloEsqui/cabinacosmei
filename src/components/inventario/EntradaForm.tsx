@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, PackagePlus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { SelectBuscable } from "@/components/ui/select-buscable";
 import { NumberInput } from "@/components/ui/number-input";
 import { MoneyInput } from "@/components/ui/money-input";
 import { Expandable } from "@/components/ui/expandable";
@@ -119,19 +119,17 @@ export function EntradaForm({ onRegistrado }: { onRegistrado?: () => void }) {
         <div>
           <label className="mb-1 block text-xs font-medium text-ink-500">Producto *</label>
           <div className="flex gap-1.5">
-            <Select
+            <SelectBuscable
               className="flex-1"
               required
               value={form.productoId}
-              onChange={(e) => seleccionarProducto(e.target.value)}
-            >
-              <option value="">Selecciona un producto</option>
-              {productos.filter((p) => p.activo || p.id === form.productoId).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nombre}
-                </option>
-              ))}
-            </Select>
+              onChange={seleccionarProducto}
+              placeholder="Selecciona un producto"
+              aria-label="Producto"
+              opciones={productos
+                .filter((p) => p.activo || p.id === form.productoId)
+                .map((p) => ({ value: p.id, label: p.nombre, detalle: p.linea ?? undefined }))}
+            />
             <Button
               type="button"
               variant="secondary"
@@ -147,18 +145,14 @@ export function EntradaForm({ onRegistrado }: { onRegistrado?: () => void }) {
         <div>
           <label className="mb-1 block text-xs font-medium text-ink-500">Proveedor</label>
           <div className="flex gap-1.5">
-            <Select
+            <SelectBuscable
               className="flex-1"
               value={form.proveedorId ?? ""}
-              onChange={(e) => setForm({ ...form, proveedorId: e.target.value || null })}
-            >
-              <option value="">Sin proveedor</option>
-              {proveedores.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nombreComercial}
-                </option>
-              ))}
-            </Select>
+              onChange={(v) => setForm({ ...form, proveedorId: v || null })}
+              placeholder="Sin proveedor"
+              aria-label="Proveedor"
+              opciones={proveedores.map((p) => ({ value: p.id, label: p.nombreComercial }))}
+            />
             <Button
               type="button"
               variant="secondary"

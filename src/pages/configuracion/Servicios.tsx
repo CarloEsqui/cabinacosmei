@@ -6,7 +6,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { IlustracionDocumento } from "@/components/ui/ilustraciones";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { SelectBuscable } from "@/components/ui/select-buscable";
 import { NumberInput } from "@/components/ui/number-input";
 import { MoneyInput } from "@/components/ui/money-input";
 import { Modal } from "@/components/ui/modal";
@@ -386,18 +386,14 @@ function RecetaEditor({
           const unidad = porContenido ? prod?.contenidoUnidad || "ml" : "piezas";
           return (
             <div key={i} className="flex items-center gap-2">
-              <Select
+              <SelectBuscable
                 className="flex-1"
                 value={fila.productoId}
-                onChange={(e) => actualizar(i, { productoId: e.target.value })}
-              >
-                <option value="">Selecciona un producto</option>
-                {productos.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nombre}
-                  </option>
-                ))}
-              </Select>
+                onChange={(v) => actualizar(i, { productoId: v })}
+                placeholder="Selecciona un producto"
+                aria-label="Producto del insumo"
+                opciones={productos.map((p) => ({ value: p.id, label: p.nombre, detalle: p.linea ?? undefined }))}
+              />
               <NumberInput
                 className="w-24"
                 placeholder="1"
