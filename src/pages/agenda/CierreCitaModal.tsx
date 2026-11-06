@@ -16,6 +16,7 @@ import {
   evaluarCobro,
   lineasParaEnviar,
   type LineaPagoCaptura,
+  redondear,
 } from "@/components/cobros/LineasPago";
 import type { Producto } from "@shared/types";
 import { requiereEvidencia } from "@shared/schemas";
@@ -97,12 +98,13 @@ export function CierreCitaModal({ citaId, onClose, onAgendarMantenimiento }: Cie
   // Cobro v2: total = servicio + productos vendidos; se cobra el total menos los anticipos. El
   // estatus (pagado / parcial / pendiente) lo deriva el servidor de estos números (FR-003).
   const totalProductos = ventasValidas(vendidos).reduce(
-    (acc, v) => acc + Math.round(v.cantidad * v.precioUnitario * 100) / 100,
+    (acc, v) => acc + redondear(v.cantidad * v.precioUnitario),
     0,
   );
-  const total = Math.round((precioEfectivo + totalProductos) * 100) / 100;
+  // COB-B2: un solo redondeo, el mismo del servidor.
+  const total = redondear(precioEfectivo + totalProductos);
   const anticipos = cuenta?.anticipos ?? 0;
-  const porCobrar = Math.round((total - anticipos) * 100) / 100;
+  const porCobrar = redondear(total - anticipos);
   const cobro = evaluarCobro(lineas, porCobrar);
 
   const subirComprobante = useMutation({

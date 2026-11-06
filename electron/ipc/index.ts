@@ -361,7 +361,9 @@ export function registrarIpc(): void {
   ipcMain.handle("cobros:cancelarPago", (_e, input) =>
     cobrosService.cancelarPago(cancelarPagoInputSchema.parse(input), usuarioActualId() ?? undefined),
   );
-  ipcMain.handle("cobros:estadoCuentaCita", (_e, citaId: string) => cobrosService.estadoCuentaCita(citaId));
+  ipcMain.handle("cobros:estadoCuentaCita", (_e, citaId: string) =>
+    cobrosService.estadoCuentaCita(idSchema.parse(citaId)),
+  );
   ipcMain.handle("corte:resumenPendiente", () => corteService.resumenPendiente());
   ipcMain.handle("corte:registrar", () => corteService.registrarCorte(usuarioActualId() ?? undefined));
   ipcMain.handle("corte:historial", () => corteService.listarHistorial());

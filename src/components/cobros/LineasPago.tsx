@@ -15,7 +15,8 @@ export const LINEA_INICIAL: LineaPagoCaptura[] = [{ metodoPago: "", monto: null 
 
 const TOL = 0.005;
 
-function redondear(n: number): number {
+/** Mismo redondeo que el servidor (cobros.redondearDinero, BR-007), con Number.EPSILON. */
+export function redondear(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
