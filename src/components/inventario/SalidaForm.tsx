@@ -4,6 +4,7 @@ import { PackageMinus, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { SelectBuscable } from "@/components/ui/select-buscable";
 import { NumberInput } from "@/components/ui/number-input";
 import { Expandable } from "@/components/ui/expandable";
 import { useToast } from "@/components/ui/toast";
@@ -113,18 +114,16 @@ export function SalidaForm({ onRegistrado }: { onRegistrado?: () => void }) {
 
       <div>
         <label className="mb-1 block text-xs font-medium text-ink-500">Producto *</label>
-        <Select
+        <SelectBuscable
           required
           value={form.productoId}
-          onChange={(e) => setForm({ ...form, productoId: e.target.value, loteId: "" })}
-        >
-          <option value="">Selecciona un producto</option>
-          {productos.filter((p) => p.activo || p.id === form.productoId).map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.nombre}
-            </option>
-          ))}
-        </Select>
+          onChange={(v) => setForm({ ...form, productoId: v, loteId: "" })}
+          placeholder="Selecciona un producto"
+          aria-label="Producto"
+          opciones={productos
+            .filter((p) => p.activo || p.id === form.productoId)
+            .map((p) => ({ value: p.id, label: p.nombre, detalle: p.linea ?? undefined }))}
+        />
       </div>
 
       <div>
@@ -150,17 +149,13 @@ export function SalidaForm({ onRegistrado }: { onRegistrado?: () => void }) {
           <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-jacaranda-700">
             <UserRound size={14} /> Cliente de la venta
           </div>
-          <Select
+          <SelectBuscable
             value={form.clienteId ?? ""}
-            onChange={(e) => setForm({ ...form, clienteId: e.target.value || null })}
-          >
-            <option value="">Sin cliente asignado</option>
-            {clientes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nombreCompleto}
-              </option>
-            ))}
-          </Select>
+            onChange={(v) => setForm({ ...form, clienteId: v || null })}
+            placeholder="Sin cliente asignado"
+            aria-label="Clienta de la venta"
+            opciones={clientes.map((c) => ({ value: c.id, label: c.nombreCompleto, detalle: c.codigoCliente }))}
+          />
         </div>
       </Expandable>
 

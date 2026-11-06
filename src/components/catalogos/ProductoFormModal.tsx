@@ -5,6 +5,7 @@ import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { SelectBuscable } from "@/components/ui/select-buscable";
 import { NumberInput } from "@/components/ui/number-input";
 import { MoneyInput } from "@/components/ui/money-input";
 import { Expandable } from "@/components/ui/expandable";
@@ -172,18 +173,14 @@ export function ProductoFormModal({
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-500">Categoría</label>
               <div className="flex gap-1.5">
-                <Select
+                <SelectBuscable
                   className="flex-1"
                   value={form.tipoProductoId ?? ""}
-                  onChange={(e) => setForm({ ...form, tipoProductoId: e.target.value || null })}
-                >
-                  <option value="">Sin categoría</option>
-                  {tipos.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.nombreTipo}
-                    </option>
-                  ))}
-                </Select>
+                  onChange={(v) => setForm({ ...form, tipoProductoId: v || null })}
+                  placeholder="Sin categoría"
+                  aria-label="Categoría"
+                  opciones={tipos.map((t) => ({ value: t.id, label: t.nombreTipo }))}
+                />
                 <Button
                   type="button"
                   variant="secondary"
@@ -199,18 +196,14 @@ export function ProductoFormModal({
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-500">Proveedor principal</label>
               <div className="flex gap-1.5">
-                <Select
+                <SelectBuscable
                   className="flex-1"
                   value={form.proveedorPrincipalId ?? ""}
-                  onChange={(e) => setForm({ ...form, proveedorPrincipalId: e.target.value || null })}
-                >
-                  <option value="">Sin proveedor</option>
-                  {proveedores.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.nombreComercial}
-                    </option>
-                  ))}
-                </Select>
+                  onChange={(v) => setForm({ ...form, proveedorPrincipalId: v || null })}
+                  placeholder="Sin proveedor"
+                  aria-label="Proveedor principal"
+                  opciones={proveedores.map((p) => ({ value: p.id, label: p.nombreComercial }))}
+                />
                 <Button
                   type="button"
                   variant="secondary"

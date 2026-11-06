@@ -4,7 +4,7 @@ import { Plus } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { SelectBuscable } from "@/components/ui/select-buscable";
 import { NumberInput } from "@/components/ui/number-input";
 import { ClienteFormModal } from "@/components/catalogos/ClienteFormModal";
 import { mensajeDeError } from "@/lib/errores";
@@ -101,20 +101,16 @@ export function NuevaCitaModal({
           <div>
             <label className="mb-1 block text-xs font-medium text-ink-500">Clienta *</label>
             <div className="flex gap-1.5">
-              <Select
+              <SelectBuscable
                 className="flex-1"
                 required
                 disabled={!!citaEditar}
                 value={form.clienteId}
-                onChange={(e) => setForm({ ...form, clienteId: e.target.value })}
-              >
-                <option value="">Selecciona una clienta</option>
-                {clientes.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nombreCompleto}
-                  </option>
-                ))}
-              </Select>
+                onChange={(v) => setForm({ ...form, clienteId: v })}
+                placeholder="Selecciona una clienta"
+                aria-label="Clienta"
+                opciones={clientes.map((c) => ({ value: c.id, label: c.nombreCompleto, detalle: c.codigoCliente }))}
+              />
               {!citaEditar && (
                 <Button
                   type="button"
@@ -130,28 +126,24 @@ export function NuevaCitaModal({
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-ink-500">Servicio *</label>
-            <Select
+            <SelectBuscable
               required
               value={form.servicioCatalogoId}
-              onChange={(e) => {
-                const servicio = servicios.find((s) => s.id === e.target.value);
+              onChange={(v) => {
+                const servicio = servicios.find((s) => s.id === v);
                 setForm({
                   ...form,
-                  servicioCatalogoId: e.target.value,
+                  servicioCatalogoId: v,
                   duracionMin: servicio?.duracionEstimadaMin ?? form.duracionMin,
                 });
               }}
-            >
-              <option value="">Selecciona un servicio</option>
-              {servicios
+              placeholder="Selecciona un servicio"
+              aria-label="Servicio"
+              opciones={servicios
                 // Al reagendar, el servicio actual se muestra aunque ya esté desactivado.
                 .filter((s) => s.activo || s.id === form.servicioCatalogoId)
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.nombre}
-                  </option>
-                ))}
-            </Select>
+                .map((s) => ({ value: s.id, label: s.nombre }))}
+            />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
