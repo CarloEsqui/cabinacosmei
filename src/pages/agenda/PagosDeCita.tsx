@@ -198,7 +198,7 @@ export function PagosDeCita({ cita, cobrarAlAbrir = false }: { cita: CitaRow; co
   );
 }
 
-function FilaPago({ pago, onCancelar }: { pago: PagoRow; onCancelar?: () => void }) {
+export function FilaPago({ pago, onCancelar }: { pago: PagoRow; onCancelar?: () => void }) {
   const cancelado = pago.estatus === "cancelado";
   return (
     <li className="flex flex-col">
@@ -545,7 +545,7 @@ function PanelDescuento({
   );
 }
 
-function PanelCancelar({ pago, onCerrar, onHecho }: { pago: PagoRow; onCerrar: () => void; onHecho: () => void }) {
+export function PanelCancelar({ pago, onCerrar, onHecho }: { pago: PagoRow; onCerrar: () => void; onHecho: () => void }) {
   const [motivo, setMotivo] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -599,7 +599,7 @@ function PanelCancelar({ pago, onCerrar, onHecho }: { pago: PagoRow; onCerrar: (
   );
 }
 
-function Dato({ label, valor, acento }: { label: string; valor: string; acento?: "danger" | "success" }) {
+export function Dato({ label, valor, acento }: { label: string; valor: string; acento?: "danger" | "success" }) {
   return (
     <div className="rounded-xl bg-beige-100 px-2 py-2.5">
       <p className="text-xs font-medium text-ink-500">{label}</p>

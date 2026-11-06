@@ -3,6 +3,7 @@ import { getDb } from "../db";
 import { entradasInventario, lotes, serviciosRealizados, clientes, serviciosCatalogo } from "../db/schema";
 import { agregadosDelRango, comparar, serieResumen } from "./reportesResumen";
 import { cobradoPorServicio, cobrosDeDinero, descuentosDelRango, saldoServicio } from "./cobros";
+import { ventasConSaldo } from "./ventasMostrador";
 import { MOTIVOS_DESCUENTO, etiquetaMotivo, redondearDinero } from "../../shared/descuentos";
 import { fechaLocalIso, rangoComparacion } from "../../shared/fechas";
 import type { ResumenFiltro } from "../../shared/schemas";
@@ -88,9 +89,16 @@ function carteraPorAntiguedad(): CarteraAntiguedadFila[] {
 
   const pagadoPorServicio = cobradoPorServicio(db, serviciosPend.map((s) => s.id));
 
+  // Ventas de mostrador vigentes con saldo (0008; spec de la venta §22.5), por la fecha de la venta.
+  const ventasPend = ventasConSaldo(db);
+
   const buckets = { b0: 0, b1: 0, b2: 0, b3: 0 };
-  for (const s of serviciosPend) {
-    const saldo = saldoServicio(s, pagadoPorServicio.get(s.id) ?? 0);
+  const conSaldo = [
+    ...serviciosPend.map((s) => ({ fecha: s.fecha, saldo: saldoServicio(s, pagadoPorServicio.get(s.id) ?? 0) })),
+    ...ventasPend.map((v) => ({ fecha: v.fecha, saldo: v.saldo })),
+  ];
+  for (const s of conSaldo) {
+    const saldo = s.saldo;
     if (saldo <= EPSILON) continue;
     const dias = Math.round((fechaMs(hoy) - fechaMs(s.fecha)) / 86_400_000);
     if (dias <= 7) buckets.b0 += saldo;
@@ -161,6 +169,20 @@ export function carteraDetallePorCliente(): CarteraClienteFila[] {
       a.ultimoServicioNombre = s.servicioNombre;
     }
     porCliente.set(s.clienteId, a);
+  }
+
+  // Ventas de mostrador con saldo: con clienta se suman a su fila; sin clienta van a nombre de
+  // la referencia, cada venta en su propia fila (no hay a quién agruparlas).
+  for (const v of ventasConSaldo(db)) {
+    const clave = v.clienteId ?? `venta:${v.id}`;
+    const nombre = v.clienteId ? (v.clienteNombre ?? "Clienta") : `${v.nombreReferencia ?? "Público general"} (sin registro)`;
+    const a = porCliente.get(clave) ?? { clienteNombre: nombre, saldo: 0, ultimoServicioNombre: null, ultimaFecha: "" };
+    a.saldo += v.saldo;
+    if (v.fecha > a.ultimaFecha) {
+      a.ultimaFecha = v.fecha;
+      a.ultimoServicioNombre = `Venta ${v.folio}`;
+    }
+    porCliente.set(clave, a);
   }
 
   const filas: CarteraClienteFila[] = [...porCliente.entries()].map(([clienteId, a]) => ({
