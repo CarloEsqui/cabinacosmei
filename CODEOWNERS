@@ -18,7 +18,7 @@ drizzle/                                  @CarloEsqui
 electron/db/                              @CarloEsqui
 
 # --- dinero ---
-electron/services/pagos.ts                @CarloEsqui
+electron/services/comprobantes.ts         @CarloEsqui
 electron/services/corte.ts                @CarloEsqui
 electron/services/serviciosRealizados.ts  @CarloEsqui
 electron/services/reportesFinanzas.ts     @CarloEsqui
