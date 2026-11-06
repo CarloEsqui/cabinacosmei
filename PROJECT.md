@@ -144,7 +144,7 @@ se versione en `.notes/` es público.
   flujo ni registro de consentimiento en la app; Carlos considera el consentimiento implícito
   porque la clienta entrega sus datos. Es una excepción acotada a esa feature, no un cambio de la
   regla: cualquier otra feature con datos sensibles sigue requiriendo el flujo de consentimiento.
-  Mitigación: la ficha se puede borrar (ficha, versiones y fotos) a petición de la clienta.
+  Mitigación: la ficha se puede borrar (ficha, versiones y fotos) a petición de la clienta. Los respaldos creados antes del borrado la conservan y restaurar uno la regresa.
 - **CFF art. 30** — conservar documentación contable 5 años → no borrar pagos/ventas/cortes.
   `[pending: confirmar con contador si la cabina factura y qué registros cuentan — owner: Carlos]`
 - **NOM-004-SSA3-2012 (expediente clínico)** — aplica a establecimientos de atención médica; si la

@@ -30,6 +30,9 @@ const TABLAS_NEGOCIO = [
   schema.serviciosCatalogo,
   schema.tiposProducto,
   schema.proveedores,
+  // Ficha clínica (0007): antes de clientes por la FK restrict; versiones antes que la ficha.
+  schema.fichasClinicasVersiones,
+  schema.fichasClinicas,
   schema.clientes,
 ];
 

@@ -16,6 +16,7 @@ import type {
   CancelarPagoInput,
   DescuentoInput,
   QuitarDescuentoInput,
+  GuardarFichaInput,
   GuardarRecetaInput,
   ResumenFiltro,
   BitacoraFiltro,
@@ -38,6 +39,11 @@ import type {
   EstadoCuentaCita,
   ArchivoRow,
   ComprobanteRow,
+  FichaClinica,
+  VersionFicha,
+  AvisoFicha,
+  TratamientoFicha,
+  FotoTratamiento,
   MantenimientoPendiente,
   CorteResumenPendiente,
   CorteRow,
@@ -152,6 +158,30 @@ export interface IpcApi {
     abrirCierre(citaId: string): Promise<ServicioRealizado>;
     cerrarCita(input: CierreCitaInput): Promise<ServicioRealizado>;
     obtenerDetalle(servicioRealizadoId: string): Promise<DetalleServicioRealizado | null>;
+    /** Notas del tratamiento, también con la cita cerrada. No se versionan (ficha, condición 9). */
+    actualizarObservaciones(servicioRealizadoId: string, observaciones: string): Promise<void>;
+  };
+  /**
+   * Ficha clínica facial (spec de la ficha §21.4). DATOS DE SALUD: ninguna firma recibe rutas;
+   * fuera de la ficha solo se usa `aviso`.
+   */
+  fichas: {
+    obtener(clienteId: string): Promise<FichaClinica | null>;
+    /** Rechaza si `updatedAtEsperado` no coincide (otra ventana guardó antes). Sin cambios = sin versión. */
+    guardar(input: GuardarFichaInput): Promise<FichaClinica>;
+    versiones(clienteId: string): Promise<VersionFicha[]>;
+    /** FR-011: borra ficha, versiones y fotos. Sin PIN; la UI confirma. */
+    borrar(clienteId: string): Promise<{ archivosNoBorrados: number }>;
+    aviso(clienteId: string): Promise<AvisoFicha>;
+    tratamientos(clienteId: string): Promise<TratamientoFicha[]>;
+    fotosServicio(servicioRealizadoId: string): Promise<FotoTratamiento[]>;
+    /** El main abre el diálogo y valida; null si se canceló. */
+    subirFoto(servicioRealizadoId: string, momento: "antes" | "despues"): Promise<FotoTratamiento | null>;
+    miniatura(archivoId: string): Promise<{ dataUrl: string } | { faltante: true }>;
+    /** Foto reducida a ≤ 1600 px para el carrusel; una por llamada. */
+    vista(archivoId: string): Promise<{ dataUrl: string } | { faltante: true }>;
+    abrirFoto(archivoId: string): Promise<void>;
+    quitarFoto(archivoId: string): Promise<void>;
   };
   // Cobro v2 (spec §22.2). El PIN se verifica en el main, nunca en el renderer.
   cobros: {

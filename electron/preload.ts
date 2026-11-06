@@ -98,6 +98,22 @@ const api: IpcApi = {
     cerrarCita: (input) => ipcRenderer.invoke("serviciosRealizados:cerrarCita", input),
     obtenerDetalle: (servicioRealizadoId) =>
       ipcRenderer.invoke("serviciosRealizados:obtenerDetalle", servicioRealizadoId),
+    actualizarObservaciones: (servicioRealizadoId, observaciones) =>
+      ipcRenderer.invoke("serviciosRealizados:actualizarObservaciones", servicioRealizadoId, observaciones),
+  },
+  fichas: {
+    obtener: (clienteId) => ipcRenderer.invoke("fichas:obtener", clienteId),
+    guardar: (input) => ipcRenderer.invoke("fichas:guardar", input),
+    versiones: (clienteId) => ipcRenderer.invoke("fichas:versiones", clienteId),
+    borrar: (clienteId) => ipcRenderer.invoke("fichas:borrar", clienteId),
+    aviso: (clienteId) => ipcRenderer.invoke("fichas:aviso", clienteId),
+    tratamientos: (clienteId) => ipcRenderer.invoke("fichas:tratamientos", clienteId),
+    fotosServicio: (servicioRealizadoId) => ipcRenderer.invoke("fichas:fotosServicio", servicioRealizadoId),
+    subirFoto: (servicioRealizadoId, momento) => ipcRenderer.invoke("fichas:subirFoto", servicioRealizadoId, momento),
+    miniatura: (archivoId) => ipcRenderer.invoke("fichas:miniatura", archivoId),
+    vista: (archivoId) => ipcRenderer.invoke("fichas:vista", archivoId),
+    abrirFoto: (archivoId) => ipcRenderer.invoke("fichas:abrirFoto", archivoId),
+    quitarFoto: (archivoId) => ipcRenderer.invoke("fichas:quitarFoto", archivoId),
   },
   archivos: {
     subirComprobante: (servicioRealizadoId) => ipcRenderer.invoke("archivos:subirComprobante", servicioRealizadoId),

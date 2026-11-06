@@ -167,7 +167,7 @@ export async function eliminarCliente(id: string, usuarioId?: string): Promise<v
   const db = getDb();
   eliminarOFallarConHistorial(
     () => db.delete(clientes).where(eq(clientes.id, id)).run(),
-    "Esta clienta tiene citas, servicios o pagos asociados. Desactívala en su lugar.",
+    "Esta clienta tiene citas, servicios, pagos o ficha clínica asociados. Desactívala en su lugar; si solo es la ficha clínica, bórrala primero desde la ficha.",
   );
   registrarAccion(db, {
     usuarioId,
