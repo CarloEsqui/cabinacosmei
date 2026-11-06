@@ -18,6 +18,7 @@ const TABLAS_NEGOCIO = [
   schema.archivos,
   schema.citas,
   schema.pagos,
+  schema.descuentosServicio,
   schema.serviciosProductosConsumidos,
   schema.serviciosRealizados,
   schema.movimientos,

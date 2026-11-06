@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, index, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, uniqueIndex, check, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 const id = () => text("id").primaryKey();
@@ -268,10 +268,15 @@ export const serviciosRealizados = sqliteTable("servicios_realizados", {
   // Cobro v2 (migración 0005): Σ cantidad × precio unitario de venta de los productos vendidos en
   // el ticket. Total del ticket = precio + total_productos. 0 en servicios anteriores a la 0005.
   totalProductos: real("total_productos").notNull().default(0),
+  // Descuentos (migración 0006): caché de Σ descuentos_servicio.monto aplicados por base. Solo las
+  // escribe cobros.ts en la misma transacción que la fila del descuento (Gate de descuentos, cond. 4).
+  // Total del ticket = (precio − descuento_servicio) + (total_productos − descuento_productos).
+  descuentoServicio: real("descuento_servicio").notNull().default(0),
+  descuentoProductos: real("descuento_productos").notNull().default(0),
   // pagado | parcial | pendiente — DERIVADO por cobros.recalcularEstatusEnTx (FR-003), nunca lo
   // manda el cliente. "cancelado" es legado (el cierre viejo lo escribía): se conserva y se excluye.
   estatusPago: text("estatus_pago").notNull().default("pendiente"),
-  estatus: text("estatus").notNull().default("abierto"), // abierto | cerrado (candado de comprobante)
+  estatus: text("estatus").notNull().default("abierto"), // abierto | cerrado (el cierre descuenta inventario y congela el ticket)
   observaciones: text("observaciones"),
   proximaCitaSugerida: text("proxima_cita_sugerida"),
   carpetaPath: text("carpeta_path"),
@@ -342,6 +347,38 @@ export const pagos = sqliteTable("pagos", {
   index("pagos_servicio_realizado_idx").on(t.servicioRealizadoId),
   index("pagos_cita_idx").on(t.citaId),
   index("pagos_corte_idx").on(t.corteId),
+]);
+
+// Descuentos del ticket (migración 0006). Un descuento reduce la venta y NUNCA es un pago: no toca
+// `pagos` ni el corte. Hoy solo `tipo = 'manual'`; cupones y cortesías llegan en la Parte B (0008).
+// Los valores de tipo / aplica_a / modo / motivo viven en zod y en cobros.ts, no en CHECK (misma
+// convención que 0004 y 0005). Solo cobros.ts escribe esta tabla. Nunca se borra: se cancela.
+export const descuentosServicio = sqliteTable("descuentos_servicio", {
+  id: id(),
+  servicioRealizadoId: text("servicio_realizado_id")
+    .notNull()
+    .references(() => serviciosRealizados.id, { onDelete: "restrict" }),
+  tipo: text("tipo").notNull().default("manual"), // manual | cupon | cortesia
+  aplicaA: text("aplica_a").notNull(), // servicio | productos
+  modo: text("modo").notNull(), // porcentaje | monto
+  valor: real("valor").notNull(),
+  base: real("base").notNull(),
+  monto: real("monto").notNull(),
+  motivo: text("motivo").notNull(), // primera_visita | promocion | cortesia | otro
+  motivoDetalle: text("motivo_detalle"),
+  estatus: text("estatus").notNull().default("aplicado"), // aplicado | cancelado
+  canceladoAt: integer("cancelado_at", { mode: "timestamp" }),
+  motivoCancelacion: text("motivo_cancelacion"),
+  usuarioId: text("usuario_id").references(() => usuarios.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+}, (t) => [
+  index("descuentos_servicio_servicio_idx").on(t.servicioRealizadoId),
+  // BR-001: a lo más un descuento manual vigente por base en cada servicio.
+  uniqueIndex("descuentos_servicio_manual_vigente_uq")
+    .on(t.servicioRealizadoId, t.aplicaA)
+    .where(sql`estatus = 'aplicado' AND tipo = 'manual'`),
+  check("descuentos_servicio_valor_ck", sql`${t.valor} > 0`),
+  check("descuentos_servicio_monto_ck", sql`${t.monto} > 0 AND ${t.monto} <= ${t.base}`),
 ]);
 
 // ---------------------------------------------------------------------------

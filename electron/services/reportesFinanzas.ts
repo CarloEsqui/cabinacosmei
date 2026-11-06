@@ -2,7 +2,8 @@ import { and, eq, gte, inArray, isNotNull, lte } from "drizzle-orm";
 import { getDb } from "../db";
 import { entradasInventario, lotes, serviciosRealizados, clientes, serviciosCatalogo } from "../db/schema";
 import { agregadosDelRango, comparar, serieResumen } from "./reportesResumen";
-import { cobradoPorServicio, cobrosDeDinero, saldoServicio } from "./cobros";
+import { cobradoPorServicio, cobrosDeDinero, descuentosDelRango, saldoServicio } from "./cobros";
+import { MOTIVOS_DESCUENTO, etiquetaMotivo, redondearDinero } from "../../shared/descuentos";
 import { fechaLocalIso, rangoComparacion } from "../../shared/fechas";
 import type { ResumenFiltro } from "../../shared/schemas";
 import type {
@@ -74,6 +75,8 @@ function carteraPorAntiguedad(): CarteraAntiguedadFila[] {
       id: serviciosRealizados.id,
       precio: serviciosRealizados.precio,
       totalProductos: serviciosRealizados.totalProductos,
+      descuentoServicio: serviciosRealizados.descuentoServicio,
+      descuentoProductos: serviciosRealizados.descuentoProductos,
       estatusPago: serviciosRealizados.estatusPago,
       fecha: serviciosRealizados.fecha,
     })
@@ -121,6 +124,8 @@ export function carteraDetallePorCliente(): CarteraClienteFila[] {
       servicioNombre: serviciosCatalogo.nombre,
       precio: serviciosRealizados.precio,
       totalProductos: serviciosRealizados.totalProductos,
+      descuentoServicio: serviciosRealizados.descuentoServicio,
+      descuentoProductos: serviciosRealizados.descuentoProductos,
       estatusPago: serviciosRealizados.estatusPago,
       fecha: serviciosRealizados.fecha,
     })
@@ -186,6 +191,23 @@ export async function reporteFinanzas(filtro: ResumenFiltro): Promise<ReporteFin
   const margenPct = act.ventas > EPSILON ? (margenBruto / act.ventas) * 100 : 0;
   const margenPctPrev = prev && prev.ventas > EPSILON ? (margenBrutoPrev! / prev.ventas) * 100 : null;
 
+  // Descuentos otorgados (Gate de descuentos, condición 10): fecha del servicio, por motivo, nunca
+  // por el texto libre de "Otro".
+  const descuentos = descuentosDelRango(getDb(), desde, hasta);
+  const totalDescuentos = redondearDinero(descuentos.reduce((acc, d) => acc + d.monto, 0));
+  const descuentosPrev = comp
+    ? redondearDinero(descuentosDelRango(getDb(), comp.desde, comp.hasta).reduce((acc, d) => acc + d.monto, 0))
+    : null;
+  const descuentosPorMotivo = MOTIVOS_DESCUENTO.map((m) => {
+    const filas = descuentos.filter((d) => d.motivo === m.value);
+    return {
+      motivo: m.value,
+      etiqueta: etiquetaMotivo(m.value),
+      monto: redondearDinero(filas.reduce((acc, d) => acc + d.monto, 0)),
+      cantidad: filas.length,
+    };
+  }).filter((m) => m.cantidad > 0);
+
   const aging = carteraPorAntiguedad();
   const carteraTotal = aging.reduce((acc, a) => acc + a.monto, 0);
 
@@ -196,7 +218,17 @@ export async function reporteFinanzas(filtro: ResumenFiltro): Promise<ReporteFin
       valor: act.ventas,
       formato: "moneda",
       comparacion: comparar(act.ventas, prev?.ventas ?? null, etiqueta),
-      formula: "Suma del total de los tickets (servicio + productos vendidos) cerrados y no cancelados en el periodo.",
+      formula:
+        "Suma del total de los tickets (servicio + productos vendidos − descuentos) cerrados y no cancelados en el periodo.",
+    },
+    {
+      id: "descuentos",
+      titulo: "Descuentos otorgados",
+      valor: totalDescuentos,
+      formato: "moneda",
+      comparacion: comparar(totalDescuentos, descuentosPrev, etiqueta),
+      formula: "Suma de los descuentos vigentes de los servicios cerrados en el periodo, por la fecha del servicio.",
+      microexplicacion: "Ya están restados de las ventas. No son pagos ni salen del corte.",
     },
     {
       id: "cobranza",
@@ -257,6 +289,12 @@ export async function reporteFinanzas(filtro: ResumenFiltro): Promise<ReporteFin
   ];
 
   const estadoResultados: FilaEstadoResultados[] = [
+    ...(totalDescuentos > EPSILON
+      ? [
+          { concepto: "Ventas antes de descuentos", valor: act.ventas + totalDescuentos },
+          { concepto: "− Descuentos otorgados", valor: -totalDescuentos },
+        ]
+      : []),
     { concepto: "Ventas realizadas", valor: act.ventas },
     { concepto: "− Costo de insumos y productos vendidos", valor: -act.costoInsumos },
     { concepto: "− Merma y devoluciones", valor: -act.mermaValorizada },
@@ -275,6 +313,7 @@ export async function reporteFinanzas(filtro: ResumenFiltro): Promise<ReporteFin
     flujoCaja,
     metodosPago: metodosDePago(desde, hasta),
     carteraAntiguedad: aging,
+    descuentosPorMotivo,
     serie: serieResumen(desde, hasta),
   };
 }

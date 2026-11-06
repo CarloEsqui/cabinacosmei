@@ -51,6 +51,8 @@ export function agregadosDelRango(desde: string, hasta: string): Agregados {
       clienteId: serviciosRealizados.clienteId,
       precio: serviciosRealizados.precio,
       totalProductos: serviciosRealizados.totalProductos,
+      descuentoServicio: serviciosRealizados.descuentoServicio,
+      descuentoProductos: serviciosRealizados.descuentoProductos,
     })
     .from(serviciosRealizados)
     .where(
@@ -209,6 +211,8 @@ export function serieResumen(desde: string, hasta: string): PuntoSerieResumen[] 
       fecha: serviciosRealizados.fecha,
       precio: serviciosRealizados.precio,
       totalProductos: serviciosRealizados.totalProductos,
+      descuentoServicio: serviciosRealizados.descuentoServicio,
+      descuentoProductos: serviciosRealizados.descuentoProductos,
     })
     .from(serviciosRealizados)
     .where(
@@ -311,7 +315,7 @@ export async function reporteResumen(filtro: ResumenFiltro): Promise<ResumenRepo
       valor: act.ventas,
       formato: "moneda",
       comparacion: comparar(act.ventas, prev?.ventas ?? null, etiqueta),
-      formula: "Suma del precio de los servicios cerrados (no cancelados) en el periodo, se hayan cobrado o no.",
+      formula: "Suma del total de los servicios cerrados (no cancelados) en el periodo, menos descuentos, se hayan cobrado o no.",
       microexplicacion: "Lo que facturaste este periodo.",
     },
     {

@@ -27,6 +27,7 @@ export async function reporteServiciosDetalle(filtro: ResumenFiltro): Promise<Re
       id: serviciosRealizados.id,
       catalogoId: serviciosRealizados.servicioCatalogoId,
       precio: serviciosRealizados.precio,
+      descuentoServicio: serviciosRealizados.descuentoServicio,
       nombre: serviciosCatalogo.nombre,
       duracion: serviciosCatalogo.duracionEstimadaMin,
     })
@@ -134,7 +135,7 @@ export async function reporteServiciosDetalle(filtro: ResumenFiltro): Promise<Re
       valor: act.ventas,
       formato: "moneda",
       comparacion: comparar(act.ventas, prev?.ventas ?? null, etiqueta),
-      formula: "Suma del precio de los servicios cerrados.",
+      formula: "Suma del precio de los servicios cerrados, menos su descuento.",
     },
     {
       id: "margen",

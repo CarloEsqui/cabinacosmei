@@ -43,6 +43,13 @@
       "when": 1793828617746,
       "tag": "0005_cobro_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793946895419,
+      "tag": "0006_descuentos",
+      "breakpoints": true
     }
   ]
 }

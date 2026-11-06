@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, CheckCircle2, FileText, HandCoins, Upload, Wallet, X } from "lucide-react";
+import { Ban, CheckCircle2, FileText, HandCoins, Percent, Upload, Wallet, X } from "lucide-react";
 import { Comprobantes } from "@/components/cobros/Comprobantes";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { requiereEvidencia } from "@shared/schemas";
@@ -18,7 +18,16 @@ import {
   lineasParaEnviar,
   type LineaPagoCaptura,
 } from "@/components/cobros/LineasPago";
-import type { CitaRow, PagoRow } from "@shared/types";
+import {
+  DESCUENTO_VACIO,
+  DescuentoCampo,
+  descuentoParaEnviar,
+  errorDescuento,
+  montoDescuento,
+  type DescuentoBorrador,
+} from "@/components/cobros/DescuentoCampo";
+import { etiquetaMotivo, redondearDinero } from "@shared/descuentos";
+import type { CitaRow, DescuentoRow, EstadoCuentaCita, PagoRow } from "@shared/types";
 
 /** Todo lo que muestra dinero de una cita o de sus clientas se refresca tras un movimiento de pago. */
 export function invalidarDinero(queryClient: ReturnType<typeof useQueryClient>) {
@@ -36,7 +45,7 @@ export function invalidarDinero(queryClient: ReturnType<typeof useQueryClient>) 
   }
 }
 
-type Panel = null | "registrar" | { cancelar: PagoRow };
+type Panel = null | "registrar" | "descuento" | { cancelar: PagoRow };
 
 /**
  * Pagos de una cita (cobro v2, spec §12): total, cobrado y saldo; lista de pagos con su estado;
@@ -46,6 +55,7 @@ type Panel = null | "registrar" | { cancelar: PagoRow };
 export function PagosDeCita({ cita, cobrarAlAbrir = false }: { cita: CitaRow; cobrarAlAbrir?: boolean }) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const confirm = useConfirm();
   // "Cobrar" desde la lista de Citas abre el detalle directo en el panel de registrar pago.
   const [panel, setPanel] = useState<Panel>(cobrarAlAbrir ? "registrar" : null);
 
@@ -63,10 +73,31 @@ export function PagosDeCita({ cita, cobrarAlAbrir = false }: { cita: CitaRow; co
   const activa = cita.estado === "programada" || cita.estado === "confirmada";
   const puedeAbonar = cuenta.cerrada && cuenta.saldo > 0.005 && cuenta.estatusPago !== "cancelado";
   const puedeAnticipo = !cuenta.cerrada && activa;
+  // Spec de descuentos, FR-005: la misma acción del cierre, sobre una cita ya cerrada. Sin PIN.
+  const puedeDescontar = cuenta.cerrada && cuenta.estatusPago !== "cancelado";
   if (!cuenta.cerrada && !puedeAnticipo && cuenta.pagos.length === 0) return null;
+
+  async function quitarDescuento(d: DescuentoRow) {
+    const r = await confirm({
+      titulo: "Quitar descuento",
+      mensaje: `Se quita el descuento de ${formatMoneda(d.monto)} (${etiquetaMotivo(d.motivo)}). El total de la cita vuelve a subir y el saldo se recalcula. Queda registrado en la bitácora.`,
+      confirmarLabel: "Quitar descuento",
+      cancelarLabel: "Volver",
+    });
+    if (r !== "confirmado") return;
+    try {
+      await window.api.cobros.quitarDescuento({ descuentoId: d.id, motivo: "Quitado desde el detalle de la cita" });
+      invalidarDinero(queryClient);
+      toast.success("Descuento quitado.");
+    } catch (e) {
+      toast.error(mensajeDeError(e, "No se pudo quitar el descuento."));
+    }
+  }
 
   return (
     <div className="flex flex-col gap-3">
+      {cuenta.cerrada && cuenta.descuentos.length > 0 && <DesgloseTicket cuenta={cuenta} onQuitar={quitarDescuento} />}
+
       {cuenta.cerrada && (
         <div className="grid grid-cols-3 gap-3 text-center">
           <Dato label="Total" valor={formatMoneda(cuenta.total)} />
@@ -97,18 +128,39 @@ export function PagosDeCita({ cita, cobrarAlAbrir = false }: { cita: CitaRow; co
         </div>
       )}
 
-      {panel === null && (puedeAbonar || puedeAnticipo) && (
-        <Button variant="secondary" size="sm" className="self-start" onClick={() => setPanel("registrar")}>
-          {puedeAbonar ? (
-            <>
-              <Wallet size={14} /> Registrar pago
-            </>
-          ) : (
-            <>
-              <HandCoins size={14} /> Registrar anticipo
-            </>
+      {panel === null && (puedeAbonar || puedeAnticipo || puedeDescontar) && (
+        <div className="flex flex-wrap gap-2">
+          {(puedeAbonar || puedeAnticipo) && (
+            <Button variant="secondary" size="sm" onClick={() => setPanel("registrar")}>
+              {puedeAbonar ? (
+                <>
+                  <Wallet size={14} /> Registrar pago
+                </>
+              ) : (
+                <>
+                  <HandCoins size={14} /> Registrar anticipo
+                </>
+              )}
+            </Button>
           )}
-        </Button>
+          {puedeDescontar && (
+            <Button variant="secondary" size="sm" onClick={() => setPanel("descuento")}>
+              <Percent size={14} /> {cuenta.descuentos.length > 0 ? "Cambiar descuento" : "Aplicar descuento"}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {panel === "descuento" && puedeDescontar && (
+        <PanelDescuento
+          cuenta={cuenta}
+          onCerrar={() => setPanel(null)}
+          onHecho={() => {
+            invalidarDinero(queryClient);
+            toast.success("Descuento aplicado.");
+            setPanel(null);
+          }}
+        />
       )}
 
       {panel === "registrar" && (puedeAbonar || puedeAnticipo) && (
@@ -131,7 +183,7 @@ export function PagosDeCita({ cita, cobrarAlAbrir = false }: { cita: CitaRow; co
       {/* Comprobantes del servicio y de los anticipos: vista previa, pantalla completa y descarga. */}
       <Comprobantes citaId={cita.id} servicioRealizadoId={cuenta.cerrada ? cuenta.servicioRealizadoId : undefined} />
 
-      {panel !== null && panel !== "registrar" && (
+      {panel !== null && panel !== "registrar" && panel !== "descuento" && (
         <PanelCancelar
           pago={panel.cancelar}
           onCerrar={() => setPanel(null)}
@@ -342,6 +394,151 @@ function PanelRegistrar({
         </Button>
         <Button size="sm" disabled={!listo || guardar.isPending} onClick={alGuardar}>
           {esAbono ? "Registrar pago" : "Registrar anticipo"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Servicio, productos y sus descuentos vigentes, con la acción de quitar al lado (FR-006). */
+function DesgloseTicket({ cuenta, onQuitar }: { cuenta: EstadoCuentaCita; onQuitar: (d: DescuentoRow) => void }) {
+  const fila = (texto: string, monto: number, extra?: React.ReactNode, verde = false) => (
+    <div className={`flex items-center justify-between gap-2 ${verde ? "text-success-500" : "text-ink-700"}`}>
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate">{texto}</span>
+        {extra}
+      </span>
+      <span className="tabular-nums">{verde ? `− ${formatMoneda(monto)}` : formatMoneda(monto)}</span>
+    </div>
+  );
+  const quitar = (d: DescuentoRow) => (
+    <button type="button" className="shrink-0 text-xs text-ink-400 underline hover:text-danger-500" onClick={() => onQuitar(d)}>
+      Quitar
+    </button>
+  );
+  const textoDesc = (d: DescuentoRow) =>
+    `Descuento ${d.modo === "porcentaje" ? `${d.valor} %` : ""} · ${etiquetaMotivo(d.motivo)}${d.motivoDetalle ? ` (${d.motivoDetalle})` : ""}`;
+  const dServicio = cuenta.descuentos.find((d) => d.aplicaA === "servicio");
+  const dProductos = cuenta.descuentos.find((d) => d.aplicaA === "productos");
+  return (
+    <div className="flex flex-col gap-1 rounded-xl bg-beige-100 p-3 text-sm">
+      {fila("Servicio", cuenta.precioBruto ?? 0)}
+      {dServicio && fila(textoDesc(dServicio), dServicio.monto, quitar(dServicio), true)}
+      {cuenta.totalProductos > 0 && fila("Productos vendidos", cuenta.totalProductos)}
+      {dProductos && fila(textoDesc(dProductos), dProductos.monto, quitar(dProductos), true)}
+    </div>
+  );
+}
+
+/**
+ * FR-005: aplicar o cambiar el descuento de una cita cerrada. Sin PIN (BR-008); pide una
+ * confirmación. No puede bajar el total de lo ya cobrado (BR-005): se avisa aquí y el servidor lo
+ * vuelve a validar.
+ */
+function PanelDescuento({
+  cuenta,
+  onCerrar,
+  onHecho,
+}: {
+  cuenta: EstadoCuentaCita;
+  onCerrar: () => void;
+  onHecho: () => void;
+}) {
+  const confirm = useConfirm();
+  const hayProductos = cuenta.totalProductos > 0;
+  const [aplicaA, setAplicaA] = useState<"servicio" | "productos">("servicio");
+  const [borrador, setBorrador] = useState<DescuentoBorrador>(DESCUENTO_VACIO);
+  const [error, setError] = useState<string | null>(null);
+
+  const base = aplicaA === "servicio" ? (cuenta.precioBruto ?? 0) : cuenta.totalProductos;
+  const actual = cuenta.descuentos.find((d) => d.aplicaA === aplicaA);
+  const monto = montoDescuento(borrador, base);
+  // Total si este descuento reemplaza al actual de la misma base.
+  const totalNuevo = redondearDinero((cuenta.total ?? 0) + (actual?.monto ?? 0) - monto);
+  const maximo = Math.max(0, redondearDinero((cuenta.total ?? 0) + (actual?.monto ?? 0) - cuenta.cobrado));
+  const errorCaptura =
+    errorDescuento(borrador, base) ??
+    (monto > maximo + 0.005
+      ? `Ya se cobraron ${formatMoneda(cuenta.cobrado)}: el descuento puede ser de hasta ${formatMoneda(maximo)}. Para más, primero cancela un pago.`
+      : null);
+  const listo = monto > 0 && !errorCaptura;
+
+  const aplicar = useMutation({
+    mutationFn: () => {
+      const descuento = descuentoParaEnviar(borrador, aplicaA);
+      if (!cuenta.servicioRealizadoId || !descuento) throw new Error("Captura el descuento.");
+      return window.api.cobros.aplicarDescuento({ servicioRealizadoId: cuenta.servicioRealizadoId, descuento });
+    },
+    onSuccess: onHecho,
+    onError: (e) => setError(mensajeDeError(e, "No se pudo aplicar el descuento.")),
+  });
+
+  async function alGuardar() {
+    const saldoNuevo = Math.max(0, redondearDinero(totalNuevo - cuenta.cobrado));
+    const r = await confirm({
+      titulo: actual ? "Cambiar descuento" : "Aplicar descuento",
+      mensaje:
+        `Descuento de ${formatMoneda(monto)} ${aplicaA === "servicio" ? "al servicio" : "a los productos"}` +
+        (actual ? ` (reemplaza el de ${formatMoneda(actual.monto)})` : "") +
+        `. El total queda en ${formatMoneda(totalNuevo)} y el saldo en ${formatMoneda(saldoNuevo)}. Los pagos no cambian. Queda registrado en la bitácora.`,
+      confirmarLabel: actual ? "Cambiar descuento" : "Aplicar descuento",
+      cancelarLabel: "Volver",
+    });
+    if (r === "confirmado") aplicar.mutate();
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-jacaranda-200 p-3">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+        {actual ? "Cambiar descuento" : "Aplicar descuento"}
+      </h3>
+      {hayProductos && (
+        <div className="flex gap-1.5" role="group" aria-label="¿A qué se aplica?">
+          {(["servicio", "productos"] as const).map((b) => (
+            <button
+              key={b}
+              type="button"
+              onClick={() => {
+                setAplicaA(b);
+                setBorrador(DESCUENTO_VACIO);
+              }}
+              aria-pressed={aplicaA === b}
+              className={`rounded-full border px-3 py-1 text-xs ${
+                aplicaA === b
+                  ? "border-jacaranda-500 bg-jacaranda-50 font-medium text-jacaranda-700"
+                  : "border-beige-300 bg-beige-50 text-ink-700"
+              }`}
+            >
+              {b === "servicio" ? "Al servicio" : "A los productos"}
+            </button>
+          ))}
+        </div>
+      )}
+      <DescuentoCampo
+        key={aplicaA}
+        etiqueta={`Sobre ${formatMoneda(base)}`}
+        base={base}
+        value={borrador}
+        onChange={setBorrador}
+      />
+      {actual && (
+        <p className="text-xs text-ink-500">
+          Ya tiene un descuento de {formatMoneda(actual.monto)} ({etiquetaMotivo(actual.motivo)}); el nuevo lo reemplaza.
+        </p>
+      )}
+      {monto > 0 && !errorCaptura && (
+        <p className="text-xs text-ink-500">
+          Total nuevo {formatMoneda(totalNuevo)} · cobrado {formatMoneda(cuenta.cobrado)}.
+        </p>
+      )}
+      {errorCaptura && monto > 0 && <p className="text-xs text-danger-500">{errorCaptura}</p>}
+      {error && <AlertaError mensaje={error} />}
+      <div className="flex justify-end gap-2">
+        <Button variant="secondary" size="sm" onClick={onCerrar}>
+          Volver
+        </Button>
+        <Button size="sm" disabled={!listo || aplicar.isPending} onClick={alGuardar}>
+          Guardar descuento
         </Button>
       </div>
     </div>

@@ -367,3 +367,9 @@ La tabla de tratamientos del papel no se guarda dentro de `datos`. Sale de `serv
 - `electron/services/archivos.ts`, `folders.ts`, `respaldos.ts` y `reinicio.ts`.
 - PROJECT.md: pii, critical_surfaces y marco legal.
 - Spec del cobro v2, §23 y addenda (orden A → ficha → B).
+
+## Addendum 2026-11-06 — numeración: la ficha pasa a la `0007`
+El [Gate de descuentos](gate-001-descuentos-2026-11-06.md) (condición 3) asigna la `0006` a los
+descuentos manuales, que Carlos priorizó el 2026-11-06. La ficha clínica ocupa la **`0007`**. Las
+condiciones de su [Gate](gate-001-ficha-clinica-2026-11-05.md) que dicen `drizzle/0006_*` aplican a
+`drizzle/0007_*`. El veredicto no se reescribe.

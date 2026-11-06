@@ -52,6 +52,8 @@ export async function reporteClientesDetalle(filtro: ResumenFiltro): Promise<Rep
       fecha: serviciosRealizados.fecha,
       precio: serviciosRealizados.precio,
       totalProductos: serviciosRealizados.totalProductos,
+      descuentoServicio: serviciosRealizados.descuentoServicio,
+      descuentoProductos: serviciosRealizados.descuentoProductos,
       nombre: clientes.nombreCompleto,
     })
     .from(serviciosRealizados)

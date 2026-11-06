@@ -11,9 +11,10 @@ import { obtenerConfig } from "./config";
 import {
   TOLERANCIA,
   aplicarAnticiposEnTx,
+  aplicarDescuentoEnTx,
+  descuentosVigentes,
   anticiposSinAplicar,
   cobradoPorServicio,
-  ingresoDelServicio,
   pagosCobradosDeServicio,
   recalcularEstatusEnTx,
   redondearDinero,
@@ -26,6 +27,7 @@ import { registrarAccion } from "./bitacora";
 import { sumarDiasIso, fechaLocalIso } from "../../shared/fechas";
 import type { CierreCitaInput } from "../../shared/schemas";
 import { requiereEvidencia } from "../../shared/schemas";
+import { calcularDescuento, validarDescuento } from "../../shared/descuentos";
 import type { ServicioRealizado, DetalleServicioRealizado } from "../../shared/types";
 
 /**
@@ -220,11 +222,26 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
     );
   }
 
+  // FR-007 (descuentos): el servicio que realmente se hizo puede ser otro que el de la cita. Solo
+  // mientras está abierto (BR-010). La carpeta creada por abrirCierre NO se renombra: las rutas de
+  // `archivos` son absolutas (Gate de descuentos, condición 7).
+  const servicioCatalogoId = input.servicioCatalogoId ?? servicio.servicioCatalogoId;
+  const cambioDeServicio = servicioCatalogoId !== servicio.servicioCatalogoId;
   const servicioCat = db
     .select()
     .from(serviciosCatalogo)
-    .where(eq(serviciosCatalogo.id, servicio.servicioCatalogoId))
+    .where(eq(serviciosCatalogo.id, servicioCatalogoId))
     .get();
+  if (cambioDeServicio && !servicioCat) throw new Error("El servicio elegido no existe.");
+  // DES-B4: la UI solo ofrece servicios activos; el servidor también lo exige.
+  if (cambioDeServicio && !servicioCat!.activo) throw new Error("Ese servicio está desactivado; elige otro.");
+  const servicioAnterior = cambioDeServicio
+    ? db
+        .select({ nombre: serviciosCatalogo.nombre })
+        .from(serviciosCatalogo)
+        .where(eq(serviciosCatalogo.id, servicio.servicioCatalogoId))
+        .get()
+    : undefined;
 
   let proximaCitaSugerida: string | null = null;
   if (servicioCat?.periodicidadMantenimientoDias) {
@@ -241,7 +258,22 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
   const totalProductos = redondearDinero(
     input.productosVendidos.reduce((acc, p) => acc + redondearDinero(p.cantidad * p.precioUnitario), 0),
   );
-  const total = totalTicket({ precio: input.precio, totalProductos });
+  // Descuentos (spec de descuentos, BR-006): el total que se cobra es NETO. Se validan y calculan
+  // aquí con la misma función que la vista previa; dentro de la transacción aplicarDescuentoEnTx
+  // los vuelve a calcular sobre la fila ya escrita (mismos números) y los guarda.
+  const montoDescuento = { servicio: 0, productos: 0 };
+  for (const d of input.descuentos) {
+    const base = d.aplicaA === "servicio" ? redondearDinero(input.precio) : totalProductos;
+    const error = validarDescuento({ modo: d.modo, valor: d.valor, base });
+    if (error) throw new Error(d.aplicaA === "productos" ? `Productos: ${error}` : error);
+    montoDescuento[d.aplicaA] = calcularDescuento({ modo: d.modo, valor: d.valor, base });
+  }
+  const total = totalTicket({
+    precio: input.precio,
+    totalProductos,
+    descuentoServicio: montoDescuento.servicio,
+    descuentoProductos: montoDescuento.productos,
+  });
 
   // TODO el cierre en UNA sola transacción: si algo falla a mitad (una salida, registrarPago o
   // cualquier update), better-sqlite3 revierte la transacción completa y el stock NO queda
@@ -318,6 +350,7 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
 
     tx.update(serviciosRealizados)
       .set({
+        servicioCatalogoId,
         precio: input.precio,
         totalProductos,
         estatus: "cerrado",
@@ -329,14 +362,32 @@ export async function cerrarCita(input: CierreCitaInput, usuarioId?: string): Pr
       .where(eq(serviciosRealizados.id, servicio.id))
       .run();
 
+    // Descuentos: cobros.ts es el único escritor (Gate de descuentos, condición 4). Van después de
+    // escribir precio y productos (su base) y antes de derivar el estatus.
+    for (const d of input.descuentos) aplicarDescuentoEnTx(tx, servicio.id, d, usuarioId);
+
     // El estatus de pago lo deriva el servidor (FR-003, BR-005); el cliente ya no lo manda.
     const cuenta = recalcularEstatusEnTx(tx, servicio.id);
 
     if (servicio.citaId) {
       tx.update(citas)
-        .set({ estado: "asistio", updatedAt: new Date() })
+        .set({
+          estado: "asistio",
+          ...(cambioDeServicio ? { servicioCatalogoId } : {}),
+          updatedAt: new Date(),
+        })
         .where(eq(citas.id, servicio.citaId))
         .run();
+    }
+
+    if (cambioDeServicio) {
+      registrarAccion(tx, {
+        usuarioId,
+        accion: "servicio_cambiado_en_cierre",
+        entidadTipo: "servicio_realizado",
+        entidadId: servicio.id,
+        detalle: `${servicio.codigoServicio} · ${servicioAnterior?.nombre ?? "servicio anterior"} → ${servicioCat?.nombre ?? "servicio nuevo"}`,
+      });
     }
 
     registrarAccion(tx, {
@@ -415,9 +466,13 @@ export async function obtenerDetalle(servicioRealizadoId: string): Promise<Detal
   const totalCobrado = cobradoPorServicio(db, [servicio.id]).get(servicio.id) ?? 0;
 
   return {
-    precio: ingresoDelServicio(servicio),
+    // `precio` es el BRUTO; el neto va en `total` (Gate de descuentos, condición 6).
+    precio: redondearDinero(servicio.precio ?? 0),
+    descuentoServicio: servicio.descuentoServicio,
     totalProductos: servicio.totalProductos,
+    descuentoProductos: servicio.descuentoProductos,
     total: totalTicket(servicio),
+    descuentos: descuentosVigentes(db, servicio.id),
     estatusPago: servicio.estatusPago,
     estatus: servicio.estatus,
     observaciones: servicio.observaciones,
