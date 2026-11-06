@@ -453,6 +453,7 @@ guardados en el mismo segundo no se distinguirían.
 | `fichas:fotosServicio` | `servicioRealizadoId` | Fotos de un servicio, para el detalle de la cita |
 | `fichas:subirFoto` | `servicioRealizadoId`, `'antes' \| 'despues'` | El main abre el diálogo y valida (ver la lista de abajo) |
 | `fichas:miniatura` | `archivoId` | `{ dataUrl }` (JPEG de 320 px o menos, con `toJPEG`) o `{ faltante: true }` |
+| `fichas:vista` | `archivoId` | `{ dataUrl }` (JPEG de 1600 px o menos, enderezado según EXIF) o `{ faltante: true }`. Solo la foto que se mira en el carrusel (addendum de fotos). |
 | `fichas:abrirFoto` | `archivoId` | `shell.openPath` después de validar la ruta |
 | `fichas:quitarFoto` | `archivoId` | Borra la fila y el archivo, y deja bitácora |
 | `serviciosRealizados:actualizarObservaciones` | `servicioRealizadoId`, `observaciones` | `void` |
@@ -506,3 +507,26 @@ Según la [auditoría](auditoria-ficha-clinica-2026-11-06.md):
 - **FIC-B7 — regla para el Gate de CIT-C1**, junto con DES-M1: cuando exista la reversa de un
   servicio cerrado, la ficha excluye o marca los tratamientos cancelados en "Tratamientos en
   cabina".
+
+## Addendum 2026-11-06 — fotos en pila y carrusel (observación del dueño)
+- **UI.** Con varias fotos, la cuadrícula de miniaturas crecía sin tope, y ya no se distinguía qué
+  era antes y qué después. Ahora:
+  - cada momento es una **pila** con hasta 4 fotos encimadas y el total de fotos;
+  - al picar la pila se abre un **carrusel** a pantalla completa, con:
+    - selector Antes / Después;
+    - flechas y teclado (← → Esc);
+    - tira de miniaturas;
+    - "Abrir en el visor" y "Quitar", con la confirmación dentro del mismo carrusel.
+- **Canal nuevo `fichas:vista`** (§21.4). Se agregó porque la miniatura de 320 pt se ve borrosa en
+  grande. Pasa por las mismas defensas que la miniatura (`fotoValidada`: categoría de foto y ruta
+  dentro de la carpeta del negocio) y se pide una vez por foto mirada.
+- **Hallazgos de la prueba en Electron (macOS):**
+  - `createThumbnailFromPath` sí respeta la orientación EXIF, pero:
+    - a 1600 pt devuelve **el ícono genérico del archivo** y no la foto;
+    - entrega el doble de pixeles en pantallas Retina, así que la "miniatura de 320 px" mide en
+      realidad 640 px.
+  - `createFromPath` decodifica la foto completa, pero **ignora la orientación EXIF**.
+  - Por eso `fichas:vista` siempre lee directo y endereza a mano: lee la etiqueta 0x0112 del JPEG y
+    rota los pixeles. El camino de respaldo de la miniatura usa la misma función, lo que cierra el
+    riesgo de FIC-B4 en ese camino.
+

@@ -52,6 +52,7 @@ const MIME_FOTO: Record<string, string> = {
 };
 export const EXTENSIONES_FOTO = ["jpg", "jpeg", "png"];
 const LADO_MINIATURA = 320;
+const LADO_VISTA = 1600;
 
 const ms = (d: Date | number) => (d instanceof Date ? d.getTime() : Number(d));
 
@@ -347,23 +348,119 @@ async function fotoValidada(archivoId: string) {
   return a;
 }
 
-/** Miniatura JPEG ≤ 320 px, una por llamada (condición 8). Archivo borrado a mano → faltante. */
+/**
+ * Orientación EXIF de un JPEG (1 = normal). Las fotos de celular suelen guardarse "acostadas" con
+ * esta marca; `nativeImage.createFromPath` la ignora (probado en macOS), así que se aplica a mano.
+ */
+function orientacionExif(ruta: string): number {
+  let buf: Buffer;
+  try {
+    const fd = fs.openSync(ruta, "r");
+    buf = Buffer.alloc(128 * 1024);
+    const leidos = fs.readSync(fd, buf, 0, buf.length, 0);
+    fs.closeSync(fd);
+    buf = buf.subarray(0, leidos);
+  } catch {
+    return 1;
+  }
+  if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return 1;
+  let i = 2;
+  while (i + 4 <= buf.length && buf[i] === 0xff) {
+    const marcador = buf[i + 1];
+    const largo = buf.readUInt16BE(i + 2);
+    if (marcador === 0xda) break; // Empiezan los datos de la imagen: ya no hay EXIF.
+    if (marcador === 0xe1 && buf.toString("latin1", i + 4, i + 10) === "Exif\0\0") {
+      const t = i + 10;
+      if (t + 8 > buf.length) return 1;
+      const le = buf.toString("latin1", t, t + 2) === "II";
+      const u16 = (o: number) => (le ? buf.readUInt16LE(o) : buf.readUInt16BE(o));
+      const u32 = (o: number) => (le ? buf.readUInt32LE(o) : buf.readUInt32BE(o));
+      const ifd = t + u32(t + 4);
+      if (ifd + 2 > buf.length) return 1;
+      const n = u16(ifd);
+      for (let k = 0; k < n; k++) {
+        const e = ifd + 2 + k * 12;
+        if (e + 12 > buf.length) return 1;
+        if (u16(e) === 0x0112) {
+          const o = u16(e + 8);
+          return o >= 1 && o <= 8 ? o : 1;
+        }
+      }
+      return 1;
+    }
+    i += 2 + largo;
+  }
+  return 1;
+}
+
+/** Aplica la orientación EXIF a una imagen ya reducida, moviendo pixeles (4 bytes cada uno). */
+function orientar(img: Electron.NativeImage, o: number): Electron.NativeImage {
+  if (o === 1) return img;
+  const { width: w, height: h } = img.getSize();
+  const origen = new Uint32Array(Uint8Array.from(img.toBitmap()).buffer);
+  const giraLados = o >= 5;
+  const W = giraLados ? h : w;
+  const H = giraLados ? w : h;
+  const destino = new Uint32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let dx = x, dy = y;
+      switch (o) {
+        case 2: dx = w - 1 - x; break;
+        case 3: dx = w - 1 - x; dy = h - 1 - y; break;
+        case 4: dy = h - 1 - y; break;
+        case 5: dx = y; dy = x; break;
+        case 6: dx = h - 1 - y; dy = x; break;
+        case 7: dx = h - 1 - y; dy = w - 1 - x; break;
+        case 8: dx = y; dy = w - 1 - x; break;
+      }
+      destino[dy * W + dx] = origen[y * w + x];
+    }
+  }
+  return nativeImage.createFromBitmap(Buffer.from(destino.buffer), { width: W, height: H });
+}
+
+/** Lee la foto completa, la reduce a `lado` px por su lado mayor y la endereza. Null si no se lee. */
+function reducirDirecto(ruta: string, lado: number): Electron.NativeImage | null {
+  const img = nativeImage.createFromPath(ruta);
+  if (img.isEmpty()) return null;
+  const { width, height } = img.getSize();
+  const reducida = Math.max(width, height) > lado
+    ? img.resize(width >= height ? { width: lado, quality: "good" } : { height: lado, quality: "good" })
+    : img;
+  return orientar(reducida, orientacionExif(ruta));
+}
+
+const comoDataUrl = (img: Electron.NativeImage, calidad: number) =>
+  ({ dataUrl: `data:image/jpeg;base64,${img.toJPEG(calidad).toString("base64")}` });
+
+/**
+ * Miniatura JPEG de 320 pt (640 px en pantallas Retina), una por llamada (condición 8). Primero la
+ * del sistema, que es asíncrona y ya respeta la orientación; si no hay, se reduce directo.
+ * Archivo borrado a mano → faltante.
+ */
 export async function miniatura(archivoId: string): Promise<{ dataUrl: string } | { faltante: true }> {
   const a = await fotoValidada(archivoId);
   if (!fs.existsSync(a.rutaFisica)) return { faltante: true };
   try {
     const mini = await nativeImage.createThumbnailFromPath(a.rutaFisica, { width: LADO_MINIATURA, height: LADO_MINIATURA });
-    if (!mini.isEmpty()) return { dataUrl: `data:image/jpeg;base64,${mini.toJPEG(80).toString("base64")}` };
+    if (!mini.isEmpty()) return comoDataUrl(mini, 80);
   } catch {
-    // Sin miniatura del sistema (ej. Linux): se reduce la imagen directa.
+    // Sin miniatura del sistema (ej. Linux).
   }
-  const img = nativeImage.createFromPath(a.rutaFisica);
-  if (img.isEmpty()) return { faltante: true };
-  const { width, height } = img.getSize();
-  const reducida = Math.max(width, height) > LADO_MINIATURA
-    ? img.resize(width >= height ? { width: LADO_MINIATURA } : { height: LADO_MINIATURA })
-    : img;
-  return { dataUrl: `data:image/jpeg;base64,${reducida.toJPEG(80).toString("base64")}` };
+  const img = reducirDirecto(a.rutaFisica, LADO_MINIATURA);
+  return img ? comoDataUrl(img, 80) : { faltante: true };
+}
+
+/**
+ * Foto a ≤ 1600 px para el carrusel, solo la que se está mirando (condición 8). Siempre directo:
+ * la miniatura del sistema no llega a ese tamaño y en macOS devuelve el ícono genérico del archivo.
+ */
+export async function vistaFoto(archivoId: string): Promise<{ dataUrl: string } | { faltante: true }> {
+  const a = await fotoValidada(archivoId);
+  if (!fs.existsSync(a.rutaFisica)) return { faltante: true };
+  const img = reducirDirecto(a.rutaFisica, LADO_VISTA);
+  return img ? comoDataUrl(img, 85) : { faltante: true };
 }
 
 /** Ruta para abrir la foto en el visor del sistema (condición 8). */

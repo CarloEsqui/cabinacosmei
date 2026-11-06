@@ -178,6 +178,8 @@ export interface IpcApi {
     /** El main abre el diálogo y valida; null si se canceló. */
     subirFoto(servicioRealizadoId: string, momento: "antes" | "despues"): Promise<FotoTratamiento | null>;
     miniatura(archivoId: string): Promise<{ dataUrl: string } | { faltante: true }>;
+    /** Foto reducida a ≤ 1600 px para el carrusel; una por llamada. */
+    vista(archivoId: string): Promise<{ dataUrl: string } | { faltante: true }>;
     abrirFoto(archivoId: string): Promise<void>;
     quitarFoto(archivoId: string): Promise<void>;
   };

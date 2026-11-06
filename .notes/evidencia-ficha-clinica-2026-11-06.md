@@ -148,3 +148,32 @@ verificación de la `0007`.
     incluye (a) y (b) de FIC-A1 y la foto vertical de FIC-B4;
   - la edición de PROJECT.md por FIC-M1;
   - la fila de `APPLIED-MIGRATIONS.md` cuando se instale en la cabina.
+
+## Adenda 2026-11-06 (tarde) — pila de fotos, carrusel y `fichas:vista`
+El dueño pidió rehacer la presentación de las fotos (detalle en el addendum del
+[spec](spec-ficha-clinica-2026-11-05.md)). Hubo un cambio en `fichasClinicas.ts`, que es superficie
+crítica, y tiene esta evidencia:
+- **Qué cambió:**
+  - el canal nuevo `fichas:vista`, de solo lectura, que pasa por `fotoValidada`;
+  - `miniatura` y `vistaFoto` comparten `reducirDirecto`, que endereza según la orientación EXIF.
+  - No cambió ninguna escritura, tabla ni bitácora.
+- **Prueba nueva "Vista".** Usa la misma batería en Electron real, sobre una copia nueva de la BD
+  de prueba. Esta es la salida literal de las líneas de fotos; las otras 18 siguen en PASA y el
+  total es este:
+  ```
+  PASA Cond. 8 — miniatura JPEG: true; borrada a mano → faltante: true; fuera de la raíz: "La foto está fuera de la carpeta del negocio."
+  PASA Vista — original 3600 px → vista JPEG 1600 px, miniatura 640 px; borrada a mano → faltante: true; fuera de la raíz: "La foto está fuera de la carpeta del negocio."; EXIF 6 → vista 1067×1600, enderezada: true, miniatura enderezada: true
+
+  20/20 pasan
+  ```
+  - La foto "EXIF 6" es un JPEG sintético de 3600×2400 con un bloque rojo arriba a la izquierda y
+    la etiqueta de orientación 6, que es como guarda el celular una foto vertical.
+  - Enderezada quiere decir que la vista sale vertical y que el bloque queda arriba a la derecha.
+- **La primera corrida falló, y eso fue útil.** La vista salía de 1024 px con la miniatura del
+  sistema. Al revisarla a mano, a 1600 pt macOS devolvía el **ícono genérico de JPEG** y no la foto.
+  `createFromPath` sí lee la foto, pero la dejaba acostada. De ahí salió el enderezado manual.
+- **FIC-B4:** el riesgo queda **CERRADO en el código** para la vista y para el camino de respaldo
+  de la miniatura. La foto vertical real de celular sigue en la prueba manual de Carlos, como
+  confirmación.
+- `npm run typecheck` y `npm run build` pasan.
+

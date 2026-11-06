@@ -111,6 +111,7 @@ const api: IpcApi = {
     fotosServicio: (servicioRealizadoId) => ipcRenderer.invoke("fichas:fotosServicio", servicioRealizadoId),
     subirFoto: (servicioRealizadoId, momento) => ipcRenderer.invoke("fichas:subirFoto", servicioRealizadoId, momento),
     miniatura: (archivoId) => ipcRenderer.invoke("fichas:miniatura", archivoId),
+    vista: (archivoId) => ipcRenderer.invoke("fichas:vista", archivoId),
     abrirFoto: (archivoId) => ipcRenderer.invoke("fichas:abrirFoto", archivoId),
     quitarFoto: (archivoId) => ipcRenderer.invoke("fichas:quitarFoto", archivoId),
   },

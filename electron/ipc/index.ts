@@ -361,6 +361,7 @@ export function registrarIpc(): void {
     return fichasService.subirFoto(id, cual, resultado.filePaths[0], usuarioActualId() ?? undefined);
   });
   ipcMain.handle("fichas:miniatura", (_e, archivoId: string) => fichasService.miniatura(idSchema.parse(archivoId)));
+  ipcMain.handle("fichas:vista", (_e, archivoId: string) => fichasService.vistaFoto(idSchema.parse(archivoId)));
   ipcMain.handle("fichas:abrirFoto", async (_e, archivoId: string) => {
     const ruta = await fichasService.rutaFoto(idSchema.parse(archivoId));
     const error = await shell.openPath(ruta);
