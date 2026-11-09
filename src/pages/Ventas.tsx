@@ -41,7 +41,7 @@ export function VentasPage() {
       <PageHeader title="Ventas" subtitle="Venta de productos sin cita, historial y saldos por cobrar" />
       <Tabs tabs={tabs} value={tab} onChange={setTab} />
       {/* El punto de venta se queda montado al cambiar de pestaña: el carrito no se pierde. */}
-      <div className={tab === "vender" ? undefined : "hidden"}>
+      <div className={tab === "vender" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
         <Vender repetirId={repetirId} clienteId={clienteParam} atajo={repetirId || clienteParam ? location.key : null} />
       </div>
       {tab === "historial" && <ListaVentas onVender={() => setTab("vender")} />}

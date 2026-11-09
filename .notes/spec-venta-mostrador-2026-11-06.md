@@ -535,13 +535,35 @@ El resto de las pruebas manuales salió bien. Hallazgos:
 
 ### 23.4 Diseño como quedó
 - **Ruta `/ventas`** en el menú lateral, después de Citas, con tres pestañas:
-  - **Vender** (`PuntoDeVenta`):
-    - catálogo con búsqueda (sin acentos), sección "Frecuentes" y "Todos los productos";
-    - un toque en una tarjeta agrega una pieza, y la tarjeta se apaga al llegar al stock;
-    - carrito con clienta, nombre de referencia, cantidades (−/+), precio editable, descuento,
-      pagos, comprobante y observaciones;
-    - botón "Cobrar $X", o "Registrar · queda debiendo $Y" con clienta;
-    - el carrito se conserva al cambiar de pestaña.
+  - **Vender** (`PuntoDeVenta`). Rediseño del 2026-11-09, después de la revisión del dueño. La
+    primera versión era una rejilla de tarjetas que dejaba la página vacía con pocos productos y
+    tenía el Total en serif.
+    - Los dos paneles van a lo alto de la ventana, cada uno con su propio scroll. La página se ve
+      completa con 5 productos o con 1000.
+    - **Catálogo como lista de renglones**, a todo lo ancho, no rejilla:
+      - cada renglón lleva iniciales, nombre, presentación y tipo, existencia en **piezas
+        enteras** ("12 disponibles", "Últimas 2", "Agotado"), precio y "Agregar";
+      - con el producto en el carrito, "Agregar" se vuelve un contador −/+;
+      - la búsqueda (sin acentos, por nombre, línea o SKU) se maneja con teclado: ↑ ↓ Enter y
+        Esc;
+      - hay filtro por tipo de producto y orden "Más vendidos" (con etiqueta "Frecuente" en los 3
+        primeros) o "A–Z";
+      - lo agotado va al final y se muestran hasta 100 renglones;
+      - el pie dice cuántos hay.
+    - **Insumos sin precio de venta**, como gasas o gel conductor, ocultos por omisión. Se ven con
+      "Mostrar N insumos" o al buscarlos.
+    - **Lateral de la venta**, el mismo que aprobó el dueño:
+      - clienta, nombre de referencia, productos con −/+ y precio, descuento, pago, comprobante y
+        observaciones, con scroll propio;
+      - el **Total queda fijo abajo** en la tipografía de interfaz (Manrope, bold, tabular, 30
+        px), nunca en la serif de títulos;
+      - debajo del Total va el botón "Cobrar $X", o "Registrar · queda debiendo $Y" con clienta;
+      - si lo que falta es el pago, el aviso es un enlace "Ir al pago";
+      - el comprobante se pide hasta que hay un método que no es efectivo.
+    - El carrito se conserva al cambiar de pestaña.
+    - **Medición de carga, sin la ventana real de la app:**
+      - consultas de la página sobre la BD de desarrollo: < 3 ms cada una;
+      - página en Vite dev, en frío: 1.5 s.
   - **Historial**: la lista paginada de antes.
   - **Por cobrar**, con un globito con el número de ventas:
     - ventas vigentes de clientas con saldo, la más antigua primero;
