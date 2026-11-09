@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, count, desc, eq, gte, inArray, like, lte } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNotNull, like, lte, sql, type SQL } from "drizzle-orm";
 import { getDb } from "../db";
 import { clientes, pagos, productos, salidasInventario, ventasMostrador } from "../db/schema";
 import { verificarPin } from "./auth";
@@ -25,7 +25,7 @@ import {
 } from "./cobros";
 import { fechaLocalIso } from "../../shared/fechas";
 import { requiereEvidencia, type CancelarVentaInput, type VentaMostradorInput } from "../../shared/schemas";
-import type { DetalleVentaMostrador, PaginaVentasMostrador, VentaMostradorRow } from "../../shared/types";
+import type { DetalleVentaMostrador, PaginaVentasMostrador, ProductoFrecuente, VentaMostradorRow } from "../../shared/types";
 
 /**
  * Venta de productos en mostrador, sin cita (spec .notes/spec-venta-mostrador-2026-11-06.md;
@@ -204,7 +204,7 @@ export function registrarVentaSinComprobanteGuardado(ventaId: string, motivo: st
 }
 
 /**
- * FR-009: cancela la venta con PIN y motivo, en una transacción: la venta queda cancelada (no se
+ * FR-009: cancela la venta con PIN (el motivo es opcional desde §23), en una transacción: la venta queda cancelada (no se
  * borra), sus pagos cobrados se cancelan (con ajuste en el próximo corte si ya estaban cortados),
  * su descuento se cancela y sus salidas regresan el stock.
  */
@@ -212,7 +212,8 @@ export async function cancelarVenta(input: CancelarVentaInput, usuarioId?: strin
   if (!(await verificarPin(input.pin))) throw new Error("El PIN de acceso no es correcto.");
   const db = getDb();
   const hoy = fechaLocalIso();
-  const motivo = input.motivo.trim();
+  const motivo = input.motivo?.trim() || null;
+  const textoMotivo = motivo ?? "sin motivo";
 
   db.transaction((tx) => {
     const v = tx.select().from(ventasMostrador).where(eq(ventasMostrador.id, input.ventaId)).get();
@@ -231,7 +232,7 @@ export async function cancelarVenta(input: CancelarVentaInput, usuarioId?: strin
       .from(pagos)
       .where(and(eq(pagos.ventaMostradorId, v.id), eq(pagos.estatus, "cobrado")))
       .all();
-    for (const p of cobrados) cancelarPagoEnTx(tx, p.id, `Venta ${v.folio} cancelada: ${motivo}`, usuarioId);
+    for (const p of cobrados) cancelarPagoEnTx(tx, p.id, `Venta ${v.folio} cancelada: ${textoMotivo}`, usuarioId);
 
     // VEN-M1: el descuento NO se cancela; queda como parte del ticket cancelado, así el detalle
     // muestra el neto real. Una venta cancelada no cuenta en ningún reporte (todos filtran vigente).
@@ -253,7 +254,7 @@ export async function cancelarVenta(input: CancelarVentaInput, usuarioId?: strin
       accion: "venta_cancelada",
       entidadTipo: "venta_mostrador",
       entidadId: v.id,
-      detalle: `${v.folio} · total $${total.toFixed(2)} · ${cobrados.length} pago(s) cancelado(s) · motivo: ${motivo}`,
+      detalle: `${v.folio} · total $${total.toFixed(2)} · ${cobrados.length} pago(s) cancelado(s) · motivo: ${textoMotivo}`,
     });
   });
 }
@@ -262,7 +263,7 @@ export async function cancelarVenta(input: CancelarVentaInput, usuarioId?: strin
 // Lectura
 // ---------------------------------------------------------------------------
 
-function filas(db: DbLectura, where?: ReturnType<typeof eq>, pagina?: number): VentaMostradorRow[] {
+function filas(db: DbLectura, where?: SQL, pagina?: number): VentaMostradorRow[] {
   let q = db
     .select({
       id: ventasMostrador.id,
@@ -316,7 +317,7 @@ function filas(db: DbLectura, where?: ReturnType<typeof eq>, pagina?: number): V
   });
 }
 
-/** FR-011: lista de Inventario → Ventas, 30 por página, la más reciente primero. */
+/** FR-011: historial del módulo Ventas, 30 por página, la más reciente primero. */
 export async function listarVentas(pagina: number): Promise<PaginaVentasMostrador> {
   const db = getDb();
   const total = db.select({ n: count() }).from(ventasMostrador).get()?.n ?? 0;
@@ -326,6 +327,40 @@ export async function listarVentas(pagina: number): Promise<PaginaVentasMostrado
 /** FR-011: ventas de una clienta, para su ficha en Clientes. */
 export async function ventasPorCliente(clienteId: string): Promise<VentaMostradorRow[]> {
   return filas(getDb(), eq(ventasMostrador.clienteId, clienteId));
+}
+
+/**
+ * "Por cobrar" del módulo Ventas (§23): ventas vigentes de clientas con saldo CALCULADO, la más
+ * antigua primero. Sin clienta no hay crédito (BR-003), así que solo entran ventas con clienta.
+ */
+export async function ventasPorCobrar(): Promise<VentaMostradorRow[]> {
+  return filas(getDb(), and(eq(ventasMostrador.estatus, "vigente"), isNotNull(ventasMostrador.clienteId)))
+    .filter((v) => v.saldo > TOLERANCIA)
+    .reverse();
+}
+
+const DIAS_FRECUENTES = 90;
+const MAX_FRECUENTES = 8;
+
+/**
+ * "Productos frecuentes" del punto de venta (§23): los más vendidos en mostrador en los últimos 90
+ * días, por piezas, en ventas vigentes. Solo ids y piezas; el renderer pone nombre, precio y stock.
+ */
+export async function productosFrecuentes(): Promise<ProductoFrecuente[]> {
+  const db = getDb();
+  const desde = new Date();
+  desde.setDate(desde.getDate() - DIAS_FRECUENTES);
+  const piezas = sql<number>`SUM(${salidasInventario.cantidad})`;
+  return db
+    .select({ productoId: salidasInventario.productoId, piezas })
+    .from(salidasInventario)
+    .innerJoin(ventasMostrador, eq(ventasMostrador.id, salidasInventario.ventaMostradorId))
+    .where(and(eq(ventasMostrador.estatus, "vigente"), gte(ventasMostrador.fecha, fechaLocalIso(desde))))
+    .groupBy(salidasInventario.productoId)
+    .orderBy(desc(piezas))
+    .limit(MAX_FRECUENTES)
+    .all()
+    .map((f) => ({ productoId: f.productoId, piezas: Number(f.piezas) }));
 }
 
 /** FR-012: detalle de una venta. Las líneas se agrupan por producto (una línea en varios lotes). */
@@ -368,7 +403,7 @@ export async function detalleVenta(ventaId: string): Promise<DetalleVentaMostrad
     observaciones: v.observaciones,
     motivoCancelacion: v.motivoCancelacion,
     canceladaAt: v.canceladaAt instanceof Date ? v.canceladaAt.getTime() : v.canceladaAt ? Number(v.canceladaAt) : null,
-    permitePagoSuelto: Boolean(v.clienteId || v.nombreReferencia),
+    admiteSaldo: Boolean(v.clienteId),
   };
 }
 
@@ -397,8 +432,8 @@ export function ventasDelRango(
 
 /**
  * Único lector de ventas con saldo (VEN-B1): vigentes y con saldo CALCULADO (no por la caché de
- * estatus). Sin clienta solo puede pasar con nombre de referencia (BR-003, VEN-A1). Lo usan la
- * cartera de Resumen y la de Finanzas.
+ * estatus). Sin clienta no debería pasar nunca (BR-003 de §23, VEN-A1); si pasara, la cartera la
+ * muestra en vez de esconderla. Lo usan la cartera de Resumen y la de Finanzas.
  */
 export function ventasConSaldo(db: DbLectura): {
   id: string;

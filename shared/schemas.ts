@@ -298,10 +298,10 @@ export const ventaMostradorInputSchema = z.object({
 });
 export type VentaMostradorInput = z.infer<typeof ventaMostradorInputSchema>;
 
-/** FR-009 de la venta: cancelar pide PIN y motivo. */
+/** FR-009 de la venta: cancelar pide PIN; el motivo es opcional (decisión del dueño, §23). */
 export const cancelarVentaInputSchema = z.object({
   ventaId: z.string().min(1),
-  motivo: z.string().trim().min(3, "Escribe el motivo de la cancelación."),
+  motivo: z.string().trim().max(120).optional(),
   pin: z.string().min(1, "Escribe el PIN de acceso."),
 });
 export type CancelarVentaInput = z.infer<typeof cancelarVentaInputSchema>;

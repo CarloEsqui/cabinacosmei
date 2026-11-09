@@ -560,10 +560,10 @@ export async function cancelarPago(input: CancelarPagoInput, usuarioId?: string)
       const v = tx.select().from(ventasMostrador).where(eq(ventasMostrador.id, pago.ventaMostradorId)).get();
       if (!v) throw new Error("La venta no existe.");
       if (v.estatus !== "vigente") throw new Error("Esta venta ya está cancelada.");
-      // BR-003 de la venta: sin clienta ni nombre de referencia, una deuda no tendría a quién
-      // cobrarse; se cancela la venta completa.
-      if (!v.clienteId && !v.nombreReferencia) {
-        throw new Error("Esta venta no tiene clienta ni nombre de referencia: cancela la venta completa.");
+      // BR-003 de la venta (§23): sin clienta no hay crédito, aunque tenga nombre de referencia.
+      // Cancelar un pago la dejaría debiendo: se cancela la venta completa.
+      if (!v.clienteId) {
+        throw new Error("Esta venta no tiene clienta y no puede quedar debiendo: cancela la venta completa.");
       }
     }
     cancelarPagoEnTx(tx, pago.id, input.motivo, usuarioId);
@@ -1004,18 +1004,18 @@ export function descuentosVigentesVenta(db: Pick<DbOTx, "select">, ventaId: stri
 }
 
 /**
- * VEN-A1 (auditoría de la venta): una venta sin clienta y sin nombre de referencia nunca queda
- * debiendo, porque no habría a quién cobrarle (BR-003 y FR-005). Aplica a quitar o cambiar su
- * descuento después de cobrar. Con nombre de referencia sí se permite y el saldo queda a ese nombre.
- * Se llama dentro de la transacción: si lanza, el cambio se revierte.
+ * VEN-A1 (auditoría de la venta) con la regla del dueño de §23: una venta sin clienta nunca queda
+ * debiendo, aunque tenga nombre de referencia; no se vende a crédito sin clienta (BR-003 y FR-005).
+ * Aplica a quitar o cambiar su descuento después de cobrar. Se llama dentro de la transacción: si
+ * lanza, el cambio se revierte.
  */
 function exigirSinDeudaHuerfanaEnTx(tx: DbOTx, ventaId: string) {
   const v = tx.select().from(ventasMostrador).where(eq(ventasMostrador.id, ventaId)).get();
-  if (!v || v.clienteId || v.nombreReferencia) return;
+  if (!v || v.clienteId) return;
   const cobrado = cobradoPorVenta(tx, [v.id]).get(v.id) ?? 0;
   if (saldoVenta(v, cobrado) > TOLERANCIA) {
     throw new Error(
-      "Esta venta no tiene clienta ni nombre de referencia y quedaría debiendo. Para cambiar el precio, cancela la venta y regístrala de nuevo.",
+      "Esta venta no tiene clienta y quedaría debiendo. Para cambiar el precio, cancela la venta y regístrala de nuevo.",
     );
   }
 }

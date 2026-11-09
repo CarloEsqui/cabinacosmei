@@ -16,6 +16,7 @@ import { InventarioPage } from "@/pages/Inventario";
 import { ClientesPage } from "@/pages/Clientes";
 import { AgendaPage } from "@/pages/Agenda";
 import { CitasPage } from "@/pages/Citas";
+import { VentasPage } from "@/pages/Ventas";
 import { CortePage } from "@/pages/Corte";
 import { ReportesPage } from "@/pages/Reportes";
 import { MensajeSorpresa } from "@/components/MensajeSorpresa"; // TEMPORAL: quitar en la próxima actualización
@@ -93,6 +94,7 @@ function AppContenido() {
                 <Route index element={<DashboardPage />} />
                 <Route path="agenda" element={<AgendaPage />} />
                 <Route path="citas" element={<CitasPage />} />
+                <Route path="ventas" element={<VentasPage />} />
                 <Route path="clientes" element={<ClientesPage />} />
                 <Route path="inventario" element={<InventarioPage />} />
                 <Route path="corte" element={<CortePage />} />

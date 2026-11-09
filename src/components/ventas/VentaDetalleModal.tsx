@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Percent, Plus, ShoppingBag, Wallet } from "lucide-react";
+import { Ban, Percent, Plus, Repeat, ShoppingBag, Wallet } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { formatFecha, formatMoneda } from "@/lib/format";
 import { mensajeDeError } from "@/lib/errores";
+import { cn } from "@/lib/utils";
 import { Dato, FilaPago, PanelCancelar } from "@/pages/agenda/PagosDeCita";
 import { MiniaturaComprobante, VisorComprobante } from "@/components/cobros/Comprobantes";
 import { LINEA_INICIAL, LineasPago, evaluarCobro, lineasParaEnviar, type LineaPagoCaptura } from "@/components/cobros/LineasPago";
@@ -43,20 +45,35 @@ export function EstatusVenta({ venta }: { venta: Pick<VentaMostradorRow, "estatu
 
 type Panel = null | "abono" | "descuento" | "cancelarVenta" | { cancelarPago: PagoRow };
 
-/**
- * Detalle de una venta de mostrador (spec de la venta, FR-012), al estilo del detalle de cita: lo
- * vendido, el desglose y los pagos, con cada acción junto a lo que afecta.
- */
-export function VentaDetalleModal({ ventaId, onClose }: { ventaId: string | null; onClose: () => void }) {
-  if (!ventaId) return null;
-  return <Detalle ventaId={ventaId} onClose={onClose} />;
+/** Para armar en el punto de venta una venta igual a otra (acceso "Repetir venta", §23). */
+export interface EstadoRepetirVenta {
+  repetir: string;
 }
 
-function Detalle({ ventaId, onClose }: { ventaId: string; onClose: () => void }) {
+/**
+ * Detalle de una venta de mostrador (spec de la venta, FR-012), al estilo del detalle de cita: lo
+ * vendido, el desglose y los pagos, con cada acción junto a lo que afecta. `panelInicial` abre una
+ * acción de entrada (Por cobrar → "Registrar pago").
+ */
+export function VentaDetalleModal({
+  ventaId,
+  onClose,
+  panelInicial,
+}: {
+  ventaId: string | null;
+  onClose: () => void;
+  panelInicial?: "abono";
+}) {
+  if (!ventaId) return null;
+  return <Detalle ventaId={ventaId} onClose={onClose} panelInicial={panelInicial ?? null} />;
+}
+
+function Detalle({ ventaId, onClose, panelInicial }: { ventaId: string; onClose: () => void; panelInicial: Panel }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const confirm = useConfirm();
-  const [panel, setPanel] = useState<Panel>(null);
+  const navigate = useNavigate();
+  const [panel, setPanel] = useState<Panel>(panelInicial);
   const [abierto, setAbierto] = useState<ComprobanteRow | null>(null);
 
   const { data: venta, error } = useQuery({
@@ -110,6 +127,13 @@ function Detalle({ ventaId, onClose }: { ventaId: string; onClose: () => void })
 
   const descuento = venta.descuentos[0];
 
+  // "Repetir venta": el punto de venta arma el carrito con la misma clienta y los mismos productos.
+  function repetir() {
+    const estado: EstadoRepetirVenta = { repetir: venta!.id };
+    onClose();
+    navigate("/ventas", { state: estado });
+  }
+
   return (
     <>
       <Modal open onClose={onClose} title={titulo}>
@@ -149,7 +173,7 @@ function Detalle({ ventaId, onClose }: { ventaId: string; onClose: () => void })
                     Descuento {descuento.modo === "porcentaje" ? `${descuento.valor} % ` : ""}· {etiquetaMotivo(descuento.motivo)}
                     {descuento.motivoDetalle ? ` (${descuento.motivoDetalle})` : ""}
                   </span>
-                  {vigente && venta.permitePagoSuelto && (
+                  {vigente && venta.admiteSaldo && (
                     <button
                       type="button"
                       className="shrink-0 text-xs text-ink-400 underline hover:text-danger-500"
@@ -179,14 +203,14 @@ function Detalle({ ventaId, onClose }: { ventaId: string; onClose: () => void })
                 <FilaPago
                   key={p.id}
                   pago={p}
-                  // BR-003: sin clienta ni nombre de referencia, un pago suelto no se cancela.
-                  onCancelar={vigente && p.estatus === "cobrado" && venta.permitePagoSuelto ? () => setPanel({ cancelarPago: p }) : undefined}
+                  // BR-003 (§23): sin clienta no hay crédito; un pago suelto no se cancela.
+                  onCancelar={vigente && p.estatus === "cobrado" && venta.admiteSaldo ? () => setPanel({ cancelarPago: p }) : undefined}
                 />
               ))}
             </ul>
-            {vigente && !venta.permitePagoSuelto && venta.pagos.some((p) => p.estatus === "cobrado") && (
+            {vigente && !venta.admiteSaldo && venta.pagos.some((p) => p.estatus === "cobrado") && (
               <p className="mt-1 text-xs text-ink-400">
-                Sin clienta ni nombre de referencia: para corregir un pago o el precio, cancela la venta y regístrala de nuevo.
+                Sin clienta la venta no puede quedar debiendo: para corregir un pago o el precio, cancela la venta y regístrala de nuevo.
               </p>
             )}
           </div>
@@ -222,6 +246,13 @@ function Detalle({ ventaId, onClose }: { ventaId: string; onClose: () => void })
           )}
 
           {/* Acciones */}
+          {!vigente && panel === null && (
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" size="sm" onClick={repetir}>
+                <Repeat size={14} /> Repetir venta
+              </Button>
+            </div>
+          )}
           {vigente && panel === null && (
             <div className="flex flex-wrap gap-2">
               {puedeAbonar && (
@@ -229,13 +260,16 @@ function Detalle({ ventaId, onClose }: { ventaId: string; onClose: () => void })
                   <Wallet size={14} /> Registrar pago
                 </Button>
               )}
-              {/* VEN-A1: sin clienta ni nombre de referencia, cambiar el descuento dejaría una deuda
-                  sin dueña; el main también lo rechaza. */}
-              {venta.permitePagoSuelto && (
+              {/* VEN-A1 (§23): sin clienta, cambiar el descuento la dejaría debiendo; el main también
+                  lo rechaza. */}
+              {venta.admiteSaldo && (
                 <Button variant="secondary" size="sm" onClick={() => setPanel("descuento")}>
                   <Percent size={14} /> {descuento ? "Cambiar descuento" : "Aplicar descuento"}
                 </Button>
               )}
+              <Button variant="secondary" size="sm" onClick={repetir}>
+                <Repeat size={14} /> Repetir venta
+              </Button>
               <Button variant="ghost" size="sm" className="text-danger-500" onClick={() => setPanel("cancelarVenta")}>
                 <Ban size={14} /> Cancelar venta
               </Button>
@@ -372,12 +406,19 @@ function PanelDescuentoVenta({ venta, onCerrar, onHecho }: { venta: DetalleVenta
   );
 }
 
-/** FR-009: con PIN y motivo. Regresa el producto y cancela pagos y descuento; nunca se borra. */
+const MOTIVOS_CANCELACION = ["Devolución", "Error al capturar", "Otro"] as const;
+
+/**
+ * FR-009 (§23): con PIN; el motivo es opcional y se elige con un toque. Regresa el producto y cancela
+ * los pagos; nunca se borra.
+ */
 function PanelCancelarVenta({ venta, onCerrar, onHecho }: { venta: DetalleVentaMostrador; onCerrar: () => void; onHecho: () => void }) {
-  const [motivo, setMotivo] = useState("");
+  const [chip, setChip] = useState<(typeof MOTIVOS_CANCELACION)[number] | null>(null);
+  const [detalle, setDetalle] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const cortados = venta.pagos.some((p) => p.estatus === "cobrado" && p.enCorte);
+  const motivo = chip === "Otro" ? detalle.trim() || undefined : (chip ?? undefined);
 
   const cancelar = useMutation({
     mutationFn: () => window.api.ventas.cancelar({ ventaId: venta.id, motivo, pin }),
@@ -391,12 +432,37 @@ function PanelCancelarVenta({ venta, onCerrar, onHecho }: { venta: DetalleVentaM
         <ShoppingBag size={14} /> Cancelar venta {venta.folio}
       </h3>
       <p className="text-xs text-ink-500">
-        La venta no se borra: queda cancelada con su motivo, el producto regresa al inventario y sus pagos se cancelan.
+        La venta no se borra: queda cancelada, el producto regresa al inventario y sus pagos se cancelan.
         {cortados && " Como ya entraron en un corte, el próximo corte los mostrará como ajuste negativo."}
       </p>
-      <div>
-        <label className="mb-1 block text-xs font-medium text-ink-500">Motivo (sin datos personales)</label>
-        <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej. la clienta devolvió el producto" />
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-medium text-ink-500">Motivo (opcional)</span>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Motivo de la cancelación">
+          {MOTIVOS_CANCELACION.map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setChip(chip === m ? null : m)}
+              aria-pressed={chip === m}
+              className={cn(
+                "rounded-full border px-3 py-1 text-xs",
+                chip === m
+                  ? "border-jacaranda-500 bg-jacaranda-50 font-medium text-jacaranda-700"
+                  : "border-beige-300 bg-beige-50 text-ink-700 hover:bg-beige-100",
+              )}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+        {chip === "Otro" && (
+          <Input
+            value={detalle}
+            maxLength={120}
+            onChange={(e) => setDetalle(e.target.value)}
+            placeholder="Motivo (sin nombres ni datos de salud)"
+          />
+        )}
       </div>
       <div>
         <label className="mb-1 block text-xs font-medium text-ink-500">PIN de acceso</label>
@@ -413,7 +479,7 @@ function PanelCancelarVenta({ venta, onCerrar, onHecho }: { venta: DetalleVentaM
         <Button variant="secondary" size="sm" onClick={onCerrar}>
           Volver
         </Button>
-        <Button size="sm" variant="danger" disabled={motivo.trim().length < 3 || pin.length < 4 || cancelar.isPending} onClick={() => cancelar.mutate()}>
+        <Button size="sm" variant="danger" disabled={pin.length < 4 || cancelar.isPending} onClick={() => cancelar.mutate()}>
           Cancelar venta
         </Button>
       </div>

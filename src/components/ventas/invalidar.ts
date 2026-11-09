@@ -7,7 +7,7 @@ import { invalidarDinero } from "@/pages/agenda/PagosDeCita";
  */
 export function invalidarVentas(queryClient: ReturnType<typeof useQueryClient>) {
   invalidarDinero(queryClient);
-  for (const key of ["ventas", "ventasCliente", "ventaDetalle", "inventarioResumen", "movimientos", "lotesPorProducto"]) {
+  for (const key of ["ventas", "ventasCliente", "ventaDetalle", "ventasFrecuentes", "inventarioResumen", "movimientos", "lotesPorProducto"]) {
     queryClient.invalidateQueries({ queryKey: [key] });
   }
 }

@@ -51,8 +51,8 @@
   precarga con `productos.precio_venta`.
 - Clienta **opcional**, elegida con el selector buscable con lupa. Sin clienta, la venta queda como
   "Público general". Opcionalmente lleva un **nombre de referencia** en texto libre (ej. "Señora de
-  la tienda de al lado"), que no da de alta a nadie. Sirve para identificar la venta y para poder
-  cancelar uno de sus pagos (BR-003).
+  la tienda de al lado"), que no da de alta a nadie. Sirve **solo** para identificar la venta
+  (BR-003, reemplazada en §23).
 - Descuento a la venta: el mismo control de monto o porcentaje con chips de motivo del cierre. Se
   puede aplicar o quitar también después, con la misma regla BR-005 de descuentos.
 - Pagos con uno o varios métodos (`config.metodosPago`), con comprobante como en el cierre:
@@ -89,20 +89,21 @@
   total. Con clienta, puede ser menor (incluso 0) y la diferencia queda en su saldo.
 - **FR-006 — Abonar.** En una venta con saldo pendiente se registran pagos posteriores, igual que
   en una cita cerrada. Una venta queda con saldo cuando:
-  - tiene clienta y se cobró menos del total;
-  - tiene nombre de referencia y se canceló uno de sus pagos (BR-003).
+  - tiene clienta y se cobró menos del total, o se canceló uno de sus pagos.
+  - Sin clienta nunca queda con saldo, aunque tenga nombre de referencia (BR-003, §23).
 - **FR-007 — Descuento.** Se aplica al crear la venta o después. A lo más hay uno vigente por
   venta. Aplicado después, no puede dejar el total por debajo de lo ya cobrado (BR-005 de
   descuentos).
 - **FR-008 — Comprobante.** El comprobante se elige en el diálogo antes de confirmar y se liga a
   los pagos de la venta al guardarla. Es el mismo patrón de token del anticipo: el main abre el
   diálogo y decide la ruta. También se puede adjuntar después desde el detalle.
-- **FR-009 — Cancelar.** Pide PIN y motivo, y en una transacción:
+- **FR-009 — Cancelar.** Pide PIN; el motivo es **opcional** y se elige con chips (§23). En una
+  transacción:
   - marca la venta como cancelada (no se borra);
   - cancela sus pagos cobrados (con ajuste en el siguiente corte si ya estaban cortados);
   - cancela sus salidas y devuelve el stock;
-  - cancela su descuento vigente.
-  - Bitácora `venta_cancelada`.
+  - conserva su descuento como parte del ticket cancelado (VEN-M1).
+  - Bitácora `venta_cancelada` ("motivo: sin motivo" si no se eligió).
 - **FR-010 — Reportes.** Una venta vigente cuenta en:
   - ventas (total neto, por fecha de la venta);
   - costo de productos vendidos;
@@ -112,8 +113,9 @@
   - Sus pagos ya cuentan en cobranza, métodos de pago, "cobrado hoy" y corte, porque se leen por
     `fuente = 'dinero'`.
 - **FR-011 — Listas.**
-  - Inventario muestra la pestaña "Ventas": folio, fecha, clienta o "Público general", total y
-    estatus. Pagina de 30 en 30 y abre el detalle.
+  - El módulo **Ventas** (menú lateral, §23) tiene el historial: folio, fecha, clienta o "Público
+    general", total y estatus. Pagina de 30 en 30 y abre el detalle. Ya no es una pestaña de
+    Inventario.
   - La ficha de la clienta en Clientes lista sus ventas junto a su historial, y abre el mismo
     detalle.
 - **FR-012 — Detalle de venta**, al estilo del detalle de cita:
@@ -127,12 +129,13 @@
   (PROJECT.md, superficie Dinero; CFF art. 30).
 - **BR-002** — Un pago tiene clienta, salvo que pertenezca a una venta de mostrador sin clienta.
   Un pago de venta de mostrador siempre apunta a su venta.
-- **BR-003** — Una venta sin clienta entra pagada (FR-005). Cancelar uno de sus pagos la deja con
-  saldo, y esa deuda necesita a alguien a quien cobrarle:
-  - sin clienta y **sin nombre de referencia**, no se puede cancelar un pago suelto; se cancela la
-    venta completa;
-  - **con nombre de referencia** sí se puede, y el saldo queda a ese nombre (decisión del dueño,
-    §20).
+- **BR-003** (reemplazada el 2026-11-09, §23) — **Sin clienta no hay crédito**, aunque la venta
+  tenga nombre de referencia. Una venta sin clienta entra pagada (FR-005) y nada la puede dejar
+  debiendo después:
+  - no se cancela un pago suelto; se cancela la venta completa;
+  - no se quita ni se reduce su descuento si eso la dejaría con saldo (VEN-A1).
+  - El nombre de referencia solo identifica la venta.
+  - Versión anterior (2026-11-06): con nombre de referencia sí se permitía la deuda.
 - **BR-004** — No se vende un producto inactivo, ni una cantidad mayor que el stock vendible
   (lotes activos y no caducados).
 - **BR-005** — El precio unitario es editable y debe ser **> 0**; la cantidad, > 0. Para regalar
@@ -164,8 +167,9 @@
   sin clienta se paga completo. El main lo vuelve a validar.
 - **Clienta con saldo:** se guarda como parcial o pendiente y aparece en su cartera y en la alerta
   "Pago pendiente" de Clientes.
-- **Venta con nombre de referencia y un pago cancelado:** queda parcial o pendiente, aparece en
-  cartera a ese nombre y en la lista de Ventas con su saldo, y se le puede abonar.
+- (Reemplazado en §23: sin clienta no se cancela un pago suelto, con o sin nombre.) ~~Venta con
+  nombre de referencia y un pago cancelado: queda parcial o pendiente, aparece en cartera a ese
+  nombre y se le puede abonar.~~
 - **Cancelar una venta con pagos ya cortados:** los pagos cancelados aparecen como ajuste negativo
   en el siguiente corte (comportamiento existente de `cancelarPago`).
 - **Comprobante no elegido con método no efectivo:** se pide aceptar "sin comprobante", igual que
@@ -231,11 +235,12 @@
 | Abonar | No | Igual que un pago de cita |
 | Aplicar o quitar descuento | No | BR-008 |
 | Adjuntar comprobante | No | — |
-| Cancelar un pago de la venta | **Sí** | Con clienta o con nombre de referencia (BR-003) |
-| Cancelar la venta | **Sí** | Con motivo |
+| Cancelar un pago de la venta | **Sí** | Solo con clienta (BR-003, §23) |
+| Cancelar la venta | **Sí** | Motivo opcional con chips (§23) |
 
 ## 12. UX Requirements
-- "Vender producto" es un modal compacto en este orden:
+- (Reemplazado en §23 por el punto de venta del módulo Ventas, con el mismo orden.) "Vender
+  producto" era un modal compacto en este orden:
   1. clienta (selector buscable, "Público general" por defecto);
   2. líneas de producto (selector buscable, cantidad, precio);
   3. descuento (el mismo `DescuentoCampo`);
@@ -245,7 +250,7 @@
 - Cada línea muestra el stock disponible y avisa en línea si la cantidad lo supera.
 - El detalle de venta sigue el estilo del detalle de cita, con las acciones al lado de lo que
   afectan. Nada de tablas con íconos.
-- Las acciones están en todo lugar donde aparece la venta: lista de Inventario, historial de la
+- Las acciones están en todo lugar donde aparece la venta: módulo Ventas (§23), Movimientos, historial de la
   clienta y detalle.
 - La lista de ventas está vacía con un texto amable y el botón "Vender producto".
 
@@ -339,10 +344,11 @@ Segunda ronda (chat del 2026-11-06, condición 12 del Gate):
   100% con el chip "Cortesía".
 - **Fecha (A-002):** la venta siempre es de hoy.
 - **Lista (A-004):** la lista vive en Inventario, en la pestaña "Ventas", y las ventas de cada
-  clienta salen en su ficha.
+  clienta salen en su ficha. (Reemplazado en §23: la lista vive en el módulo Ventas.)
 - **Cancelar un pago suelto sin clienta (BR-003):** el dueño propuso un **nombre de referencia** en
   la venta. No da de alta a una clienta; identifica la venta y permite cancelar un pago suelto.
-  Sin nombre, se cancela la venta completa.
+  Sin nombre, se cancela la venta completa. (Reemplazado en §23: el nombre solo identifica; sin
+  clienta no se cancela un pago suelto.)
   - Al crearla, la venta sin clienta se sigue pagando completa (primera ronda).
 - **Reportes (condición 11):** las compras de mostrador cuentan en el **valor** de la clienta y
   **no** en "clientas atendidas".
@@ -411,7 +417,7 @@ no cambia.
 | `aplicarDescuento` / `quitarDescuento` | Con `ventaMostradorId`: BR-005 contra lo cobrado de la venta, dentro de la transacción; la venta debe estar `vigente` |
 | `registrarAbono` | Con `ventaMostradorId`: la venta debe estar `vigente` y con saldo |
 | `cancelarPagoEnTx(tx, pagoId, motivo, usuarioId)` | **Nueva**, sin PIN. Recalcula el estatus del servicio o de la venta |
-| `cancelarPago(input)` | Verifica el PIN. Rechaza un pago de una venta sin clienta y sin nombre de referencia (BR-003) |
+| `cancelarPago(input)` | Verifica el PIN. Rechaza un pago de una venta sin clienta, con o sin nombre de referencia (BR-003; reemplazado en §23) |
 | `saldosPorCliente` | Suma las ventas `vigente` con clienta. No cuentan como "servicios cerrados" |
 | `descuentosDelRango` | Une los descuentos de ventas `vigente` por `ventas_mostrador.fecha` |
 
@@ -460,7 +466,7 @@ Toda suma pasa por `totalVenta` y por un único lector, `ventasDelRango(db, desd
 | `reportesResumen`: ventas, costo de productos, margen, serie | **Sí** |
 | `reportesResumen.clientesUnicos` ("clientas atendidas") | **No** (dueño, §20) |
 | `reportesFinanzas`: ventas, descuentos por motivo | **Sí** |
-| `reportesFinanzas`: cartera por antigüedad y detalle | **Sí**. Con clienta, a su nombre; sin clienta y con nombre de referencia, como "nombre (sin registro)" |
+| `reportesFinanzas`: cartera por antigüedad y detalle | **Sí**. Con clienta, a su nombre; sin clienta y con nombre de referencia, como "nombre (sin registro)" (desde §23 no debería darse; si se diera, se muestra) |
 | `clientes.ts`: saldo y alerta "Pago pendiente" (vía `saldosPorCliente`) | **Sí** |
 | Historial de la clienta en Clientes | **Sí** (`ventas:porCliente`) |
 | `reportesClientesDetalle.valor` | **Sí** (dueño, §20) |
@@ -481,7 +487,7 @@ Según la [auditoría](auditoria-venta-mostrador-2026-11-06.md) y su
   - Con nombre de referencia se permite, y el saldo queda a ese nombre, igual que un pago suelto
     cancelado.
   - Es la misma regla de BR-003: una deuda sin clienta solo existe si hay a quién cobrarle.
-    Pendiente de que Carlos la confirme.
+    Resuelto en §23: el dueño eligió la versión estricta (sin clienta, nunca con saldo).
 - **VEN-M1 — FR-009.** Al cancelar una venta, **su descuento no se cancela**: queda como parte del
   ticket cancelado y el detalle muestra el neto real.
   - Una venta cancelada no cuenta en ningún reporte, porque todos filtran `vigente`.
@@ -491,3 +497,76 @@ Según la [auditoría](auditoria-venta-mostrador-2026-11-06.md) y su
   - Al registrar, el modal se cierra aunque el comprobante falle (el aviso lo dice).
   - Con eso no hay segundo envío desde la misma captura.
 - **VEN-B5 — FR-001.** La cantidad de cada línea es en **piezas enteras**.
+
+## 23. Módulo Ventas y regla sin crédito (2026-11-09)
+
+### 23.1 Hallazgos del dueño al probar (chat del 2026-11-09)
+El resto de las pruebas manuales salió bien. Hallazgos:
+
+1. **Movimientos.** La salida de una venta ofrecía "Cancelar…" y luego respondía "se cancela desde
+   la venta". La acción debe estar donde aparece el registro.
+2. **Cancelar una venta sin motivo** no era posible.
+3. **No se vende a crédito sin clienta**, aunque la venta tenga nombre identificador. Esto
+   reemplaza la regla de §20 y BR-003.
+4. **La venta está muy escondida** (pestaña de Inventario y botones sueltos). Debe ser un módulo
+   propio, con más relevancia y accesos rápidos.
+
+### 23.2 Decisiones del dueño (respuestas del 2026-11-09)
+| Pregunta | Respuesta |
+|---|---|
+| Motivo al cancelar la venta | **PIN + chips, motivo opcional**: "Devolución", "Error al capturar", "Otro" (con texto), o ninguno |
+| Diseño del módulo | **Punto de venta en la página**: catálogo a la izquierda, carrito y cobro a la derecha, sin pop-up; historial en otra pestaña |
+| Accesos rápidos | **Productos frecuentes**, **Por cobrar**, **Repetir venta** (no "Cifras del día") |
+| Accesos existentes | **Atajos al módulo**: se quita la pestaña Ventas de Inventario; "Vender producto" de Inicio, Inventario y la ficha de la clienta lleva al módulo (con la clienta puesta desde su ficha) |
+
+### 23.3 Reglas que cambian
+- **BR-003** queda estricta (ver §7): sin clienta no hay crédito. Afecta:
+  - `cobros.cancelarPago`: rechaza un pago de venta sin clienta, con o sin nombre;
+  - `exigirSinDeudaHuerfanaEnTx` (VEN-A1): rechaza cualquier cambio de descuento que deje con
+    saldo una venta sin clienta, con o sin nombre;
+  - `detalleVenta.admiteSaldo` (antes `permitePagoSuelto`) es `true` solo con clienta, y la UI
+    oculta esas acciones sin clienta.
+  - Los reportes siguen leyendo `ventasConSaldo` sin cambio. Una venta sin clienta con saldo ya no
+    debería existir, pero si apareciera se muestra en vez de esconderse.
+- **FR-009**: `cancelarVentaInputSchema.motivo` es opcional (máx. 120). Se guarda `null` y la
+  bitácora dice "sin motivo". El PIN sigue siendo obligatorio.
+  - Cancelar un **pago** suelto (con clienta) sigue pidiendo PIN y motivo (FR-006 del cobro), sin
+    cambio.
+
+### 23.4 Diseño como quedó
+- **Ruta `/ventas`** en el menú lateral, después de Citas, con tres pestañas:
+  - **Vender** (`PuntoDeVenta`):
+    - catálogo con búsqueda (sin acentos), sección "Frecuentes" y "Todos los productos";
+    - un toque en una tarjeta agrega una pieza, y la tarjeta se apaga al llegar al stock;
+    - carrito con clienta, nombre de referencia, cantidades (−/+), precio editable, descuento,
+      pagos, comprobante y observaciones;
+    - botón "Cobrar $X", o "Registrar · queda debiendo $Y" con clienta;
+    - el carrito se conserva al cambiar de pestaña.
+  - **Historial**: la lista paginada de antes.
+  - **Por cobrar**, con un globito con el número de ventas:
+    - ventas vigentes de clientas con saldo, la más antigua primero;
+    - "Registrar pago" abre el detalle directo en el abono.
+- **Repetir venta** (detalle de cualquier venta, vigente o cancelada):
+  - lleva a Vender con la misma clienta (si sigue activa) o el mismo nombre de referencia, y los
+    mismos productos activos y cantidades;
+  - cada producto toma su **precio actual de catálogo**, o el de aquella venta si ya no tiene
+    precio.
+- **Movimientos**: una salida de venta muestra "Ver venta VTA-####", que abre el detalle donde se
+  cancela. El main ya rechazaba cancelarla desde Movimientos (AC-008).
+- **Lecturas nuevas en `ventasMostrador.ts`**, solo lectura y sin tablas nuevas:
+  - `ventasPorCobrar()`;
+  - `productosFrecuentes()`: top 8 por piezas en ventas vigentes de los últimos 90 días.
+- **IPC nuevos:** `ventas:porCobrar` y `ventas:frecuentes`.
+- `listarMovimientos` agrega `ventaMostradorId` y `ventaFolio`, con un `LEFT JOIN` de lectura a
+  `ventas_mostrador`.
+- Se elimina `VenderProductoModal`; el punto de venta lo reemplaza.
+
+### 23.5 Gate 001
+No se corre un Gate nuevo:
+- no hay servicio nuevo ni migración, y no cambia de dueño ningún dato;
+- `ventasMostrador.ts` sigue dueño de la cabecera y `cobros.ts` del dinero;
+- las dos lecturas nuevas viven en el servicio que ya pasó el
+  [Gate de la venta](gate-001-venta-mostrador-2026-11-06.md);
+- la página nueva reorganiza la interfaz y se revierte sin tocar datos.
+
+El cambio de regla de dinero sí toca superficies críticas: va a auditoría con evidencia.

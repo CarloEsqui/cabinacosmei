@@ -316,8 +316,9 @@ async function carteraTotal(): Promise<number> {
   const saldos = await calcularSaldosPorCliente(ids);
   let total = 0;
   for (const saldo of saldos.values()) if (saldo > EPSILON) total += saldo;
-  // Ventas de mostrador sin clienta con saldo (solo con nombre de referencia, BR-003); las de
-  // clientas ya vienen en sus saldos.
+  // Ventas de mostrador sin clienta con saldo: no deberían existir (sin clienta no hay crédito,
+  // BR-003 de §23); si alguna apareciera, se suma para no esconderla. Las de clientas ya vienen en
+  // sus saldos.
   total += ventasConSaldo(db).filter((v) => !v.clienteId).reduce((acc, v) => acc + v.saldo, 0);
   return total;
 }

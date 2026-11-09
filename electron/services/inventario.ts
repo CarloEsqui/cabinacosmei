@@ -9,6 +9,7 @@ import {
   entradasInventario,
   salidasInventario,
   movimientos,
+  ventasMostrador,
 } from "../db/schema";
 import { obtenerConfig } from "./config";
 import { registrarAccion } from "./bitacora";
@@ -834,12 +835,15 @@ export async function listarMovimientos(filtro: MovimientosFiltro): Promise<Movi
       docEstatus: sql<string | null>`COALESCE(${entradasInventario.estatus}, ${salidasInventario.estatus})`,
       docMotivo: sql<string | null>`COALESCE(${entradasInventario.canceladaMotivo}, ${salidasInventario.canceladaMotivo})`,
       docServicioRealizadoId: salidasInventario.servicioRealizadoId,
+      ventaMostradorId: salidasInventario.ventaMostradorId,
+      ventaFolio: ventasMostrador.folio,
     })
     .from(movimientos)
     .leftJoin(productos, eq(movimientos.productoId, productos.id))
     .leftJoin(lotes, eq(movimientos.loteId, lotes.id))
     .leftJoin(entradasInventario, eq(movimientos.referenciaId, entradasInventario.id))
     .leftJoin(salidasInventario, eq(movimientos.referenciaId, salidasInventario.id))
+    .leftJoin(ventasMostrador, eq(salidasInventario.ventaMostradorId, ventasMostrador.id))
     .where(condiciones.length ? and(...condiciones) : undefined)
     .orderBy(desc(movimientos.createdAt))
     .limit(500)
@@ -864,5 +868,7 @@ export async function listarMovimientos(filtro: MovimientosFiltro): Promise<Movi
     documentoEstatus: f.docEstatus,
     documentoMotivoCancelacion: f.docMotivo,
     ligadoAServicio: !!f.docServicioRealizadoId,
+    ventaMostradorId: f.ventaMostradorId ?? null,
+    ventaFolio: f.ventaFolio ?? null,
   }));
 }

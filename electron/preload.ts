@@ -138,6 +138,8 @@ const api: IpcApi = {
     listar: (pagina) => ipcRenderer.invoke("ventas:listar", pagina),
     detalle: (ventaId) => ipcRenderer.invoke("ventas:detalle", ventaId),
     porCliente: (clienteId) => ipcRenderer.invoke("ventas:porCliente", clienteId),
+    porCobrar: () => ipcRenderer.invoke("ventas:porCobrar"),
+    frecuentes: () => ipcRenderer.invoke("ventas:frecuentes"),
     cancelar: (input) => ipcRenderer.invoke("ventas:cancelar", input),
     subirComprobante: (ventaId) => ipcRenderer.invoke("ventas:subirComprobante", ventaId),
   },

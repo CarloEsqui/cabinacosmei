@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
@@ -34,7 +34,6 @@ import { cn } from "@/lib/utils";
 import { formatFecha, formatearStock, formatMoneda } from "@/lib/format";
 import { EntradaForm } from "@/components/inventario/EntradaForm";
 import { SalidaForm } from "@/components/inventario/SalidaForm";
-import { VenderProductoModal } from "@/components/ventas/VenderProductoModal";
 import { BotonExportarCsv } from "@/components/BotonExportarCsv";
 import { fechaLocalIso } from "@shared/fechas";
 import type { Lote } from "@shared/types";
@@ -60,7 +59,7 @@ export function ResumenTab() {
   const [direccion, setDireccion] = useState<"asc" | "desc">("asc");
   const [modalEntrada, setModalEntrada] = useState(false);
   const [modalSalida, setModalSalida] = useState(false);
-  const [modalVenta, setModalVenta] = useState(false);
+  const navigate = useNavigate();
 
   // Si se llega desde un enlace (ej. la tarjeta "Stock bajo" del Dashboard, que puede traer
   // varios estados a la vez: "critico,bajo") mientras esta pestaña ya estaba montada, el filtro
@@ -174,7 +173,7 @@ export function ResumenTab() {
             label="Exportar"
             variant="secondary"
           />
-          <Button onClick={() => setModalVenta(true)}>
+          <Button onClick={() => navigate("/ventas")}>
             <ShoppingBag size={16} /> Vender producto
           </Button>
           <Button variant="secondary" onClick={() => setModalEntrada(true)}>
@@ -253,7 +252,6 @@ export function ResumenTab() {
       <Modal open={modalEntrada} onClose={() => setModalEntrada(false)} title="Nueva entrada">
         <EntradaForm onRegistrado={() => setModalEntrada(false)} />
       </Modal>
-      <VenderProductoModal open={modalVenta} onClose={() => setModalVenta(false)} />
       <Modal open={modalSalida} onClose={() => setModalSalida(false)} title="Nueva salida">
         <SalidaForm onRegistrado={() => setModalSalida(false)} />
       </Modal>

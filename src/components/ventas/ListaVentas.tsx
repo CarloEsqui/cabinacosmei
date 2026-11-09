@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ShoppingBag } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -6,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Paginador, POR_PAGINA, usePaginacion } from "@/components/ui/paginador";
 import { formatFecha, formatMoneda } from "@/lib/format";
-import { VenderProductoModal } from "@/components/ventas/VenderProductoModal";
 import { EstatusVenta, VentaDetalleModal, destinatarioVenta } from "@/components/ventas/VentaDetalleModal";
 import type { VentaMostradorRow } from "@shared/types";
 
@@ -38,12 +38,11 @@ export function FilaVenta({ venta, onAbrir, sinDestinatario = false }: { venta: 
 }
 
 /**
- * Inventario → Ventas (spec de la venta, FR-011): ventas de mostrador, 30 por página, la más
+ * Ventas → Historial (spec de la venta, FR-011 y §23): ventas de mostrador, 30 por página, la más
  * reciente primero. La paginación es del main: la lista crece con el tiempo.
  */
-export function ListaVentas() {
+export function ListaVentas({ onVender }: { onVender: () => void }) {
   const [pagina, setPagina] = useState(1);
-  const [vender, setVender] = useState(false);
   const [abierta, setAbierta] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
@@ -56,12 +55,7 @@ export function ListaVentas() {
 
   return (
     <div className="flex flex-col gap-4 p-8">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-ink-500">Ventas de productos sin cita. Las ventas dentro de una cita están en su cierre.</p>
-        <Button onClick={() => setVender(true)}>
-          <ShoppingBag size={16} /> Vender producto
-        </Button>
-      </div>
+      <p className="text-sm text-ink-500">Ventas de productos sin cita. Las ventas dentro de una cita están en su cierre.</p>
 
       <Card className="overflow-hidden p-0">
         {isLoading ? (
@@ -72,7 +66,7 @@ export function ListaVentas() {
             mensaje="Todavía no hay ventas de mostrador"
             submensaje="Cuando alguien compre un producto sin cita, regístralo aquí para que su dinero entre al corte."
             accion={
-              <Button size="sm" onClick={() => setVender(true)}>
+              <Button size="sm" onClick={onVender}>
                 <ShoppingBag size={14} /> Vender producto
               </Button>
             }
@@ -98,15 +92,14 @@ export function ListaVentas() {
         />
       )}
 
-      <VenderProductoModal open={vender} onClose={() => setVender(false)} />
       <VentaDetalleModal ventaId={abierta} onClose={() => setAbierta(null)} />
     </div>
   );
 }
 
-/** Ventas de mostrador de una clienta, para su ficha en Clientes (FR-011). */
+/** Ventas de mostrador de una clienta, para su ficha en Clientes (FR-011). "Vender producto" lleva al módulo. */
 export function VentasDeCliente({ clienteId }: { clienteId: string }) {
-  const [vender, setVender] = useState(false);
+  const navigate = useNavigate();
   const [abierta, setAbierta] = useState<string | null>(null);
   const { data: ventas = [] } = useQuery({
     queryKey: ["ventasCliente", clienteId],
@@ -118,7 +111,7 @@ export function VentasDeCliente({ clienteId }: { clienteId: string }) {
     <div>
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-500">Compras de productos</h3>
-        <Button variant="ghost" size="sm" onClick={() => setVender(true)}>
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/ventas?cliente=${encodeURIComponent(clienteId)}`)}>
           <ShoppingBag size={14} /> Vender producto
         </Button>
       </div>
@@ -136,7 +129,6 @@ export function VentasDeCliente({ clienteId }: { clienteId: string }) {
           <Paginador {...paginacion} sustantivo={["compra", "compras"]} onCambiar={paginacion.irA} />
         </div>
       )}
-      <VenderProductoModal open={vender} onClose={() => setVender(false)} clienteIdInicial={clienteId} />
       <VentaDetalleModal ventaId={abierta} onClose={() => setAbierta(null)} />
     </div>
   );

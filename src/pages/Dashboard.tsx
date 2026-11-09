@@ -32,7 +32,6 @@ import type { CitaRow } from "@shared/types";
 import { CitaDetalleModal, ESTADO_CITA } from "@/pages/agenda/CitaDetalleModal";
 import { CierreCitaModal } from "@/pages/agenda/CierreCitaModal";
 import { NuevaCitaModal } from "@/pages/agenda/NuevaCitaModal";
-import { VenderProductoModal } from "@/components/ventas/VenderProductoModal";
 
 const HOY = fechaLocalIso();
 const EN_7_DIAS = sumarDiasIso(HOY, 7);
@@ -55,7 +54,6 @@ export function DashboardPage() {
   const [citaEnCierre, setCitaEnCierre] = useState<string | null>(null);
   const [citaReagendar, setCitaReagendar] = useState<CitaRow | null>(null);
   const [nuevaCita, setNuevaCita] = useState<{ clienteId: string; fecha?: string } | null>(null);
-  const [vender, setVender] = useState(false);
   const { data: resumen = [] } = useQuery({
     queryKey: ["inventarioResumen"],
     queryFn: () => window.api.inventario.resumen(),
@@ -242,10 +240,12 @@ export function DashboardPage() {
                 <CalendarPlus size={16} /> Nueva cita
               </Button>
             </Link>
-            {/* Venta de mostrador (0008): un producto sin cita, con su dinero al corte. */}
-            <Button variant="secondary" className="w-full" onClick={() => setVender(true)}>
-              <ShoppingBag size={16} /> Vender producto
-            </Button>
+            {/* Atajo al módulo Ventas (§23): un producto sin cita, con su dinero al corte. */}
+            <Link to="/ventas">
+              <Button variant="secondary" className="w-full">
+                <ShoppingBag size={16} /> Vender producto
+              </Button>
+            </Link>
           </aside>
         </div>
       </section>
@@ -432,7 +432,6 @@ export function DashboardPage() {
         fechaInicial={nuevaCita?.fecha}
       />
       <NuevaCitaModal open={!!citaReagendar} citaEditar={citaReagendar} onClose={() => setCitaReagendar(null)} />
-      <VenderProductoModal open={vender} onClose={() => setVender(false)} />
       {citaEnCierre && (
         <CierreCitaModal
           citaId={citaEnCierre}

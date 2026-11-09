@@ -10,6 +10,7 @@ import {
   FileBarChart,
   Settings,
   Sparkles,
+  ShoppingBag,
   Pin,
   PinOff,
 } from "lucide-react";
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/agenda", label: "Agenda", icon: CalendarDays },
   { to: "/citas", label: "Citas", icon: ClipboardList },
+  { to: "/ventas", label: "Ventas", icon: ShoppingBag },
   { to: "/clientes", label: "Clientes", icon: Users },
   { to: "/inventario", label: "Inventario", icon: Boxes },
   { to: "/corte", label: "Corte / Caja", icon: Lock },

@@ -67,6 +67,7 @@ import type {
   DetalleVentaMostrador,
   PaginaVentasMostrador,
   VentaMostradorRow,
+  ProductoFrecuente,
 } from "./types";
 
 export interface IpcApi {
@@ -210,7 +211,11 @@ export interface IpcApi {
     listar(pagina: number): Promise<PaginaVentasMostrador>;
     detalle(ventaId: string): Promise<DetalleVentaMostrador>;
     porCliente(clienteId: string): Promise<VentaMostradorRow[]>;
-    /** Con PIN y motivo: regresa el stock y cancela pagos y descuento. */
+    /** Ventas de clientas con saldo, la más antigua primero (§23). */
+    porCobrar(): Promise<VentaMostradorRow[]>;
+    /** Los productos más vendidos en mostrador en los últimos 90 días (§23). */
+    frecuentes(): Promise<ProductoFrecuente[]>;
+    /** Con PIN (motivo opcional): regresa el stock y cancela los pagos. */
     cancelar(input: CancelarVentaInput): Promise<void>;
     /** Comprobante después de la venta; el main abre el diálogo y decide la carpeta. */
     subirComprobante(ventaId: string): Promise<ArchivoRow | null>;
@@ -351,6 +356,8 @@ export type IpcChannel =
   | "ventas:listar"
   | "ventas:detalle"
   | "ventas:porCliente"
+  | "ventas:porCobrar"
+  | "ventas:frecuentes"
   | "ventas:cancelar"
   | "ventas:subirComprobante"
   | "archivos:subirComprobante"

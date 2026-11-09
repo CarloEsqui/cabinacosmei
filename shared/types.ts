@@ -561,6 +561,9 @@ export interface MovimientoRow {
   documentoMotivoCancelacion: string | null;
   /** La salida viene del cierre de una cita: no se cancela desde Movimientos. */
   ligadoAServicio: boolean;
+  /** La salida es de una venta de mostrador: se cancela desde la venta (§23). */
+  ventaMostradorId: string | null;
+  ventaFolio: string | null;
 }
 
 export type EstadoLicenciaTipo = "no_activada" | "activa" | "por_vencer" | "vencida" | "invalida";
@@ -665,8 +668,17 @@ export interface DetalleVentaMostrador extends VentaMostradorRow {
   observaciones: string | null;
   motivoCancelacion: string | null;
   canceladaAt: number | null;
-  /** BR-003: ¿se puede cancelar un pago suelto? (clienta o nombre de referencia). */
-  permitePagoSuelto: boolean;
+  /**
+   * BR-003 (§23): ¿la venta puede quedar debiendo? Solo con clienta; sin clienta no hay crédito,
+   * aunque tenga nombre de referencia. Gobierna cancelar un pago suelto y cambiar el descuento.
+   */
+  admiteSaldo: boolean;
+}
+
+/** Productos más vendidos en mostrador (acceso rápido del punto de venta, §23). */
+export interface ProductoFrecuente {
+  productoId: string;
+  piezas: number;
 }
 
 export interface PaginaVentasMostrador {

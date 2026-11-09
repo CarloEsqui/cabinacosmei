@@ -439,6 +439,8 @@ export function registrarIpc(): void {
   );
   ipcMain.handle("ventas:detalle", (_e, ventaId: string) => ventasService.detalleVenta(idSchema.parse(ventaId)));
   ipcMain.handle("ventas:porCliente", (_e, clienteId: string) => ventasService.ventasPorCliente(idSchema.parse(clienteId)));
+  ipcMain.handle("ventas:porCobrar", () => ventasService.ventasPorCobrar());
+  ipcMain.handle("ventas:frecuentes", () => ventasService.productosFrecuentes());
   ipcMain.handle("ventas:cancelar", (_e, input) =>
     ventasService.cancelarVenta(cancelarVentaInputSchema.parse(input), usuarioActualId() ?? undefined),
   );

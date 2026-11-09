@@ -5,7 +5,6 @@ import { Tabs } from "@/components/ui/tabs";
 import { ResumenTab } from "@/pages/inventario/Resumen";
 import { MovimientosTab } from "@/pages/inventario/Movimientos";
 import { CaducidadTab } from "@/pages/inventario/Caducidad";
-import { ListaVentas } from "@/components/ventas/ListaVentas";
 import { HojasSueltas } from "@/components/ui/decoracion";
 
 // Entradas y salidas ya no son pestañas: se registran desde pop-ups en el Resumen.
@@ -13,8 +12,6 @@ const TABS = [
   { value: "resumen", label: "Resumen" },
   { value: "movimientos", label: "Movimientos" },
   { value: "caducidad", label: "Caducidad" },
-  // Venta de mostrador (0008): productos vendidos sin cita, con su dinero.
-  { value: "ventas", label: "Ventas" },
 ];
 
 const TABS_VALIDOS = new Set(TABS.map((t) => t.value));
@@ -42,12 +39,11 @@ export function InventarioPage() {
         width={185}
         opacity={0.42}
       />
-      <PageHeader title="Inventario" subtitle="Existencias, lotes, caducidad, movimientos y ventas" />
+      <PageHeader title="Inventario" subtitle="Existencias, lotes, caducidad y movimientos" />
       <Tabs tabs={TABS} value={tab} onChange={setTab} />
       {tab === "resumen" && <ResumenTab />}
       {tab === "movimientos" && <MovimientosTab />}
       {tab === "caducidad" && <CaducidadTab />}
-      {tab === "ventas" && <ListaVentas />}
     </div>
   );
 }
