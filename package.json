@@ -1,6 +1,6 @@
 {
   "name": "bellora-dashboard",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Sistema de administración para cabinas de cosmetología y cosmiatría.",
   "main": "dist-electron/main.js",
   "scripts": {
