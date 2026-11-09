@@ -18,6 +18,7 @@ import * as comprobantesService from "../services/comprobantes";
 import * as fichasService from "../services/fichasClinicas";
 import * as corteService from "../services/corte";
 import * as cobrosService from "../services/cobros";
+import * as ventasService from "../services/ventasMostrador";
 import * as bitacoraService from "../services/bitacora";
 import * as respaldosService from "../services/respaldos";
 import * as reinicioService from "../services/reinicio";
@@ -54,6 +55,9 @@ import {
   cancelarPagoInputSchema,
   descuentoInputSchema,
   quitarDescuentoInputSchema,
+  ventaMostradorInputSchema,
+  cancelarVentaInputSchema,
+  listarVentasInputSchema,
   guardarFichaInputSchema,
   momentoFotoSchema,
   guardarRecetaInputSchema,
@@ -406,6 +410,45 @@ export function registrarIpc(): void {
         aviso: `El anticipo quedó registrado, pero el comprobante no se pudo guardar (${motivo}). Puedes agregarlo después desde la cita.`,
       };
     }
+  });
+  // -- Venta de mostrador (0008) -------------------------------------------------
+  // Condición 10 del Gate de la venta: la venta se confirma primero; si el comprobante elegido no se
+  // puede guardar, NO se lanza (el renderer creería que no se vendió y la repetiría): aviso + bitácora.
+  ipcMain.handle("ventas:registrar", async (_e, input) => {
+    const datos = ventaMostradorInputSchema.parse(input);
+    const usuarioId = usuarioActualId() ?? undefined;
+    const r = await ventasService.registrarVenta(datos, usuarioId);
+    if (!datos.comprobanteToken) return { id: r.id, folio: r.folio, comprobanteGuardado: false };
+    try {
+      const conEvidencia = r.pagoIds.filter((_, i) => !esEfectivo(datos.pagos[i].metodoPago));
+      await comprobantesService.adjuntarComprobanteVenta(datos.comprobanteToken, r.id, conEvidencia, usuarioId);
+      return { id: r.id, folio: r.folio, comprobanteGuardado: true };
+    } catch (e) {
+      const motivo = (e as Error).message;
+      ventasService.registrarVentaSinComprobanteGuardado(r.id, motivo, usuarioId);
+      return {
+        id: r.id,
+        folio: r.folio,
+        comprobanteGuardado: false,
+        aviso: `La venta ${r.folio} quedó registrada, pero el comprobante no se pudo guardar (${motivo}). Puedes agregarlo desde la venta.`,
+      };
+    }
+  });
+  ipcMain.handle("ventas:listar", (_e, pagina: unknown) =>
+    ventasService.listarVentas(listarVentasInputSchema.parse({ pagina }).pagina),
+  );
+  ipcMain.handle("ventas:detalle", (_e, ventaId: string) => ventasService.detalleVenta(idSchema.parse(ventaId)));
+  ipcMain.handle("ventas:porCliente", (_e, clienteId: string) => ventasService.ventasPorCliente(idSchema.parse(clienteId)));
+  ipcMain.handle("ventas:porCobrar", () => ventasService.ventasPorCobrar());
+  ipcMain.handle("ventas:frecuentes", () => ventasService.productosFrecuentes());
+  ipcMain.handle("ventas:cancelar", (_e, input) =>
+    ventasService.cancelarVenta(cancelarVentaInputSchema.parse(input), usuarioActualId() ?? undefined),
+  );
+  ipcMain.handle("ventas:subirComprobante", async (_e, ventaId: string) => {
+    const id = idSchema.parse(ventaId);
+    const ruta = await elegirArchivoComprobante();
+    if (!ruta) return null;
+    return comprobantesService.subirComprobanteVenta(id, ruta, usuarioActualId() ?? undefined);
   });
   ipcMain.handle("cobros:cancelarPago", (_e, input) =>
     cobrosService.cancelarPago(cancelarPagoInputSchema.parse(input), usuarioActualId() ?? undefined),

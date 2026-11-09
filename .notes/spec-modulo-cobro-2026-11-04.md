@@ -706,3 +706,17 @@ la `0008`. El veredicto no se reescribe.
 La Parte B reutiliza `descuentos_servicio`, que crea la `0006`. Para cupones y cortesías agrega
 `cupon_id`, `tarjeta_regalo_id` y `orden` con `ALTER TABLE ADD`, todas nullable. Un descuento
 `todo` se guarda como dos filas, una por base.
+
+## Addendum 2026-11-06 — numeración: la Parte B pasa a la `0009`
+- La venta de mostrador se adelantó a la Parte B por decisión del dueño
+  ([spec](spec-venta-mostrador-2026-11-06.md), [Gate](gate-001-venta-mostrador-2026-11-06.md),
+  condición 1). Esa migración toma la **`0008_venta_mostrador`**, y la Parte B pasa a la
+  **`0009`**.
+- Las condiciones 1 y 2 de este Gate y la nota COB-M1 aplican al número nuevo.
+- La `0008` ya recrea `pagos`:
+  - `cliente_id` pasa a nullable;
+  - `servicio_realizado_id` pasa a `restrict`, lo que cierra COB-M1.
+- **La Parte B no vuelve a recrear `pagos`.** La regla "un pago tiene clienta" vive en
+  `registrarPagosEnTx`, no en un CHECK (condición 3 del Gate de la venta). A esa regla solo se le
+  agrega `venta_tarjeta`.
+

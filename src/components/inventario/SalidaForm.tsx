@@ -1,12 +1,11 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PackageMinus, UserRound } from "lucide-react";
+import { PackageMinus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SelectBuscable } from "@/components/ui/select-buscable";
 import { NumberInput } from "@/components/ui/number-input";
-import { Expandable } from "@/components/ui/expandable";
 import { useToast } from "@/components/ui/toast";
 import { mensajeDeError } from "@/lib/errores";
 import { formatFecha, formatearStock } from "@/lib/format";
@@ -15,8 +14,9 @@ import { fechaLocalIso } from "@shared/fechas";
 
 const HOY = fechaLocalIso();
 
+// Sin "Venta" (Gate de la venta de mostrador, condición 7): una venta registra su dinero desde
+// "Vender producto"; aquí solo quedan salidas que no son ingreso. El main también la rechaza.
 const TIPOS_SALIDA: { value: SalidaInput["tipoSalida"]; label: string }[] = [
-  { value: "venta", label: "Venta" },
   { value: "consumo_servicio", label: "Consumo en servicio" },
   { value: "merma", label: "Merma" },
   { value: "devolucion", label: "Devolución" },
@@ -29,7 +29,7 @@ const VACIO: SalidaInput = {
   folio: "",
   productoId: "",
   loteId: "",
-  tipoSalida: "venta",
+  tipoSalida: "merma",
   cantidad: 1,
   clienteId: null,
   servicioRealizadoId: null,
@@ -47,10 +47,6 @@ export function SalidaForm({ onRegistrado }: { onRegistrado?: () => void }) {
   const { data: productos = [] } = useQuery({
     queryKey: ["productos"],
     queryFn: () => window.api.productos.listar(),
-  });
-  const { data: clientes = [] } = useQuery({
-    queryKey: ["clientes"],
-    queryFn: () => window.api.clientes.listar(),
   });
 
   const [form, setForm] = useState<SalidaInput>(VACIO);
@@ -144,20 +140,6 @@ export function SalidaForm({ onRegistrado }: { onRegistrado?: () => void }) {
         </Select>
       </div>
 
-      <Expandable open={form.tipoSalida === "venta"}>
-        <div className="rounded-xl border border-jacaranda-200 bg-jacaranda-50/60 p-3">
-          <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-jacaranda-700">
-            <UserRound size={14} /> Cliente de la venta
-          </div>
-          <SelectBuscable
-            value={form.clienteId ?? ""}
-            onChange={(v) => setForm({ ...form, clienteId: v || null })}
-            placeholder="Sin cliente asignado"
-            aria-label="Clienta de la venta"
-            opciones={clientes.map((c) => ({ value: c.id, label: c.nombreCompleto, detalle: c.codigoCliente }))}
-          />
-        </div>
-      </Expandable>
 
       <div>
         <label className="mb-1 block text-xs font-medium text-ink-500">

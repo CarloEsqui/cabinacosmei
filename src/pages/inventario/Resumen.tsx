@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   TrendingDown,
   Wallet,
+  ShoppingBag,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -58,6 +59,7 @@ export function ResumenTab() {
   const [direccion, setDireccion] = useState<"asc" | "desc">("asc");
   const [modalEntrada, setModalEntrada] = useState(false);
   const [modalSalida, setModalSalida] = useState(false);
+  const navigate = useNavigate();
 
   // Si se llega desde un enlace (ej. la tarjeta "Stock bajo" del Dashboard, que puede traer
   // varios estados a la vez: "critico,bajo") mientras esta pestaña ya estaba montada, el filtro
@@ -171,7 +173,10 @@ export function ResumenTab() {
             label="Exportar"
             variant="secondary"
           />
-          <Button onClick={() => setModalEntrada(true)}>
+          <Button onClick={() => navigate("/ventas")}>
+            <ShoppingBag size={16} /> Vender producto
+          </Button>
+          <Button variant="secondary" onClick={() => setModalEntrada(true)}>
             <PackagePlus size={16} /> Nueva entrada
           </Button>
           <Button variant="secondary" onClick={() => setModalSalida(true)}>

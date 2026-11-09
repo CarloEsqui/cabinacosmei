@@ -57,6 +57,13 @@
       "when": 1793949053646,
       "tag": "0007_ficha_clinica",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793994957745,
+      "tag": "0008_venta_mostrador",
+      "breakpoints": true
     }
   ]
 }

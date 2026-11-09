@@ -8,7 +8,8 @@ import {
   clientes,
 } from "../db/schema";
 import { calcularSaldosPorCliente } from "./clientes";
-import { cobrosDeDinero, costoProductosVendidos, totalTicket } from "./cobros";
+import { cobrosDeDinero, costoProductosVendidos, costoVentasMostrador, totalTicket } from "./cobros";
+import { ventasConSaldo, ventasDelRango } from "./ventasMostrador";
 import {
   diasEnRango,
   fechaLocalIso,
@@ -65,7 +66,11 @@ export function agregadosDelRango(desde: string, hasta: string): Agregados {
     )
     .all();
 
-  const ventas = servicios.reduce((acc, s) => acc + totalTicket(s), 0);
+  // Venta de mostrador (0008): su neto entra a ventas y su costo al margen. NO cuenta en
+  // "clientas atendidas" (decisión del dueño, spec de la venta §20).
+  const ventasMostrador = ventasDelRango(db, desde, hasta);
+  const ventas =
+    servicios.reduce((acc, s) => acc + totalTicket(s), 0) + ventasMostrador.reduce((acc, v) => acc + v.total, 0);
   const clientesUnicos = new Set(servicios.map((s) => s.clienteId)).size;
   const serviciosIds = servicios.map((s) => s.id);
 
@@ -92,6 +97,7 @@ export function agregadosDelRango(desde: string, hasta: string): Agregados {
   // Cobro v2: el ingreso de los productos vendidos en el ticket entra a ventas, así que su costo
   // entra al margen (si no, el margen saldría inflado).
   for (const costo of costoProductosVendidos(db, serviciosIds).values()) costoInsumos += costo;
+  for (const costo of costoVentasMostrador(db, ventasMostrador.map((v) => v.id)).values()) costoInsumos += costo;
 
   // Pérdidas valorizadas: salidas de tipo merma / devolución en el rango.
   const mermas = db
@@ -258,6 +264,22 @@ export function serieResumen(desde: string, hasta: string): PuntoSerieResumen[] 
     }
   }
 
+  // Venta de mostrador (0008): neto a ventas y costo al margen, en el bucket de su fecha.
+  const ventasMostrador = ventasDelRango(db, desde, hasta);
+  const bucketPorVenta = new Map<string, string>();
+  for (const v of ventasMostrador) {
+    const k = claveBucket(v.fecha, gran);
+    const b = acum.get(k);
+    if (!b) continue;
+    b.ventas += v.total;
+    bucketPorVenta.set(v.id, k);
+  }
+  for (const [ventaId, costo] of costoVentasMostrador(db, ventasMostrador.map((v) => v.id))) {
+    const k = bucketPorVenta.get(ventaId);
+    const b = k ? acum.get(k) : undefined;
+    if (b) b.costo += costo;
+  }
+
   const cobros = cobrosDeDinero(db, desde, hasta);
   for (const p of cobros) {
     const b = acum.get(claveBucket(p.fecha, gran));
@@ -294,6 +316,10 @@ async function carteraTotal(): Promise<number> {
   const saldos = await calcularSaldosPorCliente(ids);
   let total = 0;
   for (const saldo of saldos.values()) if (saldo > EPSILON) total += saldo;
+  // Ventas de mostrador sin clienta con saldo: no deberían existir (sin clienta no hay crédito,
+  // BR-003 de §23); si alguna apareciera, se suma para no esconderla. Las de clientas ya vienen en
+  // sus saldos.
+  total += ventasConSaldo(db).filter((v) => !v.clienteId).reduce((acc, v) => acc + v.saldo, 0);
   return total;
 }
 

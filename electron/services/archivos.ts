@@ -75,6 +75,23 @@ export async function listarArchivos(entidadTipo: string, entidadId: string) {
     .all();
 }
 
+/** ¿La venta de mostrador tiene comprobante? (0008; entidad `venta_mostrador`). */
+export async function tieneComprobanteVenta(ventaMostradorId: string): Promise<boolean> {
+  const db = getDb();
+  const fila = db
+    .select({ id: archivos.id })
+    .from(archivos)
+    .where(
+      and(
+        eq(archivos.entidadTipo, "venta_mostrador"),
+        eq(archivos.entidadId, ventaMostradorId),
+        eq(archivos.categoria, "comprobante"),
+      ),
+    )
+    .get();
+  return Boolean(fila);
+}
+
 export async function tieneComprobante(servicioRealizadoId: string): Promise<boolean> {
   const db = getDb();
   const fila = db

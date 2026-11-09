@@ -271,7 +271,7 @@ export interface ComprobanteRow {
   id: string;
   nombreOriginal: string;
   createdAt: number;
-  origen: "servicio" | "anticipo";
+  origen: "servicio" | "anticipo" | "venta";
   esPdf: boolean;
 }
 
@@ -561,6 +561,9 @@ export interface MovimientoRow {
   documentoMotivoCancelacion: string | null;
   /** La salida viene del cierre de una cita: no se cancela desde Movimientos. */
   ligadoAServicio: boolean;
+  /** La salida es de una venta de mostrador: se cancela desde la venta (§23). */
+  ventaMostradorId: string | null;
+  ventaFolio: string | null;
 }
 
 export type EstadoLicenciaTipo = "no_activada" | "activa" | "por_vencer" | "vencida" | "invalida";
@@ -623,3 +626,63 @@ export interface TratamientoFicha {
   observaciones: string | null;
   fotos: FotoTratamiento[];
 }
+
+// ---------------------------------------------------------------------------
+// Venta de mostrador (migración 0008; spec de la venta §22.4)
+// ---------------------------------------------------------------------------
+
+export interface VentaMostradorRow {
+  id: string;
+  folio: string;
+  fecha: string;
+  clienteId: string | null;
+  clienteNombre: string | null;
+  clienteCodigo: string | null;
+  nombreReferencia: string | null;
+  total: number;
+  cobrado: number;
+  saldo: number;
+  estatusPago: string;
+  estatus: "vigente" | "cancelada";
+  /** Cuántas piezas y productos distintos lleva, para la lista. */
+  productos: number;
+}
+
+/** Una línea por producto: una línea repartida en lotes son varias salidas con el mismo folio S-. */
+export interface LineaVentaMostrador {
+  productoId: string;
+  nombre: string;
+  cantidad: number;
+  precioUnitario: number;
+  importe: number;
+}
+
+export interface DetalleVentaMostrador extends VentaMostradorRow {
+  lineas: LineaVentaMostrador[];
+  totalProductos: number;
+  descuento: number;
+  descuentos: DescuentoRow[];
+  pagos: PagoRow[];
+  tieneComprobante: boolean;
+  comprobantes: ComprobanteRow[];
+  observaciones: string | null;
+  motivoCancelacion: string | null;
+  canceladaAt: number | null;
+  /**
+   * BR-003 (§23): ¿la venta puede quedar debiendo? Solo con clienta; sin clienta no hay crédito,
+   * aunque tenga nombre de referencia. Gobierna cancelar un pago suelto y cambiar el descuento.
+   */
+  admiteSaldo: boolean;
+}
+
+/** Productos más vendidos en mostrador (acceso rápido del punto de venta, §23). */
+export interface ProductoFrecuente {
+  productoId: string;
+  piezas: number;
+}
+
+export interface PaginaVentasMostrador {
+  filas: VentaMostradorRow[];
+  total: number;
+}
+

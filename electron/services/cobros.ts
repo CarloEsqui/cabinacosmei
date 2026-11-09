@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, gte, inArray, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
 import { getDb } from "../db";
-import { pagos, serviciosRealizados, citas, clientes, salidasInventario, descuentosServicio } from "../db/schema";
+import { pagos, serviciosRealizados, citas, clientes, salidasInventario, descuentosServicio, ventasMostrador } from "../db/schema";
 import { verificarPin } from "./auth";
-import { tieneComprobante } from "./archivos";
+import { tieneComprobante, tieneComprobanteVenta } from "./archivos";
 import { existeSeleccion } from "./seleccionesArchivo";
 import { obtenerConfig } from "./config";
 import { registrarAccion } from "./bitacora";
@@ -32,8 +32,12 @@ import type { DescuentoRow, EstadoCuentaCita, PagoRow } from "../../shared/types
  * También es el ÚNICO escritor de `descuentos_servicio` y de la caché `descuento_servicio` /
  * `descuento_productos` de `servicios_realizados` (Gate de descuentos, condición 4).
  *
- * Dependencias: este módulo no importa los módulos de la Parte B (tarjetas de regalo, cupones);
- * ellos lo llaman a él (Gate, condición 5).
+ * Venta de mostrador (migración 0008; Gate de la venta, condiciones 4 y 5): también es el ÚNICO
+ * escritor de `ventas_mostrador.estatus_pago` y `ventas_mostrador.descuento`, y la única definición
+ * del neto de una venta (`totalVenta`). La cabecera la escribe ventasMostrador.ts, que llama aquí.
+ *
+ * Dependencias: este módulo no importa ventasMostrador.ts ni los módulos de la Parte B (tarjetas de
+ * regalo, cupones); ellos lo llaman a él (Gate, condición 5).
  */
 
 type Db = ReturnType<typeof getDb>;
@@ -142,14 +146,41 @@ export function saldosPorCliente(db: Pick<DbOTx, "select">, clienteIds?: string[
   const cobrado = cobradoPorServicio(db, servicios.map((s) => s.id));
 
   const mapa = new Map<string, SaldoCliente>();
+  const vacio = () => ({ serviciosCerrados: 0, totalServicios: 0, totalCobrado: 0, saldo: 0 });
   for (const s of servicios) {
     const c = cobrado.get(s.id) ?? 0;
-    const acc = mapa.get(s.clienteId) ?? { serviciosCerrados: 0, totalServicios: 0, totalCobrado: 0, saldo: 0 };
+    const acc = mapa.get(s.clienteId) ?? vacio();
     acc.serviciosCerrados += 1;
     acc.totalServicios = redondearDinero(acc.totalServicios + totalTicket(s));
     acc.totalCobrado = redondearDinero(acc.totalCobrado + c);
     acc.saldo = redondearDinero(acc.saldo + saldoServicio(s, c));
     mapa.set(s.clienteId, acc);
+  }
+
+  // Ventas de mostrador vigentes con clienta (0008; spec de la venta §22.5): su total y su saldo
+  // cuentan en el saldo de la clienta. No cuentan como "servicios cerrados".
+  const condVentas = [eq(ventasMostrador.estatus, "vigente"), isNotNull(ventasMostrador.clienteId)];
+  if (clienteIds && clienteIds.length > 0) condVentas.push(inArray(ventasMostrador.clienteId, clienteIds));
+  const ventas = db
+    .select({
+      id: ventasMostrador.id,
+      clienteId: ventasMostrador.clienteId,
+      totalProductos: ventasMostrador.totalProductos,
+      descuento: ventasMostrador.descuento,
+      estatus: ventasMostrador.estatus,
+    })
+    .from(ventasMostrador)
+    .where(and(...condVentas))
+    .all();
+  const cobradoVentas = cobradoPorVenta(db, ventas.map((v) => v.id));
+  for (const v of ventas) {
+    if (!v.clienteId) continue;
+    const c = cobradoVentas.get(v.id) ?? 0;
+    const acc = mapa.get(v.clienteId) ?? vacio();
+    acc.totalServicios = redondearDinero(acc.totalServicios + totalVenta(v));
+    acc.totalCobrado = redondearDinero(acc.totalCobrado + c);
+    acc.saldo = redondearDinero(acc.saldo + saldoVenta(v, c));
+    mapa.set(v.clienteId, acc);
   }
   return mapa;
 }
@@ -246,10 +277,12 @@ export function anticiposSinAplicar(db: Pick<DbOTx, "select">, citaId: string): 
 // ---------------------------------------------------------------------------
 
 interface RegistrarPagosInput {
-  clienteId: string;
+  /** Null solo en un pago de venta de mostrador sin clienta (BR-002 de la venta). */
+  clienteId: string | null;
   servicioRealizadoId?: string | null;
   citaId?: string | null;
-  concepto: "servicio" | "anticipo";
+  ventaMostradorId?: string | null;
+  concepto: "servicio" | "anticipo" | "venta_mostrador";
   lineas: LineaPago[];
   /** BR-003 / Decisión D: día en que se cobra, nunca la fecha de la cita. */
   fecha: string;
@@ -261,6 +294,18 @@ interface RegistrarPagosInput {
  * `metodosValidos` viene de la config, leída FUERA de la transacción (obtenerConfig es async).
  */
 export function registrarPagosEnTx(tx: DbOTx, input: RegistrarPagosInput, metodosValidos: string[]): string[] {
+  // BR-002 de la venta de mostrador (Gate de la venta, condición 3): un pago tiene clienta, salvo
+  // que pertenezca a una venta de mostrador. La regla vive aquí y no en un CHECK para que la Parte B
+  // (venta_tarjeta) la extienda sin recrear `pagos` otra vez.
+  if (input.concepto === "venta_mostrador" && !input.ventaMostradorId) {
+    throw new Error("Un pago de venta de mostrador debe pertenecer a una venta.");
+  }
+  if (input.concepto !== "venta_mostrador" && input.ventaMostradorId) {
+    throw new Error("Solo un pago de venta de mostrador se liga a una venta.");
+  }
+  if (!input.clienteId && input.concepto !== "venta_mostrador") {
+    throw new Error("Este pago necesita una clienta.");
+  }
   const ids: string[] = [];
   for (const linea of input.lineas) {
     const monto = redondearDinero(linea.monto);
@@ -276,6 +321,7 @@ export function registrarPagosEnTx(tx: DbOTx, input: RegistrarPagosInput, metodo
         clienteId: input.clienteId,
         servicioRealizadoId: input.servicioRealizadoId || null,
         citaId: input.citaId || null,
+        ventaMostradorId: input.ventaMostradorId || null,
         concepto: input.concepto,
         fuente: "dinero",
         fecha: input.fecha,
@@ -394,6 +440,8 @@ function textoLineas(lineas: LineaPago[]): string {
  * cierre (addendum 2026-11-05): sin comprobante y no en efectivo, exige la confirmación explícita.
  */
 export async function registrarAbono(input: AbonoInput, usuarioId?: string): Promise<void> {
+  if (input.ventaMostradorId) return registrarAbonoVenta(input.ventaMostradorId, input, usuarioId);
+  if (!input.servicioRealizadoId) throw new Error("Falta el servicio del abono.");
   const db = getDb();
   const servicio = db.select().from(serviciosRealizados).where(eq(serviciosRealizados.id, input.servicioRealizadoId)).get();
   if (!servicio) throw new Error("El servicio realizado no existe.");
@@ -508,24 +556,45 @@ export async function cancelarPago(input: CancelarPagoInput, usuarioId?: string)
   db.transaction((tx) => {
     const pago = tx.select().from(pagos).where(eq(pagos.id, input.pagoId)).get();
     if (!pago) throw new Error("El pago no existe.");
-    if (pago.estatus !== "cobrado") throw new Error("Este pago ya estaba cancelado.");
-    tx.update(pagos)
-      .set({
-        estatus: "cancelado",
-        canceladoAt: new Date(),
-        motivoCancelacion: input.motivo.trim(),
-        canceladoPor: usuarioId || null,
-      })
-      .where(eq(pagos.id, pago.id))
-      .run();
-    if (pago.servicioRealizadoId) recalcularEstatusEnTx(tx, pago.servicioRealizadoId);
-    registrarAccion(tx, {
-      usuarioId,
-      accion: "pago_cancelado",
-      entidadTipo: "pago",
-      entidadId: pago.id,
-      detalle: `${pago.metodoPago} $${pago.monto.toFixed(2)}${pago.corteId ? " (ya cortado: ajuste en el próximo corte)" : ""} · motivo: ${input.motivo.trim()}`,
-    });
+    if (pago.ventaMostradorId) {
+      const v = tx.select().from(ventasMostrador).where(eq(ventasMostrador.id, pago.ventaMostradorId)).get();
+      if (!v) throw new Error("La venta no existe.");
+      if (v.estatus !== "vigente") throw new Error("Esta venta ya está cancelada.");
+      // BR-003 de la venta (§23): sin clienta no hay crédito, aunque tenga nombre de referencia.
+      // Cancelar un pago la dejaría debiendo: se cancela la venta completa.
+      if (!v.clienteId) {
+        throw new Error("Esta venta no tiene clienta y no puede quedar debiendo: cancela la venta completa.");
+      }
+    }
+    cancelarPagoEnTx(tx, pago.id, input.motivo, usuarioId);
+  });
+}
+
+/**
+ * Cancela un pago sin pedir PIN: quien llama ya lo verificó (cancelarPago, o cancelarVenta, que lo
+ * pide una sola vez para todos sus pagos). Recalcula el estatus del servicio o de la venta.
+ */
+export function cancelarPagoEnTx(tx: DbOTx, pagoId: string, motivo: string, usuarioId?: string) {
+  const pago = tx.select().from(pagos).where(eq(pagos.id, pagoId)).get();
+  if (!pago) throw new Error("El pago no existe.");
+  if (pago.estatus !== "cobrado") throw new Error("Este pago ya estaba cancelado.");
+  tx.update(pagos)
+    .set({
+      estatus: "cancelado",
+      canceladoAt: new Date(),
+      motivoCancelacion: motivo.trim(),
+      canceladoPor: usuarioId || null,
+    })
+    .where(eq(pagos.id, pago.id))
+    .run();
+  if (pago.servicioRealizadoId) recalcularEstatusEnTx(tx, pago.servicioRealizadoId);
+  if (pago.ventaMostradorId) recalcularEstatusVentaEnTx(tx, pago.ventaMostradorId);
+  registrarAccion(tx, {
+    usuarioId,
+    accion: "pago_cancelado",
+    entidadTipo: "pago",
+    entidadId: pago.id,
+    detalle: `${pago.metodoPago} $${pago.monto.toFixed(2)}${pago.corteId ? " (ya cortado: ajuste en el próximo corte)" : ""} · motivo: ${motivo.trim()}`,
   });
 }
 
@@ -661,12 +730,14 @@ function cancelarDescuentoEnTx(
     .set({ estatus: "cancelado", canceladoAt: new Date(), motivoCancelacion: motivo })
     .where(eq(descuentosServicio.id, d.id))
     .run();
-  recalcularCacheDescuentosEnTx(tx, d.servicioRealizadoId);
+  // Desde la 0008 el descuento es de un servicio O de una venta (CHECK de exactamente uno).
+  if (d.ventaMostradorId) recalcularCacheDescuentoVentaEnTx(tx, d.ventaMostradorId);
+  else if (d.servicioRealizadoId) recalcularCacheDescuentosEnTx(tx, d.servicioRealizadoId);
   registrarAccion(tx, {
     usuarioId,
     accion: "descuento_quitado",
-    entidadTipo: "servicio_realizado",
-    entidadId: d.servicioRealizadoId,
+    entidadTipo: d.ventaMostradorId ? "venta_mostrador" : "servicio_realizado",
+    entidadId: d.ventaMostradorId ?? d.servicioRealizadoId ?? undefined,
     detalle: `${codigoServicio} · ${textoDescuento(d)} · motivo: ${motivo}`,
   });
 }
@@ -737,8 +808,31 @@ export function aplicarDescuentoEnTx(tx: DbOTx, servicioId: string, d: Descuento
  */
 export async function aplicarDescuento(input: DescuentoInput, usuarioId?: string): Promise<void> {
   const db = getDb();
+  if (input.ventaMostradorId) {
+    const ventaId = input.ventaMostradorId;
+    db.transaction((tx) => {
+      const v = tx.select().from(ventasMostrador).where(eq(ventasMostrador.id, ventaId)).get();
+      if (!v) throw new Error("La venta no existe.");
+      if (v.estatus !== "vigente") throw new Error("Esta venta está cancelada.");
+      aplicarDescuentoVentaEnTx(tx, v.id, input.descuento, usuarioId);
+      const despues = tx.select().from(ventasMostrador).where(eq(ventasMostrador.id, v.id)).get()!;
+      const total = totalVenta(despues);
+      const cobrado = cobradoPorVenta(tx, [v.id]).get(v.id) ?? 0;
+      if (cobrado > total + TOLERANCIA) {
+        throw new Error(
+          `Con este descuento el total quedaría en $${total.toFixed(2)}, pero ya se cobraron $${cobrado.toFixed(2)}. ` +
+            "Para descontar más, primero cancela un pago.",
+        );
+      }
+      exigirSinDeudaHuerfanaEnTx(tx, v.id);
+      recalcularEstatusVentaEnTx(tx, v.id);
+    });
+    return;
+  }
+  if (!input.servicioRealizadoId) throw new Error("Falta el servicio del descuento.");
+  const servicioRealizadoId = input.servicioRealizadoId;
   db.transaction((tx) => {
-    const s = tx.select().from(serviciosRealizados).where(eq(serviciosRealizados.id, input.servicioRealizadoId)).get();
+    const s = tx.select().from(serviciosRealizados).where(eq(serviciosRealizados.id, servicioRealizadoId)).get();
     if (!s) throw new Error("El servicio realizado no existe.");
     if (s.estatus !== "cerrado") throw new Error("El descuento de una cita abierta se aplica al cerrarla.");
     if (s.estatusPago === "cancelado") throw new Error("Este servicio está marcado como cancelado.");
@@ -765,6 +859,16 @@ export async function quitarDescuento(input: QuitarDescuentoInput, usuarioId?: s
     const d = tx.select().from(descuentosServicio).where(eq(descuentosServicio.id, input.descuentoId)).get();
     if (!d) throw new Error("El descuento no existe.");
     if (d.estatus !== "aplicado") throw new Error("Este descuento ya se había quitado.");
+    if (d.ventaMostradorId) {
+      const v = tx.select().from(ventasMostrador).where(eq(ventasMostrador.id, d.ventaMostradorId)).get();
+      if (!v) throw new Error("La venta no existe.");
+      if (v.estatus !== "vigente") throw new Error("Esta venta está cancelada.");
+      cancelarDescuentoEnTx(tx, d, v.folio, input.motivo?.trim() || "Sin motivo", usuarioId);
+      exigirSinDeudaHuerfanaEnTx(tx, v.id);
+      recalcularEstatusVentaEnTx(tx, v.id);
+      return;
+    }
+    if (!d.servicioRealizadoId) throw new Error("El descuento no tiene servicio.");
     const s = tx.select().from(serviciosRealizados).where(eq(serviciosRealizados.id, d.servicioRealizadoId)).get();
     if (!s) throw new Error("El servicio realizado no existe.");
     if (s.estatus !== "cerrado") throw new Error("Solo se quitan descuentos de citas cerradas.");
@@ -783,7 +887,7 @@ export function descuentosDelRango(
   desde: string,
   hasta: string,
 ): { motivo: string; aplicaA: string; monto: number }[] {
-  return db
+  const deServicios = db
     .select({ motivo: descuentosServicio.motivo, aplicaA: descuentosServicio.aplicaA, monto: descuentosServicio.monto })
     .from(descuentosServicio)
     .innerJoin(serviciosRealizados, eq(serviciosRealizados.id, descuentosServicio.servicioRealizadoId))
@@ -797,4 +901,260 @@ export function descuentosDelRango(
       ),
     )
     .all();
+  // Ventas de mostrador vigentes, por la fecha de la venta (0008; spec de la venta §22.5).
+  const deVentas = db
+    .select({ motivo: descuentosServicio.motivo, aplicaA: descuentosServicio.aplicaA, monto: descuentosServicio.monto })
+    .from(descuentosServicio)
+    .innerJoin(ventasMostrador, eq(ventasMostrador.id, descuentosServicio.ventaMostradorId))
+    .where(
+      and(
+        eq(descuentosServicio.estatus, "aplicado"),
+        eq(ventasMostrador.estatus, "vigente"),
+        gte(ventasMostrador.fecha, desde),
+        lte(ventasMostrador.fecha, hasta),
+      ),
+    )
+    .all();
+  return [...deServicios, ...deVentas];
+}
+
+// ---------------------------------------------------------------------------
+// Venta de mostrador (migración 0008; spec .notes/spec-venta-mostrador-2026-11-06.md §22.3)
+// ---------------------------------------------------------------------------
+
+/** Lo que todo lector de dinero selecciona de `ventas_mostrador`. */
+export interface MontosVenta {
+  totalProductos: number;
+  descuento: number;
+}
+
+/** Neto de una venta = productos − descuento. ÚNICA definición (Gate de la venta, condición 5). */
+export function totalVenta(v: MontosVenta): number {
+  return redondearDinero(v.totalProductos - v.descuento);
+}
+
+/** Saldo de una venta. Una venta cancelada no debe nada. */
+export function saldoVenta(v: MontosVenta & { estatus: string }, cobrado: number): number {
+  if (v.estatus !== "vigente") return 0;
+  return Math.max(0, redondearDinero(totalVenta(v) - cobrado));
+}
+
+/** Σ pagos cobrados de cada venta. */
+export function cobradoPorVenta(db: Pick<DbOTx, "select">, ventaIds: string[]): Map<string, number> {
+  const mapa = new Map<string, number>();
+  if (ventaIds.length === 0) return mapa;
+  const filas = db
+    .select({ ventaId: pagos.ventaMostradorId, monto: pagos.monto })
+    .from(pagos)
+    .where(and(eq(pagos.estatus, "cobrado"), inArray(pagos.ventaMostradorId, ventaIds)))
+    .all();
+  for (const p of filas) {
+    if (!p.ventaId) continue;
+    mapa.set(p.ventaId, redondearDinero((mapa.get(p.ventaId) ?? 0) + p.monto));
+  }
+  return mapa;
+}
+
+/** Costo (no precio) de los productos de cada venta vigente de mostrador, para el margen. */
+export function costoVentasMostrador(db: Pick<DbOTx, "select">, ventaIds: string[]): Map<string, number> {
+  const mapa = new Map<string, number>();
+  if (ventaIds.length === 0) return mapa;
+  const filas = db
+    .select({ ventaId: salidasInventario.ventaMostradorId, valor: salidasInventario.valor })
+    .from(salidasInventario)
+    .where(
+      and(
+        inArray(salidasInventario.ventaMostradorId, ventaIds),
+        eq(salidasInventario.tipoSalida, "venta"),
+        eq(salidasInventario.estatus, "vigente"),
+      ),
+    )
+    .all();
+  for (const f of filas) {
+    if (!f.ventaId) continue;
+    mapa.set(f.ventaId, (mapa.get(f.ventaId) ?? 0) + (f.valor ?? 0));
+  }
+  return mapa;
+}
+
+/** Estatus de pago de una venta: lo escribe SOLO esta función (Gate de la venta, condición 4). */
+export function recalcularEstatusVentaEnTx(tx: DbOTx, ventaId: string) {
+  const v = tx.select().from(ventasMostrador).where(eq(ventasMostrador.id, ventaId)).get();
+  if (!v) throw new Error("La venta no existe.");
+  const total = totalVenta(v);
+  const cobrado = cobradoPorVenta(tx, [ventaId]).get(ventaId) ?? 0;
+  // Una venta cancelada conserva el estatus que tenía; no se vuelve a evaluar.
+  if (v.estatus !== "vigente") return { total, cobrado, saldo: 0, estatusPago: v.estatusPago };
+  const estatusPago = derivarEstatusPago(total, cobrado);
+  if (estatusPago !== v.estatusPago) {
+    tx.update(ventasMostrador).set({ estatusPago, updatedAt: new Date() }).where(eq(ventasMostrador.id, ventaId)).run();
+  }
+  return { total, cobrado, saldo: saldoVenta(v, cobrado), estatusPago };
+}
+
+/** Descuentos aplicados (no cancelados) de una venta. */
+export function descuentosVigentesVenta(db: Pick<DbOTx, "select">, ventaId: string): DescuentoRow[] {
+  return db
+    .select()
+    .from(descuentosServicio)
+    .where(and(eq(descuentosServicio.ventaMostradorId, ventaId), eq(descuentosServicio.estatus, "aplicado")))
+    .orderBy(descuentosServicio.createdAt)
+    .all()
+    .map(mapearDescuento);
+}
+
+/**
+ * VEN-A1 (auditoría de la venta) con la regla del dueño de §23: una venta sin clienta nunca queda
+ * debiendo, aunque tenga nombre de referencia; no se vende a crédito sin clienta (BR-003 y FR-005).
+ * Aplica a quitar o cambiar su descuento después de cobrar. Se llama dentro de la transacción: si
+ * lanza, el cambio se revierte.
+ */
+function exigirSinDeudaHuerfanaEnTx(tx: DbOTx, ventaId: string) {
+  const v = tx.select().from(ventasMostrador).where(eq(ventasMostrador.id, ventaId)).get();
+  if (!v || v.clienteId) return;
+  const cobrado = cobradoPorVenta(tx, [v.id]).get(v.id) ?? 0;
+  if (saldoVenta(v, cobrado) > TOLERANCIA) {
+    throw new Error(
+      "Esta venta no tiene clienta y quedaría debiendo. Para cambiar el precio, cancela la venta y regístrala de nuevo.",
+    );
+  }
+}
+
+/**
+ * La caché `ventas_mostrador.descuento` se recalcula desde la tabla, nunca de forma incremental. Una
+ * venta cancelada conserva su neto (VEN-M1): ya no se toca.
+ */
+function recalcularCacheDescuentoVentaEnTx(tx: DbOTx, ventaId: string) {
+  const v = tx.select({ estatus: ventasMostrador.estatus }).from(ventasMostrador).where(eq(ventasMostrador.id, ventaId)).get();
+  if (!v || v.estatus !== "vigente") return;
+  const filas = tx
+    .select({ monto: descuentosServicio.monto })
+    .from(descuentosServicio)
+    .where(and(eq(descuentosServicio.ventaMostradorId, ventaId), eq(descuentosServicio.estatus, "aplicado")))
+    .all();
+  const suma = redondearDinero(filas.reduce((acc, f) => acc + f.monto, 0));
+  tx.update(ventasMostrador).set({ descuento: suma, updatedAt: new Date() }).where(eq(ventasMostrador.id, ventaId)).run();
+}
+
+/**
+ * Descuento manual de una venta, dentro de una transacción. La única base es el total de productos
+ * (`aplica_a = 'productos'`). Reemplaza al vigente si lo había. No recalcula el estatus de pago: lo
+ * hace quien llama, después de sus validaciones.
+ */
+export function aplicarDescuentoVentaEnTx(tx: DbOTx, ventaId: string, d: DescuentoCaptura, usuarioId?: string) {
+  const v = tx.select().from(ventasMostrador).where(eq(ventasMostrador.id, ventaId)).get();
+  if (!v) throw new Error("La venta no existe.");
+  if (d.aplicaA !== "productos") throw new Error("En una venta, el descuento es sobre los productos.");
+  if (d.modo !== "porcentaje" && d.modo !== "monto") throw new Error("Tipo de descuento no válido.");
+  if (!["primera_visita", "promocion", "cortesia", "otro"].includes(d.motivo)) throw new Error("Motivo no válido.");
+  const detalle = d.motivoDetalle?.trim() || null;
+  if (d.motivo === "otro" && !detalle) throw new Error("Escribe el motivo del descuento.");
+
+  const base = redondearDinero(v.totalProductos);
+  const error = validarDescuento({ modo: d.modo, valor: d.valor, base });
+  if (error) throw new Error(error);
+  const monto = calcularDescuento({ modo: d.modo, valor: d.valor, base });
+
+  const previo = tx
+    .select()
+    .from(descuentosServicio)
+    .where(
+      and(
+        eq(descuentosServicio.ventaMostradorId, v.id),
+        eq(descuentosServicio.tipo, "manual"),
+        eq(descuentosServicio.estatus, "aplicado"),
+      ),
+    )
+    .get();
+  if (previo) cancelarDescuentoEnTx(tx, previo, v.folio, "Reemplazado por otro descuento", usuarioId);
+
+  const fila = {
+    id: randomUUID(),
+    ventaMostradorId: v.id,
+    tipo: "manual",
+    aplicaA: "productos",
+    modo: d.modo,
+    valor: d.valor,
+    base,
+    monto,
+    motivo: d.motivo,
+    motivoDetalle: detalle,
+    estatus: "aplicado",
+    usuarioId: usuarioId || null,
+  };
+  tx.insert(descuentosServicio).values(fila).run();
+  recalcularCacheDescuentoVentaEnTx(tx, v.id);
+  registrarAccion(tx, {
+    usuarioId,
+    accion: "descuento_aplicado",
+    entidadTipo: "venta_mostrador",
+    entidadId: v.id,
+    detalle: `${v.folio} · ${textoDescuento(fila)}${detalle ? ` (${detalle})` : ""}`,
+  });
+}
+
+/** Pagos de una venta (vigentes y cancelados), para su detalle. */
+export function pagosDeVenta(db: Pick<DbOTx, "select">, ventaId: string): PagoRow[] {
+  return db
+    .select()
+    .from(pagos)
+    .where(eq(pagos.ventaMostradorId, ventaId))
+    .orderBy(pagos.createdAt)
+    .all()
+    .map((p) => ({
+      id: p.id,
+      fecha: p.fecha,
+      monto: p.monto,
+      metodoPago: p.metodoPago,
+      estatus: p.estatus,
+      concepto: p.concepto,
+      motivoCancelacion: p.motivoCancelacion,
+      enCorte: p.corteId !== null,
+    }));
+}
+
+/**
+ * FR-006 de la venta: abono a una venta vigente con saldo. Mismo control de comprobante que el
+ * abono de una cita. Todo se valida dentro de la transacción (DIN-M2).
+ */
+async function registrarAbonoVenta(ventaId: string, input: AbonoInput, usuarioId?: string): Promise<void> {
+  const db = getDb();
+  const sinEvidencia = !(await tieneComprobanteVenta(ventaId)) && requiereEvidencia(input.lineas);
+  if (sinEvidencia && !input.sinComprobanteAceptado) {
+    throw new Error("Este cobro no es en efectivo y no tiene comprobante. Súbelo o confirma que continúas sin evidencia.");
+  }
+  const { metodosPago } = await obtenerConfig();
+  const hoy = fechaLocalIso();
+  db.transaction((tx) => {
+    const v = tx.select().from(ventasMostrador).where(eq(ventasMostrador.id, ventaId)).get();
+    if (!v) throw new Error("La venta no existe.");
+    if (v.estatus !== "vigente") throw new Error("Esta venta está cancelada; no admite pagos.");
+    const cobrado = cobradoPorVenta(tx, [v.id]).get(v.id) ?? 0;
+    const saldo = saldoVenta(v, cobrado);
+    if (saldo <= TOLERANCIA) throw new Error("Esta venta ya está pagada por completo.");
+    const suma = sumaLineas(input.lineas);
+    if (suma > saldo + TOLERANCIA) throw new Error(`El pago excede lo que se debe ($${saldo.toFixed(2)}).`);
+    registrarPagosEnTx(
+      tx,
+      { clienteId: v.clienteId, ventaMostradorId: v.id, concepto: "venta_mostrador", lineas: input.lineas, fecha: hoy, usuarioId },
+      metodosPago,
+    );
+    const r = recalcularEstatusVentaEnTx(tx, v.id);
+    registrarAccion(tx, {
+      usuarioId,
+      accion: "pago_registrado",
+      entidadTipo: "venta_mostrador",
+      entidadId: v.id,
+      detalle: `${v.folio} · abono ${textoLineas(input.lineas)} · queda $${r.saldo.toFixed(2)}${sinEvidencia ? " · sin comprobante (aceptado)" : ""}`,
+    });
+    if (sinEvidencia) {
+      registrarAccion(tx, {
+        usuarioId,
+        accion: "cobro_sin_comprobante",
+        entidadTipo: "venta_mostrador",
+        entidadId: v.id,
+        detalle: `${v.folio} · abono: cobro sin efectivo y sin comprobante (aceptado).`,
+      });
+    }
+  });
 }

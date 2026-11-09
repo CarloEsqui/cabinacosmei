@@ -50,6 +50,7 @@ sensitive_globs:            # machine-readable shadow of critical_surfaces
   - "src/pages/agenda/CierreCitaModal.tsx"
   - "src/pages/Corte.tsx"
   - "electron/services/cobros.ts"
+  - "electron/services/ventasMostrador.ts"
   - "electron/services/tarjetasRegalo.ts"
   - "electron/services/cupones.ts"
   - "electron/services/respaldos.ts"

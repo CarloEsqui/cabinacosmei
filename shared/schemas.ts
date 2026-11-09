@@ -188,9 +188,21 @@ export const descuentoCapturaSchema = z
   });
 export type DescuentoCaptura = z.infer<typeof descuentoCapturaSchema>;
 
-/** FR-005: aplicar (o cambiar) un descuento a un servicio ya cerrado, desde el detalle de la cita. */
+/** Exactamente un destino de cobro: un servicio cerrado o una venta de mostrador (0008). */
+const unDestino = (d: { servicioRealizadoId?: string; ventaMostradorId?: string }) =>
+  Boolean(d.servicioRealizadoId) !== Boolean(d.ventaMostradorId);
+
+/**
+ * FR-005: aplicar (o cambiar) un descuento a un servicio ya cerrado, desde el detalle de la cita, o
+ * a una venta de mostrador (spec de la venta, FR-007; en una venta, `aplicaA` es "productos").
+ */
 export const descuentoInputSchema = z
-  .object({ servicioRealizadoId: z.string().min(1), descuento: descuentoCapturaSchema });
+  .object({
+    servicioRealizadoId: z.string().min(1).optional(),
+    ventaMostradorId: z.string().min(1).optional(),
+    descuento: descuentoCapturaSchema,
+  })
+  .refine(unDestino, { message: "El descuento es de un servicio o de una venta." });
 export type DescuentoInput = z.infer<typeof descuentoInputSchema>;
 
 /** FR-006: quitar un descuento (se cancela, nunca se borra). */
@@ -226,12 +238,15 @@ export const cierreCitaInputSchema = z.object({
 });
 export type CierreCitaInput = z.infer<typeof cierreCitaInputSchema>;
 
-/** FR-004: abono a un servicio cerrado. Sin PIN (addendum 2026-11-05). */
-export const abonoInputSchema = z.object({
-  servicioRealizadoId: z.string().min(1),
-  lineas: z.array(lineaPagoSchema).min(1, "Agrega al menos un pago."),
-  sinComprobanteAceptado: z.boolean().optional(),
-});
+/** FR-004: abono a un servicio cerrado o a una venta de mostrador (0008). Sin PIN (addendum 2026-11-05). */
+export const abonoInputSchema = z
+  .object({
+    servicioRealizadoId: z.string().min(1).optional(),
+    ventaMostradorId: z.string().min(1).optional(),
+    lineas: z.array(lineaPagoSchema).min(1, "Agrega al menos un pago."),
+    sinComprobanteAceptado: z.boolean().optional(),
+  })
+  .refine(unDestino, { message: "El abono es de un servicio o de una venta." });
 export type AbonoInput = z.infer<typeof abonoInputSchema>;
 
 /** FR-005: anticipo sobre una cita activa. Sin PIN (addendum 2026-11-05). */
@@ -251,6 +266,47 @@ export const cancelarPagoInputSchema = z.object({
   pin: z.string().min(1, "Escribe el PIN de acceso."),
 });
 export type CancelarPagoInput = z.infer<typeof cancelarPagoInputSchema>;
+
+// ---------------------------------------------------------------------------
+// Venta de mostrador (migración 0008; spec .notes/spec-venta-mostrador-2026-11-06.md §22.4)
+// El renderer nunca manda totales, estatus ni rutas: el main los calcula.
+// ---------------------------------------------------------------------------
+
+/** BR-005 de la venta: precio editable, siempre > 0. Para regalar, descuento con motivo Cortesía. */
+export const lineaVentaMostradorSchema = z.object({
+  productoId: z.string().min(1),
+  // Siempre piezas enteras (vender descuenta piezas, no fracciones de contenido; VEN-B5).
+  cantidad: z.number().int("La cantidad es en piezas enteras.").positive("La cantidad debe ser mayor a 0."),
+  precioUnitario: z.number().positive("El precio debe ser mayor a $0. Para regalar, usa un descuento de cortesía."),
+});
+
+export const ventaMostradorInputSchema = z.object({
+  /** null = "Público general". */
+  clienteId: z.string().min(1).nullable(),
+  /** Solo sin clienta: identifica la venta (BR-003). Con clienta el main lo ignora. */
+  nombreReferencia: z.string().trim().max(80).nullable().optional(),
+  lineas: z.array(lineaVentaMostradorSchema).min(1, "Agrega al menos un producto."),
+  /** En una venta, `aplicaA` siempre es "productos". */
+  descuento: descuentoCapturaSchema
+    .refine((d) => d.aplicaA === "productos", { message: "En una venta, el descuento es sobre los productos." })
+    .optional(),
+  pagos: z.array(lineaPagoSchema).default([]),
+  observaciones: z.string().trim().max(500).optional(),
+  sinComprobanteAceptado: z.boolean().optional(),
+  /** Comprobante elegido con `archivos:elegirComprobante`; el main lo guarda al registrar. */
+  comprobanteToken: z.string().min(1).optional(),
+});
+export type VentaMostradorInput = z.infer<typeof ventaMostradorInputSchema>;
+
+/** FR-009 de la venta: cancelar pide PIN; el motivo es opcional (decisión del dueño, §23). */
+export const cancelarVentaInputSchema = z.object({
+  ventaId: z.string().min(1),
+  motivo: z.string().trim().max(120).optional(),
+  pin: z.string().min(1, "Escribe el PIN de acceso."),
+});
+export type CancelarVentaInput = z.infer<typeof cancelarVentaInputSchema>;
+
+export const listarVentasInputSchema = z.object({ pagina: z.number().int().min(1).default(1) });
 
 export const recetaItemSchema = z.object({
   productoId: z.string().min(1),

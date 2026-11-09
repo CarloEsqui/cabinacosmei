@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban } from "lucide-react";
+import { Ban, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
@@ -15,6 +15,7 @@ import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { BotonExportarCsv } from "@/components/BotonExportarCsv";
 import { formatFecha } from "@/lib/format";
 import type { MovimientosFiltro } from "@shared/schemas";
+import { VentaDetalleModal } from "@/components/ventas/VentaDetalleModal";
 
 const TIPO_LABEL: Record<string, string> = {
   entrada: "Entrada",
@@ -42,12 +43,16 @@ const TIPO_VARIANT: Record<string, NonNullable<BadgeProps["variant"]>> = {
   cancelacion_salida: "neutral",
 };
 
-/** Un movimiento original (no una cancelación) cuyo documento sigue vigente y no viene de una cita. */
+/**
+ * Un movimiento original (no una cancelación) cuyo documento sigue vigente y no viene de una cita ni
+ * de una venta de mostrador (esas se corrigen desde su cita o su venta).
+ */
 function esCancelable(m: MovimientoRow): boolean {
   return (
     !m.tipo.startsWith("cancelacion_") &&
     m.documentoEstatus === "vigente" &&
     !m.ligadoAServicio &&
+    !m.ventaMostradorId &&
     (m.referenciaTipo === "entrada_inventario" || m.referenciaTipo === "salida_inventario")
   );
 }
@@ -58,6 +63,7 @@ export function MovimientosTab() {
   const toast = useToast();
   const confirm = useConfirm();
   const [ocupado, setOcupado] = useState(false);
+  const [ventaAbierta, setVentaAbierta] = useState<string | null>(null);
 
   /**
    * Cancelar una entrada o salida capturada por error (DAT-A2). Solo confirmar: sin PIN ni motivo
@@ -200,6 +206,17 @@ export function MovimientosTab() {
                         <Ban size={14} className="text-ink-400" /> Cancelar…
                       </Button>
                     )}
+                    {/* La acción está donde aparece el registro: la venta se revisa y se cancela desde su detalle. */}
+                    {m.ventaMostradorId && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setVentaAbierta(m.ventaMostradorId)}
+                        title="Esta salida es de una venta de mostrador: se corrige o se cancela desde la venta"
+                      >
+                        <ShoppingBag size={14} className="text-ink-400" /> Ver venta{m.ventaFolio ? ` ${m.ventaFolio}` : ""}
+                      </Button>
+                    )}
                     {m.ligadoAServicio && m.documentoEstatus === "vigente" && !m.tipo.startsWith("cancelacion_") && (
                       <span className="text-xs text-ink-400" title="Las salidas del cierre de una cita se corrigen desde la cita">
                         De una cita
@@ -233,6 +250,7 @@ export function MovimientosTab() {
         )}
       </Card>
 
+      <VentaDetalleModal ventaId={ventaAbierta} onClose={() => setVentaAbierta(null)} />
     </div>
   );
 }

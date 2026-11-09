@@ -9,6 +9,7 @@ import {
   entradasInventario,
   salidasInventario,
   movimientos,
+  ventasMostrador,
 } from "../db/schema";
 import { obtenerConfig } from "./config";
 import { registrarAccion } from "./bitacora";
@@ -59,7 +60,7 @@ interface DbOTx {
   update: ReturnType<typeof getDb>["update"];
 }
 
-function siguienteCorrelativo(valores: (string | null)[], prefijo: string): string {
+export function siguienteCorrelativo(valores: (string | null)[], prefijo: string): string {
   let maxN = 0;
   for (const v of valores) {
     const match = v?.match(/-(\d+)$/);
@@ -77,7 +78,7 @@ function generarFolioEntrada(db: DbConSelect): string {
   return siguienteCorrelativo(filas.map((f) => f.folio), "E");
 }
 
-function generarFolioSalida(db: DbConSelect): string {
+export function generarFolioSalida(db: DbConSelect): string {
   const filas = db
     .select({ folio: salidasInventario.folio })
     .from(salidasInventario)
@@ -461,8 +462,9 @@ export function verificarStockSuficiente(items: { productoId: string; cantidad: 
  */
 export function registrarSalidaEnTx(
   tx: DbOTx,
-  // precioUnitarioVenta: solo lo manda el cierre de cita en salidas tipo "venta" (cobro v2, DIN-A5).
-  input: SalidaInput & { precioUnitarioVenta?: number },
+  // precioUnitarioVenta: solo lo mandan el cierre de cita y la venta de mostrador en salidas tipo
+  // "venta" (cobro v2, DIN-A5). ventaMostradorId: solo la venta de mostrador (0008).
+  input: SalidaInput & { precioUnitarioVenta?: number; ventaMostradorId?: string },
   criterioSalidaLotes: string,
   hoy: string,
   usuarioId?: string,
@@ -546,6 +548,7 @@ export function registrarSalidaEnTx(
         usuarioId: usuarioId || null,
         observaciones: input.observaciones || null,
         precioUnitarioVenta: input.precioUnitarioVenta ?? null,
+        ventaMostradorId: input.ventaMostradorId || null,
       })
       .run();
 
@@ -613,6 +616,11 @@ export async function darDeBajaLote(loteId: string, motivo: string | undefined, 
 }
 
 export async function registrarSalida(input: SalidaInput, usuarioId?: string) {
+  // Gate de la venta de mostrador, condición 7: una venta sin dinero ya no se puede crear por ningún
+  // camino. Las ventas pasan por "Vender producto" (ventasMostrador.ts) o por el cierre de cita.
+  if (input.tipoSalida === "venta") {
+    throw new Error('Las ventas se registran con "Vender producto", para que su dinero entre al corte.');
+  }
   const db = getDb();
   const config = await obtenerConfig();
   const hoy = fechaLocalIso();
@@ -699,8 +707,9 @@ export function cancelarEntradaEnTx(tx: DbOTx, entradaId: string, motivo: string
 /**
  * Cancela una salida dentro de una transacción existente. Una salida que se repartió en varios
  * lotes son varias filas con el MISMO folio: se cancelan todas juntas o ninguna. Por defecto rechaza
- * las salidas ligadas a un servicio realizado (BR-004); la reversa de un servicio cerrado (CIT-C1)
- * pasará `permitirLigadasAServicio`.
+ * las salidas ligadas a un servicio realizado (BR-004) o a una venta de mostrador (0008); la reversa
+ * de un servicio cerrado (CIT-C1) pasará `permitirLigadasAServicio`, y `ventasMostrador.cancelarVenta`
+ * pasa `permitirLigadasAVenta`.
  */
 export function cancelarSalidaEnTx(
   tx: DbOTx,
@@ -708,7 +717,7 @@ export function cancelarSalidaEnTx(
   motivo: string | undefined,
   hoy: string,
   usuarioId?: string,
-  opciones: { permitirLigadasAServicio?: boolean } = {},
+  opciones: { permitirLigadasAServicio?: boolean; permitirLigadasAVenta?: boolean } = {},
 ) {
   const razon = motivoOpcional(motivo);
   const base = tx.select().from(salidasInventario).where(eq(salidasInventario.id, salidaId)).get();
@@ -724,6 +733,9 @@ export function cancelarSalidaEnTx(
             base.servicioRealizadoId
               ? eq(salidasInventario.servicioRealizadoId, base.servicioRealizadoId)
               : isNull(salidasInventario.servicioRealizadoId),
+            base.ventaMostradorId
+              ? eq(salidasInventario.ventaMostradorId, base.ventaMostradorId)
+              : isNull(salidasInventario.ventaMostradorId),
           ),
         )
         .all()
@@ -732,6 +744,9 @@ export function cancelarSalidaEnTx(
   if (grupo.some((s) => s.estatus === "cancelada")) throw new Error("Esta salida ya estaba cancelada.");
   if (!opciones.permitirLigadasAServicio && grupo.some((s) => s.servicioRealizadoId)) {
     throw new Error("Esta salida viene del cierre de una cita; se corrige desde la cita, no desde Movimientos.");
+  }
+  if (!opciones.permitirLigadasAVenta && grupo.some((s) => s.ventaMostradorId)) {
+    throw new Error("Esta salida es de una venta de mostrador; se cancela desde la venta, no desde Movimientos.");
   }
 
   for (const s of grupo) {
@@ -820,12 +835,15 @@ export async function listarMovimientos(filtro: MovimientosFiltro): Promise<Movi
       docEstatus: sql<string | null>`COALESCE(${entradasInventario.estatus}, ${salidasInventario.estatus})`,
       docMotivo: sql<string | null>`COALESCE(${entradasInventario.canceladaMotivo}, ${salidasInventario.canceladaMotivo})`,
       docServicioRealizadoId: salidasInventario.servicioRealizadoId,
+      ventaMostradorId: salidasInventario.ventaMostradorId,
+      ventaFolio: ventasMostrador.folio,
     })
     .from(movimientos)
     .leftJoin(productos, eq(movimientos.productoId, productos.id))
     .leftJoin(lotes, eq(movimientos.loteId, lotes.id))
     .leftJoin(entradasInventario, eq(movimientos.referenciaId, entradasInventario.id))
     .leftJoin(salidasInventario, eq(movimientos.referenciaId, salidasInventario.id))
+    .leftJoin(ventasMostrador, eq(salidasInventario.ventaMostradorId, ventasMostrador.id))
     .where(condiciones.length ? and(...condiciones) : undefined)
     .orderBy(desc(movimientos.createdAt))
     .limit(500)
@@ -850,5 +868,7 @@ export async function listarMovimientos(filtro: MovimientosFiltro): Promise<Movi
     documentoEstatus: f.docEstatus,
     documentoMotivoCancelacion: f.docMotivo,
     ligadoAServicio: !!f.docServicioRealizadoId,
+    ventaMostradorId: f.ventaMostradorId ?? null,
+    ventaFolio: f.ventaFolio ?? null,
   }));
 }

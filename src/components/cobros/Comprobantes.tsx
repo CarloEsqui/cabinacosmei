@@ -43,7 +43,7 @@ export function Comprobantes({ citaId, servicioRealizadoId }: { citaId: string; 
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Comprobantes</h3>
       <div className="flex flex-wrap gap-2">
         {lista.map((c) => (
-          <Miniatura key={c.id} comprobante={c} onAbrir={() => setAbierto(c)} />
+          <MiniaturaComprobante key={c.id} comprobante={c} onAbrir={() => setAbierto(c)} />
         ))}
         {servicioRealizadoId && (
           <button
@@ -73,7 +73,7 @@ function useVistaPrevia(archivoId: string, tamano: "mini" | "grande") {
   });
 }
 
-function Miniatura({ comprobante, onAbrir }: { comprobante: ComprobanteRow; onAbrir: () => void }) {
+export function MiniaturaComprobante({ comprobante, onAbrir }: { comprobante: ComprobanteRow; onAbrir: () => void }) {
   const { data: src, isLoading } = useVistaPrevia(comprobante.id, "mini");
   return (
     <button
@@ -99,7 +99,7 @@ function Miniatura({ comprobante, onAbrir }: { comprobante: ComprobanteRow; onAb
   );
 }
 
-function VisorComprobante({ comprobante, onClose }: { comprobante: ComprobanteRow; onClose: () => void }) {
+export function VisorComprobante({ comprobante, onClose }: { comprobante: ComprobanteRow; onClose: () => void }) {
   const toast = useToast();
   const { data: src, isLoading } = useVistaPrevia(comprobante.id, "grande");
   const [completa, setCompleta] = useState(false);

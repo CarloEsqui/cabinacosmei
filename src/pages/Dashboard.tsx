@@ -16,6 +16,7 @@ import {
   UserPlus,
   Package,
   ChevronRight,
+  ShoppingBag,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { WelcomeGreeting } from "@/components/WelcomeGreeting";
@@ -237,6 +238,12 @@ export function DashboardPage() {
             <Link to="/agenda">
               <Button className="w-full">
                 <CalendarPlus size={16} /> Nueva cita
+              </Button>
+            </Link>
+            {/* Atajo al módulo Ventas (§23): un producto sin cita, con su dinero al corte. */}
+            <Link to="/ventas">
+              <Button variant="secondary" className="w-full">
+                <ShoppingBag size={16} /> Vender producto
               </Button>
             </Link>
           </aside>
