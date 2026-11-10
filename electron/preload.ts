@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { IpcApi } from "../shared/ipc-contract";
+import type { EstadoActualizacion } from "../shared/types";
 
 const api: IpcApi = {
   auth: {
@@ -155,15 +156,11 @@ const api: IpcApi = {
   actualizaciones: {
     buscar: () => ipcRenderer.invoke("actualizaciones:buscar"),
     instalarYReiniciar: () => ipcRenderer.invoke("actualizaciones:instalarYReiniciar"),
-    onDisponible: (callback) => {
-      const listener = (_e: Electron.IpcRendererEvent, info: { version: string }) => callback(info);
-      ipcRenderer.on("actualizaciones:disponible", listener);
-      return () => ipcRenderer.removeListener("actualizaciones:disponible", listener);
-    },
-    onDescargada: (callback) => {
-      const listener = (_e: Electron.IpcRendererEvent, info: { version: string }) => callback(info);
-      ipcRenderer.on("actualizaciones:descargada", listener);
-      return () => ipcRenderer.removeListener("actualizaciones:descargada", listener);
+    estado: () => ipcRenderer.invoke("actualizaciones:estado"),
+    onCambio: (callback) => {
+      const listener = (_e: Electron.IpcRendererEvent, estado: EstadoActualizacion) => callback(estado);
+      ipcRenderer.on("actualizaciones:cambio", listener);
+      return () => ipcRenderer.removeListener("actualizaciones:cambio", listener);
     },
   },
   bitacora: {

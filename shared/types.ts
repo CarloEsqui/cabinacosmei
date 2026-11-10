@@ -686,3 +686,31 @@ export interface PaginaVentasMostrador {
   total: number;
 }
 
+
+/** Avance de la descarga de una actualización (evento `download-progress` de electron-updater). */
+export interface ProgresoActualizacion {
+  /** 0–100. */
+  porcentaje: number;
+  /** Bytes descargados. */
+  transferido: number;
+  /** Bytes totales. */
+  total: number;
+  /** Velocidad promedio desde que empezó la descarga. */
+  bytesPorSegundo: number;
+}
+
+/**
+ * Estado de la actualización automática. Lo mantiene el proceso principal; el aviso lo consulta al
+ * montarse y luego recibe cada cambio.
+ */
+export type EstadoActualizacion =
+  | { tipo: "descargando"; version: string; progreso: ProgresoActualizacion | null }
+  | { tipo: "descargada"; version: string }
+  | {
+      tipo: "error";
+      /** "descarga": se reintenta al abrir la app. "instalacion": falló "Reiniciar e instalar". */
+      fase: "descarga" | "instalacion";
+      version: string;
+      /** Código de electron-updater (p. ej. ERR_CHECKSUM_MISMATCH), si lo trae. */
+      codigo: string | null;
+    };

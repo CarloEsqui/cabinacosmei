@@ -32,7 +32,7 @@ import * as reportesInventarioDetalleService from "../services/reportesInventari
 import * as reportesHallazgosService from "../services/reportesHallazgos";
 import * as hallazgosEstadoService from "../services/hallazgosEstado";
 import * as dashboardService from "../services/dashboard";
-import { buscarActualizaciones, instalarYReiniciar } from "../services/actualizaciones";
+import { buscarActualizaciones, instalarYReiniciar, obtenerEstadoActualizacion } from "../services/actualizaciones";
 import { usuarioActualId, obtenerUsuarioActual, actualizarNombreUsuario } from "../services/usuarios";
 import { obtenerMatricula } from "../services/matricula";
 import { estadoLicencia, instalarToken } from "../services/licencia";
@@ -474,6 +474,7 @@ export function registrarIpc(): void {
   // -- Actualizaciones automáticas ------------------------------------------------
   ipcMain.handle("actualizaciones:buscar", () => buscarActualizaciones());
   ipcMain.handle("actualizaciones:instalarYReiniciar", () => instalarYReiniciar());
+  ipcMain.handle("actualizaciones:estado", () => obtenerEstadoActualizacion());
 
   // -- Bitácora de auditoría -----------------------------------------------------
   ipcMain.handle("bitacora:listar", (_e, filtro) =>

@@ -68,6 +68,7 @@ import type {
   PaginaVentasMostrador,
   VentaMostradorRow,
   ProductoFrecuente,
+  EstadoActualizacion,
 } from "./types";
 
 export interface IpcApi {
@@ -245,8 +246,8 @@ export interface IpcApi {
   actualizaciones: {
     buscar(): Promise<void>;
     instalarYReiniciar(): Promise<void>;
-    onDisponible(callback: (info: { version: string }) => void): () => void;
-    onDescargada(callback: (info: { version: string }) => void): () => void;
+    estado(): Promise<EstadoActualizacion | null>;
+    onCambio(callback: (estado: EstadoActualizacion) => void): () => void;
   };
   bitacora: {
     listar(filtro: BitacoraFiltro): Promise<BitacoraRow[]>;
