@@ -40,6 +40,26 @@ jobs:
           name: bellora-dashboard-windows
           path: release/*.exe
 
+      # Barrera REL-M1 (incidente v0.2.0): latest.yml anunciaba un nombre con guiones y GitHub guardó
+      # el .exe con puntos, así que el auto-update recibía 404. Antes de publicar, el nombre que anuncia
+      # latest.yml debe ser seguro para GitHub (no lo renombra) y existir tal cual en release/, junto
+      # con su .blockmap; y el tag debe coincidir con la versión de package.json (REL-B3).
+      - name: Verificar latest.yml contra los archivos a publicar
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $yml  = Get-Content release/latest.yml -Raw
+          $path = [regex]::Match($yml, '(?m)^path:\s*(.+)$').Groups[1].Value.Trim()
+          $url  = [regex]::Match($yml, '(?m)^\s*-\s*url:\s*(.+)$').Groups[1].Value.Trim()
+          if ($path -ne $url) { throw "latest.yml: path ($path) != files[0].url ($url)" }
+          if ($path -notmatch '^[0-9A-Za-z._-]+$') { throw "Nombre no seguro para GitHub Releases: $path" }
+          foreach ($f in @("release/$path", "release/$path.blockmap")) {
+            if (-not (Test-Path -LiteralPath $f)) { throw "latest.yml apunta a $f pero no existe" }
+          }
+          $ver = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ("v$ver" -ne $env:GITHUB_REF_NAME) { throw "Tag $env:GITHUB_REF_NAME no coincide con package.json v$ver" }
+          Write-Output "OK: $path y su .blockmap existen; tag $env:GITHUB_REF_NAME = v$ver"
+
       # Publica los 3 archivos (.exe, .blockmap, latest.yml) en UNA sola llamada a la API, sobre el
       # Release ya resuelto por tag una única vez — de ahí lee electron-updater para ofrecer la
       # actualización a las instalaciones existentes.
